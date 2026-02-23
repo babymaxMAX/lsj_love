@@ -6,7 +6,7 @@ import { HeartIcon } from "@/components/HeartIcon";
 import { getUserLike } from "@/components/api";
 import { Spinner } from "@nextui-org/spinner";
 
-export const LikeButton = ({ from_user_id, to_user_id }) => {
+export const LikeButton = ({ from_user_id, to_user_id }: { from_user_id: number, to_user_id: number }) => {
     const [liked, setLiked] = useState(false);
     const [showSpinner, setShowSpinner] = useState(true);
 
