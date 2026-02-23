@@ -20,6 +20,11 @@ class UserDetailSchema(BaseModel):
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
+        # Если photo — Telegram file_id (не URL), заменяем на прокси-эндпоинт
+        photo = user.photo
+        if photo and not photo.startswith("http"):
+            photo = f"/api/v1/users/{user.telegram_id}/photo"
+
         return UserDetailSchema(
             telegram_id=user.telegram_id,
             name=user.name,
@@ -29,7 +34,7 @@ class UserDetailSchema(BaseModel):
             city=user.city,
             looking_for=user.looking_for,
             about=user.about,
-            photo=user.photo,
+            photo=photo,
             is_active=user.is_active,
         )
 

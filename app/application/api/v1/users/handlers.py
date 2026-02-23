@@ -1,8 +1,11 @@
+import aiohttp
+
 from fastapi import (
     Depends,
     HTTPException,
     status,
 )
+from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRouter
 
 from punq import Container
@@ -20,6 +23,7 @@ from app.logic.services.base import (
     BaseLikesService,
     BaseUsersService,
 )
+from app.settings.config import Config
 
 
 router = APIRouter(
@@ -57,6 +61,49 @@ async def get_all_users_handler(
         offset=filters.offset,
         items=[UserDetailSchema.from_entity(user) for user in users],
     )
+
+
+@router.get(
+    "/{user_id}/photo",
+    status_code=status.HTTP_302_FOUND,
+    description="Get user photo by redirecting to Telegram file URL.",
+    include_in_schema=False,
+)
+async def get_user_photo(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    config: Config = container.resolve(Config)
+
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    photo = user.photo
+    if not photo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo")
+
+    # Если уже HTTP URL — просто редиректим
+    if photo.startswith("http"):
+        return RedirectResponse(url=photo)
+
+    # Это Telegram file_id — получаем реальный URL через Bot API
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://api.telegram.org/bot{config.token}/getFile",
+                params={"file_id": photo},
+            ) as resp:
+                data = await resp.json()
+                if not data.get("ok"):
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+                file_path = data["result"]["file_path"]
+                file_url = f"https://api.telegram.org/file/bot{config.token}/{file_path}"
+                return RedirectResponse(url=file_url)
+    except aiohttp.ClientError:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Telegram API error")
 
 
 @router.get(
