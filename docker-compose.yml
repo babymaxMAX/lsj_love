@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:6-jammy
+    container_name: lsjlove-mongodb
+    restart: always
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017 --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lsjlove-api
+    restart: always
+    command: "uvicorn --factory app.application.api.main:create_app --host 0.0.0.0 --port 8000"
+    env_file: .env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-net
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lsjlove-frontend
+    restart: always
+    environment:
+      - BACKEND_URL=https://lsjlove.duckdns.org
+    networks:
+      - app-net
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: lsjlove-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_data:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - app-net
+
+  certbot:
+    image: certbot/certbot
+    container_name: lsjlove-certbot
+    volumes:
+      - certbot_data:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  mongodb_data:
+  certbot_data:
+  certbot_certs:
+
+networks:
+  app-net:
+    driver: bridge

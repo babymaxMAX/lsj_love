@@ -1,24 +1,9 @@
+"use client";
 import "@/styles/globals.css";
-import { Metadata } from "next";
-import { siteConfig } from "@/config/site";
 import { fontSans } from "@/config/fonts";
 import { Providers } from "./providers";
-import { Navbar } from "@/components/navbar";
-import { Link } from "@nextui-org/link";
 import clsx from "clsx";
-
-export const metadata: Metadata = {
-	title: {
-		default: siteConfig.name,
-		template: `%s - ${siteConfig.name}`,
-	},
-	description: siteConfig.description,
-	icons: {
-		icon: "/favicon.ico",
-		shortcut: "/favicon-16x16.png",
-		apple: "/apple-touch-icon.png",
-	},
-};
+import Script from "next/script";
 
 export default function RootLayout({
 	children,
@@ -26,8 +11,13 @@ export default function RootLayout({
 	children: React.ReactNode;
 }) {
 	return (
-		<html lang="en" suppressHydrationWarning>
-			<head />
+		<html lang="ru" suppressHydrationWarning>
+			<head>
+				<title>LSJLove — Знакомства в Telegram</title>
+				<meta name="description" content="Знакомься, общайся и находи свою половинку прямо в Telegram" />
+				<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+				<Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
+			</head>
 			<body
 				className={clsx(
 					"min-h-screen bg-background font-sans antialiased",
@@ -35,23 +25,9 @@ export default function RootLayout({
 				)}
 			>
 				<Providers themeProps={{ attribute: "class", defaultTheme: "dark" }}>
-					<div className="relative flex flex-col h-screen">
-						<Navbar />
-						<main className="container mx-auto max-w-7xl pt-16 px-6 flex-grow">
-							{children}
-						</main>
-						<footer className="w-full flex items-center justify-center py-3">
-							<Link
-								isExternal
-								className="flex items-center gap-1 text-current"
-								href="https://github.com/AlexanderLukash"
-								title="GitHub"
-							>
-								<span className="text-default-600">Powered by</span>
-								<p className="text-primary">Lukash</p>
-							</Link>
-						</footer>
-					</div>
+					<main className="max-w-lg mx-auto min-h-screen">
+						{children}
+					</main>
 				</Providers>
 			</body>
 		</html>

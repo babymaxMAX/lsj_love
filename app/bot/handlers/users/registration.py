@@ -29,16 +29,13 @@ registration_router = Router(
 
 
 async def gender_check(message):
-    # Check the gender selected by the users
-    if message.text.lower() == "👨 man":
-        gender = "Man"
-        return gender
-    elif message.text.lower() == "👧 female":
-        gender = "Female"
-        return gender
+    if message.text.lower() == "👨 мужской":
+        return "Man"
+    elif message.text.lower() == "👧 женский":
+        return "Female"
     else:
         await message.answer(
-            text="Click on the button 👇",
+            text="Нажми на кнопку 👇",
             reply_markup=gender_select_keyboard,
         )
         return None
@@ -48,9 +45,8 @@ async def gender_check(message):
 async def user_set_age(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(UserForm.age)
-
     await message.answer(
-        text="How old are you?",
+        text="Сколько тебе лет?",
         reply_markup=remove_keyboard,
     )
 
@@ -58,25 +54,28 @@ async def user_set_age(message: Message, state: FSMContext):
 @registration_router.message(UserForm.age)
 async def user_set_gender(message: Message, state: FSMContext):
     if message.text.isdigit():
+        age = int(message.text)
+        if age < 18 or age > 99:
+            await message.answer(text="Введи корректный возраст (от 18 до 99).")
+            return
         await state.update_data(age=message.text)
         await state.set_state(UserForm.gender)
         await message.answer(
-            text="What gender are you?",
+            text="Твой пол?",
             reply_markup=gender_select_keyboard,
         )
     else:
-        await message.answer(text="Enter the number again!")
+        await message.answer(text="Введи число!")
 
 
 @registration_router.message(UserForm.gender)
 async def user_set_city(message: Message, state: FSMContext):
     gender = await gender_check(message)
-
     if gender is not None:
         await state.update_data(gender=gender)
         await state.set_state(UserForm.city)
         await message.answer(
-            text="What city are you from?",
+            text="Из какого ты города?",
             reply_markup=remove_keyboard,
         )
 
@@ -84,12 +83,12 @@ async def user_set_city(message: Message, state: FSMContext):
 @registration_router.message(UserForm.city)
 async def user_set_looking_for(message: Message, state: FSMContext):
     if message.text.isdigit():
-        await message.answer(text="Enter the correct data.")
+        await message.answer(text="Введи название города.")
     else:
         await state.update_data(city=message.text)
         await state.set_state(UserForm.looking_for)
         await message.answer(
-            text="Who do you want to find?",
+            text="Кого ищешь?",
             reply_markup=gender_select_keyboard,
         )
 
@@ -97,12 +96,11 @@ async def user_set_looking_for(message: Message, state: FSMContext):
 @registration_router.message(UserForm.looking_for)
 async def user_set_about(message: Message, state: FSMContext):
     gender = await gender_check(message)
-
     if gender is not None:
         await state.update_data(looking_for=gender)
         await state.set_state(UserForm.about)
         await message.answer(
-            text="Tell us a little about yourself. (Or click the button below to skip)",
+            text="Расскажи немного о себе (или нажми кнопку чтобы пропустить)",
             reply_markup=about_skip_keyboard,
         )
 
@@ -112,14 +110,14 @@ async def user_set_photo(
     message: Message,
     state: FSMContext,
 ):
-    if message.text.lower() == "🪪 skip":
+    if message.text.lower() == "🪪 пропустить":
         await state.update_data(about=None)
     else:
         await state.update_data(about=message.text)
 
     await state.set_state(UserForm.photo)
     await message.answer(
-        text="Send your photo.",
+        text="Отправь своё фото.",
         reply_markup=remove_keyboard,
     )
 
@@ -154,12 +152,13 @@ async def user_reg(
         data=data,
     )
 
+    await message.answer("✅ Анкета заполнена! Сейчас покажу твой профиль...")
     await profile(message)
 
 
 @registration_router.message(UserForm.photo, ~F.photo)
 async def user_photo_error(message: Message, state: FSMContext):
-    await message.answer("Send a photo!")
+    await message.answer("Отправь фото!")
 
 
 @registration_router.message(Command("form"))
@@ -175,23 +174,23 @@ async def registration_form(
 
         if user.is_active:
             await message.answer(
-                text="You are already registered.",
+                text="Ты уже зарегистрирован(а).",
                 reply_markup=remove_keyboard,
             )
             await message.answer(text=user_profile_text_message(user=user))
 
         elif not message.from_user.username:
             await message.answer(
-                text="First, set the <b><i>username</i></b> in the settings of your Telegram account."
-                "\nAnd then use the /form command again",
+                text="Сначала установи <b><i>username</i></b> в настройках Telegram."
+                "\nЗатем снова используй команду /form",
             )
 
         else:
             await state.set_state(UserForm.name)
             await message.answer(
-                text="Let's get started, enter your name.",
+                text="Начнём! Введи своё имя.",
                 reply_markup=user_name_keyboard(message.from_user.first_name),
             )
 
     except ApplicationException:
-        await message.answer(text="First, enter the command: <b>/start</b>")
+        await message.answer(text="Сначала введи команду: <b>/start</b>")

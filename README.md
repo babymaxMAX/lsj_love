@@ -1,53 +1,140 @@
- Dating Telegram Bot WebApp 2.0 <img width=32 src="https://github.com/AlexanderLukash/Dating-Telegram-Bot-Webapp/blob/main/assets/logo.png?raw=true">
+# LSJLove — Telegram Dating Mini App
 
-![GitHub License](https://img.shields.io/github/license/AlexanderLukash/dating-telegram-bot-webapp)
-![GitHub watchers](https://img.shields.io/github/watchers/AlexanderLukash/dating-telegram-bot-webapp)
-<img src="https://github.com/AlexanderLukash/Dating-Telegram-Bot-Webapp/blob/main/assets/cover.png?raw=true">
-![Python](https://img.shields.io/badge/-Python-070404?style=for-the-badge&logo=python)
-![FastAPI](https://img.shields.io/badge/-Fastapi-070404?style=for-the-badge&logo=fastapi)
-![Aiogram](https://img.shields.io/badge/-Aiogram-070404?style=for-the-badge&logo=telegram)
-![Docker](https://img.shields.io/badge/-Docker-070404?style=for-the-badge&logo=docker)
-![TypeScript](https://img.shields.io/badge/-typescript-070404?style=for-the-badge&logo=typescript)
-![Next.JS](https://img.shields.io/badge/-next.Js-070404?style=for-the-badge&logo=nextdotjs)
-![nextui](https://img.shields.io/badge/-nextui-070404?style=for-the-badge&logo=nextui)
-![MongoDB](https://img.shields.io/badge/-mongoDB-070404?style=for-the-badge&logo=mongodb)
+Приложение для знакомств внутри Telegram на домене **lsjlove.duckdns.org**
 
-This project is Dating Telegram Bot WebApp, which combines the capabilities of a dating Telegram bot with a WebApp for
-easy use.
+## Стек
+- **Бот**: aiogram 3 + Telegram Stars оплата
+- **Бэкенд**: FastAPI + MongoDB
+- **Фронтенд**: Next.js (Telegram Mini App / TWA)
+- **AI**: OpenAI GPT-4o-mini (Icebreaker, анализ профиля)
+- **Деплой**: Docker Compose + Nginx + Let's Encrypt SSL
 
-## Description of the project
+---
 
-Dating Telegram Bot WebApp allows users to meet through the Telegram bot, as well as use a convenient web interface to
-view profiles, send messages and manage interactions with other users.
+## Запуск на сервере (шаг за шагом)
 
-## Requirements
+### 1. Создай Telegram бота
 
-Before using this project, make sure you have the following components installed:
+1. Открой [@BotFather](https://t.me/BotFather) в Telegram
+2. Отправь `/newbot`
+3. Придумай имя: `LSJLove Bot`
+4. Придумай username: `lsjlove_bot` (должен заканчиваться на `bot`)
+5. Скопируй токен (вид: `1234567890:ABCdef...`)
 
-- Docker
-- Docker Compose
-- GNU Make
+### 2. Настрой Mini App у бота
 
-## Installation and launch
+1. В BotFather отправь `/mybots` → выбери бота
+2. `Bot Settings` → `Menu Button` → `Configure menu button`
+3. Введи URL: `https://lsjlove.duckdns.org/users/TELEGRAM_ID`
+4. Введи название: `💕 Открыть LSJLove`
 
-After cloning the repository, follow these steps:
-1. Create a `.env` file based on `.env.example` and specify the necessary environment variables.
-2. Use [Ngrok](https://ngrok.com/) or [localtunnel](https://theboroer.github.io/localtunnel-www/) to open the https
-   tunnels of our apps.
-3. Open a terminal and navigate to the project's root directory.
-4. Use the command `make all` to build all Docker containers and start the project.
-5. Open your browser and go to `http://localhost:8000/api/docs` to view the project.
+### 3. Подготовь сервер
 
-## Implemented Commands
+```bash
+# Подключись к серверу по SSH
+ssh user@YOUR_SERVER_IP
 
-- `make all`: Start the project.
-- `make app`: Start the api project.
-- `make app-logs`: Follow the logs in api container.
-- `make test`: Run the test.
-- `make frontend`: Start front-end project.
-- `make storages`: Start MongoDB with UI on `28081` port.
+# Установи Docker (если нет)
+curl -fsSL https://get.docker.com | sh
 
+# Клонируй проект
+git clone https://github.com/ТВОЙ_USERNAME/lsjlove.git /opt/lsjlove
+cd /opt/lsjlove
+```
 
-## License
+### 4. Создай .env файл
 
-This project is distributed under the MIT License. See the `LICENSE` file for additional information.
+```bash
+cp .env.example .env
+nano .env
+```
+
+Заполни:
+```env
+BOT_TOKEN=твой_токен_от_botfather
+WEBHOOK_URL=https://lsjlove.duckdns.org
+FRONT_END_URL=https://lsjlove.duckdns.org
+MONGO_DB_CONNECTION_URI=mongodb://mongodb:27017
+MONGO_DB_ADMIN_USERNAME=admin
+MONGO_DB_ADMIN_PASSWORD=придумай_пароль
+AWS_ACCESS_KEY_ID=твой_s3_ключ
+AWS_SECRET_ACCESS_KEY=твой_s3_секрет
+S3_BUCKET_NAME=lsjlove-media
+OPENAI_API_KEY=твой_openai_ключ  # необязательно
+```
+
+### 5. Получи SSL сертификат
+
+DuckDNS поддерживает Let's Encrypt. Сначала запусти nginx только на HTTP:
+
+```bash
+# Временный nginx для получения сертификата
+docker run -d --name temp-nginx -p 80:80 \
+  -v $(pwd)/nginx/certbot:/var/www/certbot nginx
+
+# Получи сертификат
+docker run --rm \
+  -v $(pwd)/certbot_certs:/etc/letsencrypt \
+  -v $(pwd)/certbot_data:/var/www/certbot \
+  certbot/certbot certonly \
+  --webroot -w /var/www/certbot \
+  -d lsjlove.duckdns.org \
+  --email your@email.com \
+  --agree-tos --non-interactive
+
+# Останови временный nginx
+docker stop temp-nginx && docker rm temp-nginx
+```
+
+### 6. Запусти проект
+
+```bash
+docker compose up -d
+```
+
+### 7. Проверь
+
+```bash
+# Статус контейнеров
+docker compose ps
+
+# Логи
+docker compose logs -f api
+
+# Проверь API
+curl https://lsjlove.duckdns.org/api/docs
+```
+
+---
+
+## Настройка автодеплоя (GitHub Actions)
+
+1. Залей проект на GitHub (создай репозиторий)
+2. В настройках репозитория → Secrets → добавь:
+   - `SERVER_HOST` = IP твоего сервера
+   - `SERVER_USER` = имя пользователя (обычно `root` или `ubuntu`)
+   - `SERVER_SSH_KEY` = содержимое файла `~/.ssh/id_rsa` (приватный ключ)
+3. После каждого `git push main` деплой произойдёт автоматически
+
+---
+
+## Функции приложения
+
+| Функция | Описание |
+|---|---|
+| Свайпы | Карточки с анимацией, свайп влево/вправо |
+| AI Icebreaker | Генерация первого сообщения через OpenAI |
+| Telegram Stars | Оплата Premium/VIP прямо в боте |
+| Вопрос дня | Ежедневный вопрос для сравнения совместимости |
+| Рейтинг | Топ популярных профилей |
+| Premium | 500 Stars/мес — безлимитные лайки |
+| VIP | 1500 Stars/мес — все функции |
+
+## Команды бота
+
+| Команда | Что делает |
+|---|---|
+| `/start` | Приветствие и регистрация |
+| `/form` | Заполнение анкеты |
+| `/profile` | Просмотр своего профиля |
+| `/premium` | Покупка Premium через Stars |

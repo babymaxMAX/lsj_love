@@ -85,6 +85,7 @@ def _init_container() -> Container:
             aws_secret_access_key=config.aws_secret_access_key,
             bucket_name=config.bucket_name,
             region_name=config.region_name,
+            endpoint_url=config.s3_endpoint_url,
         )
 
     container.register(
@@ -101,6 +102,7 @@ def _init_container() -> Container:
             aws_secret_access_key=s3_client.aws_secret_access_key,
             bucket_name=s3_client.bucket_name,
             region_name=s3_client.region_name,
+            endpoint_url=s3_client.endpoint_url,
         )
 
     container.register(

@@ -1,6 +1,6 @@
 {
-	"name": "next-app-template",
-	"version": "0.0.1",
+	"name": "lsjlove-frontend",
+	"version": "1.0.0",
 	"private": true,
 	"scripts": {
 		"dev": "next dev",
@@ -40,6 +40,8 @@
 		"postcss": "8.4.38",
 		"tailwind-variants": "^0.1.20",
 		"tailwindcss": "3.4.3",
-		"typescript": "5.0.4"
+		"typescript": "5.0.4",
+		"@twa-dev/sdk": "^7.10.0",
+		"openai": "^4.77.0"
 	}
 }

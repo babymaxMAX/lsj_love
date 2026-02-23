@@ -19,18 +19,21 @@ def profile_inline_kb(user_id, liked_by):
     if liked_by:
         builder.row(
             InlineKeyboardButton(
-                text="You were liked by 💌",
+                text="💌 Тебя лайкнули!",
                 callback_data="see_who_liked",
             ),
         )
     builder.row(
-        InlineKeyboardButton(text="Edit your profile ⚙️", callback_data="profile_edit"),
-    )
-    builder.row(
         InlineKeyboardButton(
-            text="💗 View surveys",
+            text="💗 Смотреть анкеты",
             web_app=WebAppInfo(url=f"{config.front_end_url}/users/{user_id}"),
         ),
+    )
+    builder.row(
+        InlineKeyboardButton(text="⚙️ Редактировать профиль", callback_data="profile_edit"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info"),
     )
     return builder.as_markup()
 
@@ -40,22 +43,22 @@ def profile_edit_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="1",
+                    text="1️⃣ Данные",
                     callback_data="profile_page",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="2",
+                    text="2️⃣ Анкета",
                     callback_data="form",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="3",
+                    text="3️⃣ Фото",
                     callback_data="photo_edit",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="4",
+                    text="4️⃣ О себе",
                     callback_data="about_edit",
                     one_time=True,
                 ),
@@ -70,12 +73,12 @@ def re_registration_confirm_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Yes ✅",
+                    text="Да ✅",
                     callback_data="form_confirm",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="No ❎",
+                    text="Нет ❌",
                     callback_data="profile_edit",
                     one_time=True,
                 ),
@@ -90,12 +93,12 @@ def photo_confirm_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Yes ✅",
+                    text="Да ✅",
                     callback_data="photo_confirm",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="No ❎",
+                    text="Нет ❌",
                     callback_data="profile_edit",
                     one_time=True,
                 ),
@@ -110,12 +113,12 @@ def about_confirm_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Yes ✅",
+                    text="Да ✅",
                     callback_data="about_confirm",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="No ❎",
+                    text="Нет ❌",
                     callback_data="profile_edit",
                     one_time=True,
                 ),
@@ -130,11 +133,11 @@ def liked_by_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Yes ✅",
+                    text="Да ✅",
                     callback_data="see_who_liked",
                 ),
                 InlineKeyboardButton(
-                    text="No ❎",
+                    text="Нет ❌",
                     callback_data="profile_page",
                 ),
             ],
@@ -148,14 +151,54 @@ def like_dislike_keyboard(user_id: int):
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="👍",
+                    text="❤️ Нравится",
                     callback_data=f"like_{user_id}",
                     one_time=True,
                 ),
                 InlineKeyboardButton(
-                    text="👎",
+                    text="👎 Пропустить",
                     callback_data=f"dislike_{user_id}",
                     one_time=True,
+                ),
+            ],
+        ],
+    )
+    return keyboard
+
+
+def premium_keyboard(stars_premium: int, stars_vip: int):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"⭐ Premium — {stars_premium} Stars/мес",
+                    callback_data="buy_premium",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"💎 VIP — {stars_vip} Stars/мес",
+                    callback_data="buy_vip",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data="profile_page",
+                ),
+            ],
+        ],
+    )
+    return keyboard
+
+
+def superlike_keyboard(stars_superlike: int):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"⭐ Суперлайк — {stars_superlike} Stars",
+                    callback_data="buy_superlike",
                 ),
             ],
         ],

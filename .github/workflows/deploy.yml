@@ -1,0 +1,35 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 212.224.88.31
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/lsjlove
+
+            # Pull latest code
+            git pull origin main
+
+            # Rebuild and restart containers
+            docker compose pull --quiet
+            docker compose build --no-cache api frontend
+            docker compose up -d --remove-orphans
+
+            # Clean up unused images
+            docker image prune -f
+
+            echo "✅ Deploy completed at $(date)"

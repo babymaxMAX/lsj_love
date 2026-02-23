@@ -21,30 +21,24 @@ def user_name_keyboard(text: str | list) -> ReplyKeyboardMarkup:
 gender_select_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(
-                text="👨 Man",
-            ),
-            KeyboardButton(
-                text="👧 Female",
-            ),
+            KeyboardButton(text="👨 Мужской"),
+            KeyboardButton(text="👧 Женский"),
         ],
     ],
-    resize_keyboard=True,  # Allows the keyboard to resize dynamically
-    input_field_placeholder="👇 Press the buttons",  # Placeholder text displayed in the input field
-    selective=True,  # Ensures the keyboard is shown only to the specific users who triggered it
+    resize_keyboard=True,
+    input_field_placeholder="👇 Нажми кнопку",
+    selective=True,
 )
 
 about_skip_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(
-                text="🪪 Skip",
-            ),
+            KeyboardButton(text="🪪 Пропустить"),
         ],
     ],
-    resize_keyboard=True,  # Allows the keyboard to resize dynamically
-    input_field_placeholder="👇 Press the button",  # Placeholder text displayed in the input field
-    selective=True,  # Ensures the keyboard is shown only to the specific users who triggered it
+    resize_keyboard=True,
+    input_field_placeholder="👇 Или напиши о себе",
+    selective=True,
 )
 
 remove_keyboard = ReplyKeyboardRemove()
