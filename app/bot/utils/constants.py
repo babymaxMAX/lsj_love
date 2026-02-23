@@ -5,9 +5,8 @@ from app.domain.entities.users import UserEntity
 
 def first_welcome_message(user: User) -> str:
     message: str = (
-        f"Привет, <b>{user.first_name}</b>! 👋\n\n"
-        f"Добро пожаловать в <b>LSJLove</b> — знакомства внутри Telegram.\n\n"
-        f"Чтобы начать, заполни анкету командой: <b>/form</b>"
+        f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
+        f"Привет, <b>{user.first_name}</b>! Здесь ты найдёшь свою вторую половинку."
     )
     return message
 
@@ -15,7 +14,7 @@ def first_welcome_message(user: User) -> str:
 def second_welcome_message(user: User):
     message: str = (
         f"С возвращением, <b>{user.first_name}</b>! 💫\n\n"
-        f"Твой аккаунт не активен. Заполни анкету командой: <b>/form</b>"
+        f"Продолжим заполнение анкеты."
     )
     return message
 

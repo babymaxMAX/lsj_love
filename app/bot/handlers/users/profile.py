@@ -1,4 +1,4 @@
-import time
+import logging
 
 from aiogram import (
     F,
@@ -16,6 +16,7 @@ from app.bot.utils.constants import user_profile_text_message
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
 
+logger = logging.getLogger(__name__)
 
 user_profile_router: Router = Router(
     name="User profile router",
@@ -32,16 +33,31 @@ async def profile(
 
     user = await service.get_user(telegram_id=update.from_user.id)
 
+    photo = user.photo or ""
+    caption = user_profile_text_message(user=user)
+    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False)
+
     if isinstance(update, Message):
-        await update.answer_photo(
-            photo=f"{user.photo}?nocache={int(time.time())}",
-            caption=user_profile_text_message(user=user),
-            reply_markup=profile_inline_kb(user_id=update.from_user.id, liked_by=False),
-        )
+        target = update
     else:
         await update.message.delete()
-        await update.message.answer_photo(
-            photo=f"{user.photo}?nocache={int(time.time())}",
-            caption=user_profile_text_message(user=user),
-            reply_markup=profile_inline_kb(user_id=update.from_user.id, liked_by=False),
-        )
+        target = update.message
+
+    if photo:
+        try:
+            await target.answer_photo(
+                photo=photo,
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            return
+        except Exception as e:
+            logger.warning(f"answer_photo failed (photo={photo!r}): {e}")
+
+    # Fallback: показываем текст без фото
+    await target.answer(
+        text=caption,
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )

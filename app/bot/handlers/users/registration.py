@@ -15,7 +15,6 @@ from app.bot.keyboards.reply import (
     remove_keyboard,
     user_name_keyboard,
 )
-from app.bot.utils.constants import user_profile_text_message
 from app.bot.utils.states import UserForm
 from app.domain.exceptions.base import ApplicationException
 from app.infra.s3.base import BaseS3Storage
@@ -39,6 +38,17 @@ async def gender_check(message):
             reply_markup=gender_select_keyboard,
         )
         return None
+
+
+async def start_registration(message: Message, state: FSMContext):
+    """Запускает форму регистрации — вызывается из /start."""
+    await state.set_state(UserForm.name)
+    await message.answer(
+        text=f"Отлично, <b>{message.from_user.first_name}</b>! Давай заполним анкету.\n\n"
+             f"Введи своё имя или нажми кнопку ниже:",
+        reply_markup=user_name_keyboard(message.from_user.first_name),
+        parse_mode="HTML",
+    )
 
 
 @registration_router.message(UserForm.name)
@@ -65,7 +75,7 @@ async def user_set_gender(message: Message, state: FSMContext):
             reply_markup=gender_select_keyboard,
         )
     else:
-        await message.answer(text="Введи число!")
+        await message.answer(text="Введи число — сколько тебе лет?")
 
 
 @registration_router.message(UserForm.gender)
@@ -100,7 +110,7 @@ async def user_set_about(message: Message, state: FSMContext):
         await state.update_data(looking_for=gender)
         await state.set_state(UserForm.about)
         await message.answer(
-            text="Расскажи немного о себе (или нажми кнопку чтобы пропустить)",
+            text="Расскажи немного о себе (или нажми «Пропустить»):",
             reply_markup=about_skip_keyboard,
         )
 
@@ -117,7 +127,7 @@ async def user_set_photo(
 
     await state.set_state(UserForm.photo)
     await message.answer(
-        text="Отправь своё фото.",
+        text="📸 Отправь своё фото:",
         reply_markup=remove_keyboard,
     )
 
@@ -134,31 +144,37 @@ async def user_reg(
     data = await state.get_data()
     await state.clear()
 
+    # Получаем файл из Telegram
     photo_file_id = message.photo[-1].file_id
     file = await bot.get_file(photo_file_id)
     file_path = file.file_path
     photo_file_stream = await bot.download_file(file_path)
     photo_file_bytes = photo_file_stream.read()
 
-    photo_url = await uploader.upload_file(
-        file=photo_file_bytes,
-        file_name=f"{message.from_user.id}.png",
-    )
+    # Загружаем в S3 (для веб-приложения)
+    try:
+        await uploader.upload_file(
+            file=photo_file_bytes,
+            file_name=f"{message.from_user.id}.png",
+        )
+    except Exception:
+        pass  # S3 upload failure is non-critical
 
-    data["photo"] = photo_url
+    # Храним Telegram file_id — Telegram его всегда знает и быстро отдаёт
+    data["photo"] = photo_file_id
     data["is_active"] = True
     await service.update_user_info_after_reg(
         telegram_id=message.from_user.id,
         data=data,
     )
 
-    await message.answer("✅ Анкета заполнена! Сейчас покажу твой профиль...")
+    await message.answer("✅ Анкета заполнена! Показываю твой профиль...")
     await profile(message)
 
 
 @registration_router.message(UserForm.photo, ~F.photo)
 async def user_photo_error(message: Message, state: FSMContext):
-    await message.answer("Отправь фото!")
+    await message.answer("📸 Отправь именно фотографию!")
 
 
 @registration_router.message(Command("form"))
@@ -167,30 +183,21 @@ async def registration_form(
     state: FSMContext,
     container: Container = init_container(),
 ):
+    """Команда /form оставлена для совместимости, но сейчас регистрация стартует из /start."""
     service: BaseUsersService = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=message.from_user.id)
 
         if user.is_active:
-            await message.answer(
-                text="Ты уже зарегистрирован(а).",
-                reply_markup=remove_keyboard,
-            )
-            await message.answer(text=user_profile_text_message(user=user))
-
+            await profile(message)
         elif not message.from_user.username:
             await message.answer(
-                text="Сначала установи <b><i>username</i></b> в настройках Telegram."
-                "\nЗатем снова используй команду /form",
+                text="Сначала установи <b>username</b> в настройках Telegram, затем напиши /start",
+                parse_mode="HTML",
             )
-
         else:
-            await state.set_state(UserForm.name)
-            await message.answer(
-                text="Начнём! Введи своё имя.",
-                reply_markup=user_name_keyboard(message.from_user.first_name),
-            )
+            await start_registration(message, state)
 
     except ApplicationException:
-        await message.answer(text="Сначала введи команду: <b>/start</b>")
+        await message.answer(text="Сначала напиши /start")
