@@ -29,10 +29,13 @@ callback_profile_router = Router()
 async def profile_edit(callback: CallbackQuery):
     await callback.message.delete()
     await callback.message.answer(
-        text="1. Cancel.\n"
-        "2. Fill out the profile again.\n"
-        "3. Change photo.\n"
-        "4. Change the text of the profile.\n",
+        text=(
+            "Что хочешь изменить?\n\n"
+            "1️⃣ — Вернуться к профилю\n"
+            "2️⃣ — Заполнить анкету заново\n"
+            "3️⃣ — Сменить фото\n"
+            "4️⃣ — Изменить текст «О себе»"
+        ),
         reply_markup=profile_edit_keyboard(),
     )
 
@@ -40,7 +43,7 @@ async def profile_edit(callback: CallbackQuery):
 @callback_profile_router.callback_query(F.data == "form")
 async def re_registration_profile(callback: CallbackQuery):
     await callback.message.edit_text(
-        text="Are you sure you want to fill out your profile again?",
+        text="Ты уверен(а), что хочешь заполнить анкету заново?\nВсе данные будут перезаписаны.",
         reply_markup=re_registration_confirm_keyboard(),
     )
 
@@ -50,7 +53,7 @@ async def form_edit(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserForm.name)
     await callback.message.delete()
     await callback.message.answer(
-        text="Let's get started, enter your name.",
+        text="Хорошо! Введи своё имя:",
         reply_markup=user_name_keyboard(callback.from_user.first_name),
     )
 
@@ -58,7 +61,7 @@ async def form_edit(callback: CallbackQuery, state: FSMContext):
 @callback_profile_router.callback_query(F.data == "photo_edit")
 async def photo_profile(callback: CallbackQuery):
     await callback.message.edit_text(
-        text="Are you sure you want to change your photo?",
+        text="Хочешь сменить своё фото?",
         reply_markup=photo_confirm_keyboard(),
     )
 
@@ -67,26 +70,22 @@ async def photo_profile(callback: CallbackQuery):
 async def photo_edit(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await state.set_state(UserPhotoUpdate.photo)
-
-    await callback.message.answer(text="Send us a new photo for your profile.")
+    await callback.message.answer(text="📸 Отправь новое фото для профиля:")
 
 
 @callback_profile_router.callback_query(F.data == "about_edit")
 async def about_edit(callback: CallbackQuery):
     await callback.message.edit_text(
-        text="Are you sure you want to change your about section?",
+        text="Хочешь изменить раздел «О себе»?",
         reply_markup=about_confirm_keyboard(),
     )
 
 
 @callback_profile_router.callback_query(F.data == "about_confirm")
 async def about_edit_confirm(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(
-        UserAboutUpdate.about,
-    )
+    await state.set_state(UserAboutUpdate.about)
     await callback.message.delete()
     await callback.message.answer(
-        text="Tell us something about yourself that might interest someone, "
-        "or click the button to leave this field blank.",
+        text="✍️ Расскажи немного о себе (или нажми «Пропустить» чтобы очистить):",
         reply_markup=about_skip_keyboard,
     )

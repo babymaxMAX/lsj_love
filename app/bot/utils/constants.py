@@ -3,6 +3,21 @@ from aiogram.types import User
 from app.domain.entities.users import UserEntity
 
 
+GENDER_RU = {
+    "Man": "Мужской",
+    "Female": "Женский",
+    "man": "Мужской",
+    "female": "Женский",
+}
+
+LOOKING_FOR_RU = {
+    "Man": "Мужчину",
+    "Female": "Девушку",
+    "man": "Мужчину",
+    "female": "Девушку",
+}
+
+
 def first_welcome_message(user: User) -> str:
     message: str = (
         f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
@@ -20,12 +35,16 @@ def second_welcome_message(user: User):
 
 
 def user_profile_text_message(user: UserEntity) -> str:
+    gender = GENDER_RU.get(str(user.gender), str(user.gender) if user.gender else "—")
+    looking = LOOKING_FOR_RU.get(str(user.looking_for), str(user.looking_for) if user.looking_for else "—")
+
     profile_text = (
         f"<b>✨ Твоя анкета:</b>\n\n"
         f"<b>👋 Имя:</b> {user.name} | @{user.username}\n"
         f"<b>🎂 Возраст:</b> {user.age}\n"
         f"<b>🌆 Город:</b> {user.city}\n"
-        f"<b>👫 Пол:</b> {user.gender}\n"
+        f"<b>👫 Пол:</b> {gender}\n"
+        f"<b>🔍 Ищу:</b> {looking}\n"
     )
 
     if user.about:
@@ -35,11 +54,13 @@ def user_profile_text_message(user: UserEntity) -> str:
 
 
 def profile_text_message(user: UserEntity) -> str:
+    gender = GENDER_RU.get(str(user.gender), str(user.gender) if user.gender else "—")
+
     profile_text = (
         f"\n<b>👋 Имя:</b> {user.name}\n"
         f"<b>🎂 Возраст:</b> {user.age}\n"
         f"<b>🌆 Город:</b> {user.city}\n"
-        f"<b>👫 Пол:</b> {user.gender}\n"
+        f"<b>👫 Пол:</b> {gender}\n"
     )
 
     if user.about:
