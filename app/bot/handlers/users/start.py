@@ -19,6 +19,9 @@ user_router: Router = Router(
 
 @user_router.message(CommandStart())
 async def start(message: Message, state: FSMContext, container: Container = init_container()):
+    # Сбрасываем любое зависшее состояние регистрации
+    await state.clear()
+
     service: BaseUsersService = container.resolve(BaseUsersService)
 
     try:

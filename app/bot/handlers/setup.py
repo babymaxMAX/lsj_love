@@ -8,8 +8,8 @@ from app.bot.handlers.users.start import user_router as user_start_router
 
 
 def register_routers(dp: Dispatcher):
+    dp.include_router(user_start_router)   # /start должен быть первым
     dp.include_router(premium_router)
     dp.include_router(registration_router)
     dp.include_router(profile_edit_router)
     dp.include_router(user_profile_router)
-    dp.include_router(user_start_router)
