@@ -85,6 +85,40 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         return chats, count
 
+    # Карта ближайших городов для расширения поиска
+    _CITY_NEIGHBORS: dict[str, list[str]] = {
+        "Москва": ["Подольск", "Химки", "Одинцово", "Видное", "Мытищи", "Балашиха", "Люберцы", "Королёв", "Серпухов"],
+        "Санкт-Петербург": ["Гатчина", "Пушкин", "Колпино", "Выборг", "Сестрорецк", "Тосно"],
+        "Махачкала": ["Каспийск", "Хасавюрт", "Дербент", "Буйнакск", "Избербаш", "Кизляр"],
+        "Каспийск": ["Махачкала", "Буйнакск", "Хасавюрт", "Дербент"],
+        "Краснодар": ["Новороссийск", "Анапа", "Армавир", "Сочи", "Ставрополь", "Майкоп"],
+        "Сочи": ["Краснодар", "Новороссийск", "Анапа", "Адлер"],
+        "Новосибирск": ["Бердск", "Искитим", "Кемерово", "Томск", "Барнаул"],
+        "Екатеринбург": ["Нижний Тагил", "Первоуральск", "Берёзовский", "Тюмень", "Челябинск"],
+        "Казань": ["Набережные Челны", "Чебоксары", "Ульяновск", "Самара"],
+        "Ростов-на-Дону": ["Новочеркасск", "Таганрог", "Батайск", "Аксай", "Волгодонск"],
+        "Уфа": ["Стерлитамак", "Салават", "Нефтекамск", "Оренбург"],
+        "Воронеж": ["Белгород", "Курск", "Липецк", "Тамбов"],
+        "Пермь": ["Березники", "Соликамск", "Чайковский", "Ижевск"],
+        "Самара": ["Тольятти", "Сызрань", "Казань", "Ульяновск"],
+        "Тольятти": ["Самара", "Сызрань", "Ульяновск"],
+        "Хабаровск": ["Владивосток", "Комсомольск-на-Амуре", "Биробиджан"],
+        "Владивосток": ["Хабаровск", "Находка", "Уссурийск"],
+        "Нижний Новгород": ["Дзержинск", "Арзамас", "Кстово", "Иваново", "Чебоксары"],
+        "Омск": ["Новосибирск", "Тюмень", "Томск", "Барнаул"],
+        "Тюмень": ["Омск", "Екатеринбург", "Тобольск", "Сургут"],
+        "Челябинск": ["Магнитогорск", "Екатеринбург", "Уфа", "Миасс"],
+        "Волгоград": ["Волжский", "Камышин", "Ростов-на-Дону"],
+        "Красноярск": ["Ачинск", "Норильск", "Иркутск", "Новосибирск"],
+        "Иркутск": ["Ангарск", "Братск", "Красноярск"],
+        "Ставрополь": ["Краснодар", "Пятигорск", "Невинномысск"],
+        "Пятигорск": ["Ставрополь", "Нальчик", "Черкесск", "Кисловодск"],
+        "Нальчик": ["Пятигорск", "Черкесск", "Владикавказ"],
+        "Владикавказ": ["Нальчик", "Грозный", "Беслан"],
+        "Грозный": ["Владикавказ", "Гудермес", "Аргун"],
+        "Астрахань": ["Волгоград", "Элиста"],
+    }
+
     async def get_best_result_for_user(
         self, telegram_id: int, exclude_ids: list[int] | None = None
     ) -> Iterable[UserEntity]:
@@ -117,6 +151,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             target_gender = gender_map.get(str(user.gender))
             if target_gender:
                 query_filter["gender"] = target_gender
+
+        # Фильтр по городу: сначала только свой город
+        user_city = str(getattr(user, "city", "") or "").strip()
+        if user_city:
+            query_filter["city"] = user_city
 
         # Приоритетная сортировка: boosted → VIP → Premium → бесплатные
         pipeline = [
@@ -160,6 +199,50 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         result = []
         async for doc in self._collection.aggregate(pipeline):
             result.append(convert_user_document_to_entity(user_document=doc))
+
+        # Если не нашли никого в своём городе — ищем в ближайших городах
+        if not result and user_city:
+            neighbors = self._CITY_NEIGHBORS.get(user_city, [])
+            if neighbors:
+                fallback_filter = dict(query_filter)
+                fallback_filter.pop("city", None)
+                fallback_filter["city"] = {"$in": neighbors}
+                fallback_pipeline = [
+                    {"$match": fallback_filter},
+                    {"$addFields": {"_sort_priority": {"$switch": {
+                        "branches": [
+                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
+                        ],
+                        "default": 3,
+                    }}}},
+                    {"$sort": {"_sort_priority": 1}},
+                    {"$project": {"_sort_priority": 0}},
+                ]
+                async for doc in self._collection.aggregate(fallback_pipeline):
+                    result.append(convert_user_document_to_entity(user_document=doc))
+
+            # Если и в ближайших городах никого — ищем по всей базе без фильтра города
+            if not result:
+                global_filter = dict(query_filter)
+                global_filter.pop("city", None)
+                global_pipeline = [
+                    {"$match": global_filter},
+                    {"$addFields": {"_sort_priority": {"$switch": {
+                        "branches": [
+                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
+                        ],
+                        "default": 3,
+                    }}}},
+                    {"$sort": {"_sort_priority": 1}},
+                    {"$project": {"_sort_priority": 0}},
+                ]
+                async for doc in self._collection.aggregate(global_pipeline):
+                    result.append(convert_user_document_to_entity(user_document=doc))
+
         return result
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:

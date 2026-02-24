@@ -46,6 +46,7 @@ export default function ViewProfilePage() {
     const [showComments, setShowComments] = useState(false);
     const [profileLiked, setProfileLiked] = useState(false);
     const [profileLikeLoading, setProfileLikeLoading] = useState(false);
+    const [isMatch, setIsMatch] = useState(false);
     const touchStartX = useRef<number | null>(null);
     const commentsEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,6 +63,25 @@ export default function ViewProfilePage() {
             .catch(() => setUser(null))
             .finally(() => setLoading(false));
     }, [targetId]);
+
+    // Проверяем, уже ли лайкнул и есть ли матч — чтобы не показывать лишнюю кнопку лайка
+    useEffect(() => {
+        if (!userId || !targetId) return;
+        fetch(`${BackEnd_URL}/api/v1/likes/${userId}/${targetId}`)
+            .then((r) => r.json())
+            .then((data) => {
+                if (data.status === true) setProfileLiked(true);
+            })
+            .catch(() => {});
+        // Проверяем матч
+        fetch(`${BackEnd_URL}/api/v1/likes/matches/${userId}`)
+            .then((r) => r.json())
+            .then((data) => {
+                const ids: number[] = (data.items ?? []).map((u: { telegram_id: number }) => u.telegram_id);
+                if (ids.includes(parseInt(targetId))) setIsMatch(true);
+            })
+            .catch(() => {});
+    }, [userId, targetId]);
 
     const fetchPhotoMeta = useCallback(async (index: number) => {
         if (!userId) return;
@@ -285,20 +305,29 @@ export default function ViewProfilePage() {
                     </div>
                 )}
 
-                {/* Profile like button */}
-                <button
-                    onClick={handleProfileLike}
-                    disabled={profileLikeLoading || profileLiked}
-                    className="w-full py-3.5 rounded-2xl font-semibold text-base transition-all active:scale-95 disabled:opacity-60"
-                    style={{
-                        background: profileLiked
-                            ? "rgba(255,255,255,0.08)"
-                            : "linear-gradient(135deg, #7c3aed, #ec4899)",
-                        color: "#fff",
-                    }}
-                >
-                    {profileLiked ? "✓ Симпатия отправлена" : "💌 Лайкнуть анкету"}
-                </button>
+                {/* Profile like button — скрываем если уже матч */}
+                {isMatch ? (
+                    <div
+                        className="w-full py-3.5 rounded-2xl font-semibold text-base text-center"
+                        style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)", color: "#fff" }}
+                    >
+                        💕 Взаимная симпатия — у вас матч!
+                    </div>
+                ) : (
+                    <button
+                        onClick={handleProfileLike}
+                        disabled={profileLikeLoading || profileLiked}
+                        className="w-full py-3.5 rounded-2xl font-semibold text-base transition-all active:scale-95 disabled:opacity-60"
+                        style={{
+                            background: profileLiked
+                                ? "rgba(255,255,255,0.08)"
+                                : "linear-gradient(135deg, #7c3aed, #ec4899)",
+                            color: "#fff",
+                        }}
+                    >
+                        {profileLiked ? "✓ Симпатия отправлена" : "💌 Лайкнуть анкету"}
+                    </button>
+                )}
 
                 {/* Comments toggle */}
                 <button

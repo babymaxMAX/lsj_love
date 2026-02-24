@@ -64,7 +64,8 @@ async def profile(
     is_vip = bool(pt == "vip" and until and now < until)
     boosts_left = _compute_boosts_left(user, now) if is_vip else 0
 
-    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left)
+    is_active = getattr(user, "is_active", True)
+    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=is_active)
 
     if isinstance(update, Message):
         target = update
@@ -100,6 +101,41 @@ async def profile(
         reply_markup=keyboard,
         parse_mode="HTML",
     )
+
+
+@user_profile_router.callback_query(F.data == "toggle_visibility")
+async def toggle_visibility(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    await callback.answer()
+
+    try:
+        user = await service.get_user(telegram_id=callback.from_user.id)
+    except Exception:
+        await callback.message.answer("Ошибка получения профиля.")
+        return
+
+    new_active = not getattr(user, "is_active", True)
+    await service.update_user_info_after_reg(
+        telegram_id=callback.from_user.id,
+        data={"is_active": new_active},
+    )
+
+    if new_active:
+        msg = "👀 <b>Анкета снова видна в поиске!</b>\n\nДругие пользователи смогут найти тебя."
+    else:
+        msg = "👻 <b>Анкета скрыта.</b>\n\nТебя не видно в поиске, пока не включишь снова."
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 В профиль", callback_data="profile_page")]
+    ])
+    try:
+        await callback.message.edit_text(msg, parse_mode="HTML", reply_markup=back_kb)
+    except Exception:
+        await callback.message.answer(msg, parse_mode="HTML", reply_markup=back_kb)
 
 
 @user_profile_router.callback_query(F.data == "boost_profile")

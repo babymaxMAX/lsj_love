@@ -25,16 +25,9 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
     useEffect(() => {
         const fetchMatches = async () => {
             try {
-                const [byRes, fromRes] = await Promise.all([
-                    fetch(`${BackEnd_URL}/api/v1/users/by/${userId}`),
-                    fetch(`${BackEnd_URL}/api/v1/users/from/${userId}`),
-                ]);
-                const byData = byRes.ok ? await byRes.json() : { items: [] };
-                const fromData = fromRes.ok ? await fromRes.json() : { items: [] };
-
-                const likedByIds = new Set(byData.items.map((u: MatchUser) => u.telegram_id));
-                const mutual = fromData.items.filter((u: MatchUser) => likedByIds.has(u.telegram_id));
-                setMatches(mutual);
+                const res = await fetch(`${BackEnd_URL}/api/v1/likes/matches/${userId}`);
+                const data = res.ok ? await res.json() : { items: [] };
+                setMatches(data.items ?? []);
             } catch {
                 setMatches([]);
             } finally {

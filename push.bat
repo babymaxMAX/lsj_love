@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "fix: resolve circular import in notificator - lazy bot imports"
+git commit -m "feat: photo tap nav, geo proximity, hide profile, match check, photo likes notifications"
 git push
 pause

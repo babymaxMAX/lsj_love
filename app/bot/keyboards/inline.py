@@ -14,7 +14,7 @@ container: Container = init_container()
 config: Config = container.resolve(Config)
 
 
-def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int = 0):
+def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int = 0, is_active: bool = True):
     builder = InlineKeyboardBuilder()
     if liked_by:
         builder.row(
@@ -39,6 +39,12 @@ def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int 
                 callback_data="boost_profile",
             ),
         )
+    builder.row(
+        InlineKeyboardButton(
+            text="👀 Показать анкету" if not is_active else "👻 Скрыть анкету",
+            callback_data="toggle_visibility",
+        ),
+    )
     builder.row(
         InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info"),
     )

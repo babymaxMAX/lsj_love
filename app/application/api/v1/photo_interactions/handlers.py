@@ -78,6 +78,25 @@ async def toggle_photo_like(
         photo_index=body.photo_index,
         viewer_id=body.from_user,
     )
+
+    # Уведомляем владельца если лайк добавлен (не снят) и это не лайк своего фото
+    if liked and body.from_user != body.owner_id:
+        try:
+            service: BaseUsersService = container.resolve(BaseUsersService)
+            liker = await service.get_user(telegram_id=body.from_user)
+            owner = await service.get_user(telegram_id=body.owner_id)
+            liker_name = str(getattr(liker, "name", "Кто-то") or "Кто-то")
+            owner_is_premium = _is_premium_active(owner)
+            from app.bot.utils.notificator import send_photo_liked_notification
+            asyncio.create_task(send_photo_liked_notification(
+                owner_id=body.owner_id,
+                liker_name=liker_name,
+                photo_idx=body.photo_index,
+                owner_is_premium=owner_is_premium,
+            ))
+        except Exception as e:
+            logger.warning(f"Photo like notification failed: {e}")
+
     return PhotoLikeResponse(liked=liked, count=info["count"], liked_by_me=info["liked_by_me"])
 
 
@@ -138,6 +157,23 @@ async def add_photo_comment(
         photo_index=body.photo_index,
         text=text,
     )
+
+    # Уведомляем владельца о комментарии (не своём)
+    if body.from_user != body.owner_id:
+        try:
+            owner = await service.get_user(telegram_id=body.owner_id)
+            owner_is_premium = _is_premium_active(owner)
+            from app.bot.utils.notificator import send_photo_commented_notification
+            asyncio.create_task(send_photo_commented_notification(
+                owner_id=body.owner_id,
+                commenter_name=from_name,
+                comment_text=text,
+                photo_idx=body.photo_index,
+                owner_is_premium=owner_is_premium,
+            ))
+        except Exception as e:
+            logger.warning(f"Photo comment notification failed: {e}")
+
     return PhotoCommentItem(
         id=doc.get("id", ""),
         from_user=doc["from_user"],

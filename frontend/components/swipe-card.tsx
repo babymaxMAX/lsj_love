@@ -439,22 +439,16 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                 }}
                             />
 
-                            {/* Tap zones for switching photos */}
+                            {/* Tap zones for cycling photos — onTap works inside framer-motion drag */}
                             {photoUrls.length > 1 && (
                                 <>
-                                    <button
-                                        className="absolute left-0 top-0 w-1/3 h-full opacity-0 z-10"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setCurrentPhotoIdx((p) => Math.max(0, p - 1));
-                                        }}
+                                    <motion.div
+                                        className="absolute left-0 top-0 w-1/2 h-full z-10"
+                                        onTap={() => setCurrentPhotoIdx((p) => (p - 1 + photoUrls.length) % photoUrls.length)}
                                     />
-                                    <button
-                                        className="absolute right-0 top-0 w-1/3 h-full opacity-0 z-10"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setCurrentPhotoIdx((p) => Math.min(photoUrls.length - 1, p + 1));
-                                        }}
+                                    <motion.div
+                                        className="absolute right-0 top-0 w-1/2 h-full z-10"
+                                        onTap={() => setCurrentPhotoIdx((p) => (p + 1) % photoUrls.length)}
                                     />
                                 </>
                             )}

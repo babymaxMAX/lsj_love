@@ -138,6 +138,46 @@ async def send_superlike_message(target_id: int, sender):
         logger.error(f"send_superlike_message failed: {e}")
 
 
+async def send_photo_liked_notification(owner_id: int, liker_name: str, photo_idx: int, owner_is_premium: bool):
+    """Уведомляет владельца фото о лайке. Если Premium — показывает имя, иначе анонимно."""
+    from app.bot.main import bot
+    try:
+        if owner_is_premium:
+            text = (
+                f"❤️ <b>{liker_name}</b> лайкнул(а) твоё фото {photo_idx + 1}!\n\n"
+                f"Загляни в профиль — возможно, стоит ответить взаимностью 😊"
+            )
+        else:
+            text = (
+                f"❤️ <b>Кто-то лайкнул твоё фото!</b>\n\n"
+                f"Получи подписку <b>Premium</b>, чтобы узнать кто."
+            )
+        await bot.send_message(chat_id=owner_id, text=text, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"send_photo_liked_notification failed: {e}")
+
+
+async def send_photo_commented_notification(owner_id: int, commenter_name: str, comment_text: str, photo_idx: int, owner_is_premium: bool):
+    """Уведомляет владельца фото о новом комментарии."""
+    from app.bot.main import bot
+    try:
+        short_comment = comment_text[:80] + ("..." if len(comment_text) > 80 else "")
+        if owner_is_premium:
+            text = (
+                f"💬 <b>{commenter_name}</b> прокомментировал(а) твоё фото {photo_idx + 1}:\n\n"
+                f"<i>«{short_comment}»</i>"
+            )
+        else:
+            text = (
+                f"💬 <b>Новый комментарий к твоему фото!</b>\n\n"
+                f"<i>«{short_comment}»</i>\n\n"
+                f"Получи <b>Premium</b>, чтобы узнать кто написал."
+            )
+        await bot.send_message(chat_id=owner_id, text=text, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"send_photo_commented_notification failed: {e}")
+
+
 async def send_match_message(to_user_id: int, matched_user, recipient_id: int | None = None):
     """
     to_user_id — кому отправляем уведомление

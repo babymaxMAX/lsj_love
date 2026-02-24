@@ -52,6 +52,8 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const [pendingSlot, setPendingSlot] = useState<number | null>(null);
     const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [photoLikes, setPhotoLikes] = useState<Record<number, number>>({});
+    const [totalComments, setTotalComments] = useState<Record<number, number>>({});
     const fileRef = useRef<HTMLInputElement>(null);
     const sliderRef = useRef<HTMLDivElement>(null);
     const touchStartX = useRef<number | null>(null);
@@ -75,6 +77,21 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     }, [userId]);
 
     useEffect(() => { loadUser(); }, [loadUser]);
+
+    // Загружаем лайки и комменты для каждого фото
+    useEffect(() => {
+        if (!mediaUrls.length) return;
+        mediaUrls.forEach((_, i) => {
+            fetch(`${BackEnd_URL}/api/v1/photo-interactions/likes/${userId}/${i}?viewer_id=${userId}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => d && setPhotoLikes(prev => ({ ...prev, [i]: d.count })))
+                .catch(() => {});
+            fetch(`${BackEnd_URL}/api/v1/photo-interactions/comments/${userId}/${i}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => d && setTotalComments(prev => ({ ...prev, [i]: (d.comments || []).length })))
+                .catch(() => {});
+        });
+    }, [userId, mediaUrls]);
 
     // ── File picker ────────────────────────────────────────────────────────────
     const openPicker = (slotIndex: number) => {
@@ -161,8 +178,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 p.startsWith("http") ? p : `${BackEnd_URL}${p}`
             );
             setMediaUrls(newUrls);
-            // Reload to get updated media_types from server
-            loadUser();
+            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
         } catch {
             setError("Ошибка соединения");
         } finally {
@@ -186,8 +202,8 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 p.startsWith("http") ? p : `${BackEnd_URL}${p}`
             );
             setMediaUrls(newUrls);
+            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
             if (sliderIdx >= newUrls.length) setSliderIdx(Math.max(0, newUrls.length - 1));
-            loadUser();
         } catch {
             setError("Ошибка соединения");
         } finally {
@@ -230,7 +246,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const hasMedia = mediaUrls.length > 0;
 
     return (
-        <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
+        <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff", paddingTop: "env(safe-area-inset-top, 0px)" }}>
             <input
                 ref={fileRef}
                 type="file"
@@ -248,7 +264,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 <button
                     onClick={() => setEditOpen(true)}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                    style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
+                    style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", flexShrink: 0 }}
                 >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
@@ -335,6 +351,22 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                                 style={{ background: "rgba(124,58,237,0.9)" }}
                             >
                                 ГЛАВНОЕ
+                            </div>
+                        )}
+
+                        {/* Лайки и комменты к текущему фото */}
+                        {((photoLikes[sliderIdx] ?? 0) > 0 || (totalComments[sliderIdx] ?? 0) > 0) && (
+                            <div className="absolute bottom-10 left-3 flex gap-2">
+                                {(photoLikes[sliderIdx] ?? 0) > 0 && (
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.85)", backdropFilter: "blur(6px)" }}>
+                                        ❤️ {photoLikes[sliderIdx]}
+                                    </div>
+                                )}
+                                {(totalComments[sliderIdx] ?? 0) > 0 && (
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(124,58,237,0.85)", backdropFilter: "blur(6px)" }}>
+                                        💬 {totalComments[sliderIdx]}
+                                    </div>
+                                )}
                             </div>
                         )}
 
