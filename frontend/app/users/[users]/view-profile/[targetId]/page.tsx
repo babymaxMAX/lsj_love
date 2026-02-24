@@ -49,6 +49,7 @@ export default function ViewProfilePage() {
     const [isMatch, setIsMatch] = useState(false);
     const touchStartX = useRef<number | null>(null);
     const commentsEndRef = useRef<HTMLDivElement>(null);
+    const commentSubmitting = useRef(false); // prevent double submission
 
     const photos = user?.photos?.length
         ? user.photos.map((p) => p.startsWith("http") ? p : `${BackEnd_URL}${p}`)
@@ -159,7 +160,11 @@ export default function ViewProfilePage() {
 
     const handleAddComment = async () => {
         if (!commentText.trim() || commentLoading || !userId) return;
+        if (commentSubmitting.current) return; // strict guard against double fire
+        commentSubmitting.current = true;
         setCommentLoading(true);
+        const textToSend = commentText.trim();
+        setCommentText(""); // clear input immediately to prevent re-submit
         try {
             const res = await fetch(`${BackEnd_URL}/api/v1/photo-interactions/comments`, {
                 method: "POST",
@@ -168,16 +173,24 @@ export default function ViewProfilePage() {
                     from_user: parseInt(userId),
                     owner_id: parseInt(targetId),
                     photo_index: currentPhoto,
-                    text: commentText.trim(),
+                    text: textToSend,
                 }),
             });
             if (res.ok) {
                 const data = await res.json();
-                setComments((prev) => [...prev, data]);
-                setCommentText("");
+                // Deduplication: only add if not already present
+                setComments((prev) => {
+                    if (prev.some((c) => c.id === data.id)) return prev;
+                    return [...prev, data];
+                });
+            } else {
+                setCommentText(textToSend); // restore on error
             }
-        } catch {} finally {
+        } catch {
+            setCommentText(textToSend); // restore on error
+        } finally {
             setCommentLoading(false);
+            commentSubmitting.current = false;
         }
     };
 
@@ -217,7 +230,7 @@ export default function ViewProfilePage() {
             {/* Photo slider */}
             <div
                 className="relative w-full"
-                style={{ aspectRatio: "4/5", maxHeight: "70vh", background: "#1a1a2e" }}
+                style={{ aspectRatio: "4/5", maxHeight: "72vh", background: "#1a1a2e" }}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
             >
@@ -232,61 +245,118 @@ export default function ViewProfilePage() {
                 />
 
                 {/* Gradient overlay bottom */}
-                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 50%)" }} />
+                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)" }} />
 
-                {/* Left/Right tap zones */}
+                {/* Progress bars + photo counter */}
                 {photos.length > 1 && (
-                    <>
-                        <button onClick={prevPhoto} className="absolute left-0 top-0 w-1/3 h-full opacity-0" aria-label="Prev" />
-                        <button onClick={nextPhoto} className="absolute right-0 top-0 w-1/3 h-full opacity-0" aria-label="Next" />
-                    </>
+                    <div className="absolute top-0 left-0 right-0 px-3 pt-3 z-10">
+                        <div className="flex gap-1 mb-1.5">
+                            {photos.map((_, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => setCurrentPhoto(i)}
+                                    className="rounded-full cursor-pointer transition-all duration-300"
+                                    style={{
+                                        height: 3,
+                                        flex: 1,
+                                        background: i === currentPhoto
+                                            ? "#fff"
+                                            : i < currentPhoto
+                                            ? "rgba(255,255,255,0.55)"
+                                            : "rgba(255,255,255,0.22)",
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div className="flex justify-end">
+                            <span style={{
+                                background: "rgba(0,0,0,0.45)",
+                                backdropFilter: "blur(6px)",
+                                color: "rgba(255,255,255,0.85)",
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: "2px 8px",
+                                borderRadius: 20,
+                            }}>
+                                {currentPhoto + 1} / {photos.length}
+                            </span>
+                        </div>
+                    </div>
                 )}
 
-                {/* Photo dots */}
-                {photos.length > 1 && (
-                    <div className="absolute top-3 left-0 right-0 flex justify-center gap-1.5 px-4">
-                        {photos.map((_, i) => (
-                            <div
-                                key={i}
-                                onClick={() => setCurrentPhoto(i)}
-                                className="rounded-full cursor-pointer transition-all"
-                                style={{
-                                    height: 3,
-                                    flex: 1,
-                                    maxWidth: 48,
-                                    background: i === currentPhoto ? "#fff" : "rgba(255,255,255,0.35)",
-                                }}
-                            />
-                        ))}
-                    </div>
+                {/* Visible navigation arrows */}
+                {photos.length > 1 && currentPhoto > 0 && (
+                    <button
+                        onClick={prevPhoto}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+                        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(6px)" }}
+                        aria-label="Prev"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M15 18l-6-6 6-6"/>
+                        </svg>
+                    </button>
+                )}
+                {photos.length > 1 && currentPhoto < photos.length - 1 && (
+                    <button
+                        onClick={nextPhoto}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+                        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(6px)" }}
+                        aria-label="Next"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+                    </button>
                 )}
 
                 {/* Photo like button */}
                 <button
                     onClick={handlePhotoLike}
                     disabled={likeLoading}
-                    className="absolute bottom-4 right-4 flex flex-col items-center gap-0.5"
+                    className="absolute bottom-20 right-4 flex flex-col items-center gap-1 z-10"
                 >
                     <div
-                        className="w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform active:scale-90"
-                        style={{ background: meta?.liked_by_me ? "rgba(239,68,68,0.85)" : "rgba(255,255,255,0.2)" }}
+                        className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-all active:scale-90 shadow-lg"
+                        style={{
+                            background: meta?.liked_by_me
+                                ? "linear-gradient(135deg, #ef4444, #ec4899)"
+                                : "rgba(255,255,255,0.18)",
+                            boxShadow: meta?.liked_by_me ? "0 4px 16px rgba(239,68,68,0.4)" : "none",
+                        }}
                     >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill={meta?.liked_by_me ? "#fff" : "none"} stroke="#fff" strokeWidth="2">
                             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                         </svg>
                     </div>
                     {meta && meta.count > 0 && (
-                        <span className="text-xs text-white/80">{meta.count}</span>
+                        <span className="text-xs font-semibold text-white">{meta.count}</span>
                     )}
                 </button>
 
+                {/* Tap hint when multiple photos — show only if single photo hidden */}
+                {photos.length > 1 && (
+                    <div className="absolute bottom-20 left-4 z-10">
+                        <span style={{
+                            background: "rgba(0,0,0,0.4)",
+                            backdropFilter: "blur(4px)",
+                            color: "rgba(255,255,255,0.6)",
+                            fontSize: 11,
+                            padding: "3px 8px",
+                            borderRadius: 12,
+                        }}>
+                            ← листай фото →
+                        </span>
+                    </div>
+                )}
+
                 {/* Name/age overlay */}
-                <div className="absolute bottom-4 left-4">
-                    <h1 className="text-2xl font-bold text-white">
+                <div className="absolute bottom-4 left-4 right-20">
+                    <h1 className="text-2xl font-bold text-white drop-shadow">
                         {user.name}{user.age ? `, ${user.age}` : ""}
                     </h1>
                     {user.city && (
-                        <p className="text-white/70 text-sm flex items-center gap-1">
+                        <p className="text-white/75 text-sm flex items-center gap-1 mt-0.5">
                             <span>📍</span>{user.city}
                         </p>
                     )}

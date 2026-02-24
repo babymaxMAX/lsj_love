@@ -64,8 +64,8 @@ async def profile(
     is_vip = bool(pt == "vip" and until and now < until)
     boosts_left = _compute_boosts_left(user, now) if is_vip else 0
 
-    is_active = getattr(user, "is_active", True)
-    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=is_active)
+    profile_hidden = bool(getattr(user, "profile_hidden", False))
+    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=not profile_hidden)
 
     if isinstance(update, Message):
         target = update
@@ -117,13 +117,14 @@ async def toggle_visibility(
         await callback.message.answer("Ошибка получения профиля.")
         return
 
-    new_active = not getattr(user, "is_active", True)
+    currently_hidden = bool(getattr(user, "profile_hidden", False))
+    new_hidden = not currently_hidden
     await service.update_user_info_after_reg(
         telegram_id=callback.from_user.id,
-        data={"is_active": new_active},
+        data={"profile_hidden": new_hidden},
     )
 
-    if new_active:
+    if not new_hidden:
         msg = "👀 <b>Анкета снова видна в поиске!</b>\n\nДругие пользователи смогут найти тебя."
     else:
         msg = "👻 <b>Анкета скрыта.</b>\n\nТебя не видно в поиске, пока не включишь снова."

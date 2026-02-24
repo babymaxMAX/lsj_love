@@ -421,6 +421,7 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
+            "profile_hidden": {"$ne": True},
             "$expr": {
                 "$and": [
                     {"$gte": [{"$toInt": "$age"}, age_min]},

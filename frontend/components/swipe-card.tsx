@@ -408,21 +408,31 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                     const safeIdx = Math.min(currentPhotoIdx, photoUrls.length - 1);
                     return (
                         <div className="relative">
-                            {/* Photo dots */}
+                            {/* Photo progress bars + counter */}
                             {photoUrls.length > 1 && (
-                                <div className="absolute top-2 left-0 right-0 flex justify-center gap-1 px-4 z-10">
-                                    {photoUrls.map((_, i) => (
-                                        <div
-                                            key={i}
-                                            className="rounded-full transition-all"
-                                            style={{
-                                                height: 3,
-                                                flex: 1,
-                                                maxWidth: 40,
-                                                background: i === safeIdx ? "#fff" : "rgba(255,255,255,0.35)",
-                                            }}
-                                        />
-                                    ))}
+                                <div className="absolute top-0 left-0 right-0 z-20 px-3 pt-2">
+                                    <div className="flex gap-1 mb-1">
+                                        {photoUrls.map((_, i) => (
+                                            <div
+                                                key={i}
+                                                className="rounded-full transition-all duration-300"
+                                                style={{
+                                                    height: 3,
+                                                    flex: 1,
+                                                    background: i === safeIdx
+                                                        ? "#fff"
+                                                        : i < safeIdx
+                                                        ? "rgba(255,255,255,0.6)"
+                                                        : "rgba(255,255,255,0.25)",
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <span className="text-white/70 text-xs font-medium bg-black/30 backdrop-blur-sm px-2 py-0.5 rounded-full">
+                                            {safeIdx + 1} / {photoUrls.length}
+                                        </span>
+                                    </div>
                                 </div>
                             )}
 
@@ -439,17 +449,33 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                 }}
                             />
 
-                            {/* Tap zones for cycling photos — onTap works inside framer-motion drag */}
+                            {/* Tap zones with visible edge indicators */}
                             {photoUrls.length > 1 && (
                                 <>
                                     <motion.div
-                                        className="absolute left-0 top-0 w-1/2 h-full z-10"
+                                        className="absolute left-0 top-0 w-1/2 h-full z-10 flex items-center justify-start pl-2"
                                         onTap={() => setCurrentPhotoIdx((p) => (p - 1 + photoUrls.length) % photoUrls.length)}
-                                    />
+                                    >
+                                        {safeIdx > 0 && (
+                                            <div className="w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                                                    <path d="M15 18l-6-6 6-6" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </motion.div>
                                     <motion.div
-                                        className="absolute right-0 top-0 w-1/2 h-full z-10"
+                                        className="absolute right-0 top-0 w-1/2 h-full z-10 flex items-center justify-end pr-2"
                                         onTap={() => setCurrentPhotoIdx((p) => (p + 1) % photoUrls.length)}
-                                    />
+                                    >
+                                        {safeIdx < photoUrls.length - 1 && (
+                                            <div className="w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                                                    <path d="M9 18l6-6-6-6" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </motion.div>
                                 </>
                             )}
 

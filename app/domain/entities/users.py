@@ -26,7 +26,8 @@ class UserEntity(BaseEntity):
     about: Optional[AboutText] = None
     photo: Optional[str] = None
     photos: list = None  # S3 ключи вида {telegram_id}_{index}.png
-    is_active: bool = False
+    is_active: bool = True
+    profile_hidden: bool = False  # True = пользователь скрыл анкету из поиска
     # Premium статус: None = бесплатный, "premium" = Premium, "vip" = VIP
     premium_type: Optional[Literal["premium", "vip"]] = None
     premium_until: Optional[datetime] = None

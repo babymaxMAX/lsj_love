@@ -45,6 +45,34 @@ router = APIRouter(
 
 
 @router.get(
+    "/matches/{user_id}",
+    status_code=status.HTTP_200_OK,
+    description="Get mutual matches for user (no premium required).",
+)
+async def get_matches(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    """Возвращает список взаимных матчей (mutual likes) — доступно всем пользователям."""
+    service: BaseLikesService = container.resolve(BaseLikesService)
+    users_service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        liked_by_me = set(await service.get_telegram_id_liked_from(user_id=user_id))
+        liked_me = set(await service.get_users_ids_liked_by(user_id=user_id))
+        mutual_ids = list(liked_by_me & liked_me)
+        users = await users_service.get_users_liked_from(users_list=mutual_ids)
+    except ApplicationException as exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": exception.message},
+        )
+
+    from app.application.api.v1.users.schemas import UserDetailSchema
+    return {"items": [UserDetailSchema.from_entity(u) for u in users]}
+
+
+@router.get(
     "/{from_user}/{to_user}",
     status_code=status.HTTP_200_OK,
     description="Get like.",
@@ -170,34 +198,6 @@ async def add_like_to_user(
         )
 
     return CreateLikeResponseSchema.from_entity(like)
-
-
-@router.get(
-    "/matches/{user_id}",
-    status_code=status.HTTP_200_OK,
-    description="Get mutual matches for user (no premium required).",
-)
-async def get_matches(
-    user_id: int,
-    container: Container = Depends(init_container),
-):
-    """Возвращает список взаимных матчей (mutual likes) — доступно всем пользователям."""
-    service: BaseLikesService = container.resolve(BaseLikesService)
-    users_service: BaseUsersService = container.resolve(BaseUsersService)
-
-    try:
-        liked_by_me = set(await service.get_telegram_id_liked_from(user_id=user_id))
-        liked_me = set(await service.get_users_ids_liked_by(user_id=user_id))
-        mutual_ids = list(liked_by_me & liked_me)
-        users = await users_service.get_users_liked_from(users_list=mutual_ids)
-    except ApplicationException as exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": exception.message},
-        )
-
-    from app.application.api.v1.users.schemas import UserDetailSchema
-    return {"items": [UserDetailSchema.from_entity(u) for u in users]}
 
 
 @router.delete(

@@ -85,6 +85,56 @@ def _get_transactions_collection(container: Container):
     return client[config.mongodb_dating_database]["transactions"]
 
 
+def _get_users_collection(container: Container):
+    """Возвращает коллекцию MongoDB пользователей для атомарных операций."""
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config: Config = container.resolve(Config)
+    return client[config.mongodb_dating_database]["users"]
+
+
+async def _activate_icebreaker_pack(container: Container, telegram_id: int):
+    """Атомарно добавляет 5 icebreaker-кредитов (уменьшает счётчик использований на 5)."""
+    col = _get_users_collection(container)
+    await col.update_one(
+        {"telegram_id": telegram_id},
+        {"$inc": {"icebreaker_used": -5}},  # отрицательные значения = накопленные кредиты
+    )
+
+
+async def _activate_superlike(container: Container, telegram_id: int):
+    """Атомарно добавляет 1 суперлайк-кредит."""
+    col = _get_users_collection(container)
+    await col.update_one(
+        {"telegram_id": telegram_id},
+        {"$inc": {"superlike_credits": 1}},
+    )
+
+
+async def _activate_subscription(
+    container: Container,
+    telegram_id: int,
+    premium_type: str,
+    days: int,
+) -> datetime:
+    """
+    Продлевает подписку от текущей даты окончания (или от now если не активна).
+    Возвращает новую дату окончания.
+    """
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    user = await service.get_user(telegram_id=telegram_id)
+    now = datetime.utcnow()
+    current_until = getattr(user, "premium_until", None) or now
+    if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
+        current_until = current_until.replace(tzinfo=None)
+    base = max(current_until, now)
+    until = base + timedelta(days=days)
+    await service.update_user_info_after_reg(
+        telegram_id=telegram_id,
+        data={"premium_type": premium_type, "premium_until": until},
+    )
+    return until
+
+
 async def _fetch_usdt_rate_platega(merchant_id: str, secret: str) -> Optional[float]:
     """
     Получает курс RUB→USDT через Platega rates endpoint.
@@ -327,40 +377,25 @@ async def get_payment_status(
         tx = await col.find_one({"transaction_id": transaction_id})
 
         if tx and tx.get("status") != "CONFIRMED":
-            service: BaseUsersService = container.resolve(BaseUsersService)
             product_info = PRODUCTS.get(tx["product"], {})
 
             if product_info.get("premium_type"):
                 # Активация подписки: продлевать от текущей даты окончания
                 try:
-                    user = await service.get_user(telegram_id=tx["telegram_id"])
-                    now = datetime.utcnow()
-                    current_until = getattr(user, "premium_until", None) or now
-                    if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
-                        current_until = current_until.replace(tzinfo=None)
-                    base = max(current_until, now)
-                    until = base + timedelta(days=product_info["days"])
-                    await service.update_user_info_after_reg(
+                    await _activate_subscription(
+                        container,
                         telegram_id=tx["telegram_id"],
-                        data={
-                            "premium_type": product_info["premium_type"],
-                            "premium_until": until,
-                        },
+                        premium_type=product_info["premium_type"],
+                        days=product_info["days"],
                     )
                     premium_activated = True
                 except Exception as e:
                     logger.error(f"Premium activation error: {e}")
 
             elif tx["product"] == "icebreaker_pack":
-                # Добавляем 5 использований icebreaker
+                # Атомарно добавляем +5 кредитов Icebreaker
                 try:
-                    from app.logic.services.base import BaseUsersService as _BUS
-                    current = await service.get_icebreaker_count(telegram_id=tx["telegram_id"])
-                    new_count = max(0, current - 5)
-                    await service.update_user_info_after_reg(
-                        telegram_id=tx["telegram_id"],
-                        data={"icebreaker_used": new_count},
-                    )
+                    await _activate_icebreaker_pack(container, tx["telegram_id"])
                     premium_activated = True
                 except Exception as e:
                     logger.error(f"Icebreaker pack activation error: {e}")

@@ -5,13 +5,46 @@ import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
 import { DailyQuestion } from "@/components/daily-question";
 
-async function getUsers(user_id: string) {
-    const res = await fetch(`${BackEnd_URL}/api/v1/users/best_result/${user_id}`, {
-        cache: "no-store",
-        headers: { "User-Agent": "Custom" },
-    });
-    if (!res.ok) return { items: [] };
-    return res.json();
+const SKIPPED_KEY = (userId: string) => `skipped_${userId}`;
+const LIKED_KEY = (userId: string) => `liked_${userId}`;
+
+function getSkippedIds(userId: string): Set<number> {
+    try {
+        const raw = localStorage.getItem(SKIPPED_KEY(userId));
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+}
+function getLikedIds(userId: string): Set<number> {
+    try {
+        const raw = localStorage.getItem(LIKED_KEY(userId));
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+}
+function addSkipped(userId: string, targetId: number) {
+    try {
+        const ids = getSkippedIds(userId);
+        ids.add(targetId);
+        localStorage.setItem(SKIPPED_KEY(userId), JSON.stringify([...ids]));
+    } catch {}
+}
+function addLiked(userId: string, targetId: number) {
+    try {
+        const ids = getLikedIds(userId);
+        ids.add(targetId);
+        localStorage.setItem(LIKED_KEY(userId), JSON.stringify([...ids]));
+    } catch {}
+}
+
+async function fetchUsers(user_id: string) {
+    try {
+        const res = await fetch(`${BackEnd_URL}/api/v1/users/best_result/${user_id}`, {
+            cache: "no-store",
+            headers: { "User-Agent": "Custom" },
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.items || [];
+    } catch { return []; }
 }
 
 async function getDailyQuestion() {
@@ -36,16 +69,22 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     useEffect(() => {
         Promise.all([
-            getUsers(params.users),
+            fetchUsers(params.users),
             getDailyQuestion(),
-        ]).then(([usersData, question]) => {
-            setUsers(usersData.items || []);
+        ]).then(([items, question]) => {
+            // Фильтруем уже просмотренных из localStorage
+            const skipped = getSkippedIds(params.users);
+            const liked = getLikedIds(params.users);
+            const seen = new Set([...skipped, ...liked]);
+            const filtered = items.filter((u: any) => !seen.has(u.telegram_id));
+            setUsers(filtered);
             setDailyQuestion(question);
             setLoading(false);
         });
     }, [params.users]);
 
     const handleLike = async (targetId: number) => {
+        addLiked(params.users, targetId);
         try {
             await fetch(`${BackEnd_URL}/api/v1/likes/`, {
                 method: "POST",
@@ -58,7 +97,8 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         nextUser();
     };
 
-    const handleDislike = () => {
+    const handleDislike = (targetId: number) => {
+        addSkipped(params.users, targetId);
         nextUser();
     };
 
@@ -108,7 +148,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                         user={currentUser}
                         userId={params.users}
                         onLike={() => handleLike(currentUser.telegram_id)}
-                        onDislike={handleDislike}
+                        onDislike={() => handleDislike(currentUser.telegram_id)}
                     />
                 ) : (
                     <div className="text-center px-8">

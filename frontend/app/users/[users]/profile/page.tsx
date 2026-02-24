@@ -58,6 +58,14 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const sliderRef = useRef<HTMLDivElement>(null);
     const touchStartX = useRef<number | null>(null);
 
+    // Расширяем Mini App на весь экран
+    useEffect(() => {
+        if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+            window.Telegram.WebApp.expand();
+            window.Telegram.WebApp.ready();
+        }
+    }, []);
+
     const loadUser = useCallback(() => {
         setLoading(true);
         fetch(`${BackEnd_URL}/api/v1/users/${userId}`)
@@ -246,7 +254,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const hasMedia = mediaUrls.length > 0;
 
     return (
-        <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff", paddingTop: "env(safe-area-inset-top, 0px)" }}>
+        <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
             <input
                 ref={fileRef}
                 type="file"
@@ -255,18 +263,21 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 onChange={handleFileSelect}
             />
 
-            {/* ── Header ── */}
-            <div className="flex items-center justify-between px-4 pt-5 pb-3">
+            {/* ── Header (sticky) ── */}
+            <div
+                className="sticky top-0 z-30 flex items-center justify-between px-4 py-3"
+                style={{ background: "rgba(15,15,26,0.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+            >
                 <div>
-                    <h1 className="text-xl font-bold">Мой профиль</h1>
-                    <p className="text-xs text-white/40 mt-0.5">До {MAX_MEDIA} фото и видео</p>
+                    <h1 className="text-lg font-bold leading-tight">Мой профиль</h1>
+                    <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>До {MAX_MEDIA} фото и видео</p>
                 </div>
                 <button
                     onClick={() => setEditOpen(true)}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                    style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", flexShrink: 0 }}
+                    className="flex items-center gap-1.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                    style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", padding: "8px 16px", flexShrink: 0 }}
                 >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
                         <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
