@@ -115,12 +115,12 @@ async def create_platega_link(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{PLATEGA_BASE_URL}/api/transaction/create",
+                f"{PLATEGA_BASE_URL}/transaction/process",
                 json=body,
                 headers=headers,
             ) as resp:
                 data = await resp.json()
-                return data.get("paymentUrl")
+                return data.get("redirect")
     except Exception:
         return None
 
@@ -140,7 +140,12 @@ async def premium_command(message: Message, container: Container = init_containe
 @premium_router.callback_query(lambda c: c.data == "premium_info")
 async def premium_info_callback(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    await callback.message.edit_text(
+    # Нельзя edit_text на фото-сообщении — удаляем и отправляем новое
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(
         text=premium_info_message(),
         parse_mode="HTML",
         reply_markup=premium_main_keyboard(config),
@@ -153,32 +158,56 @@ async def premium_info_callback(callback: CallbackQuery, container: Container = 
 @premium_router.callback_query(lambda c: c.data == "choose_premium")
 async def choose_premium(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    await callback.message.edit_text(
-        text=(
-            "⭐ <b>Premium — 1 месяц</b>\n\n"
-            f"• Telegram Stars: <b>{config.stars_premium_monthly} Stars</b>\n"
-            f"• Картой / СБП / Крипто: <b>{int(config.platega_premium_price)} ₽</b>\n\n"
-            "Выбери способ оплаты:"
-        ),
-        parse_mode="HTML",
-        reply_markup=payment_method_keyboard("premium"),
-    )
+    try:
+        await callback.message.edit_text(
+            text=(
+                "⭐ <b>Premium — 1 месяц</b>\n\n"
+                f"• Telegram Stars: <b>{config.stars_premium_monthly} Stars</b>\n"
+                f"• Картой / СБП / Крипто: <b>{int(config.platega_premium_price)} ₽</b>\n\n"
+                "Выбери способ оплаты:"
+            ),
+            parse_mode="HTML",
+            reply_markup=payment_method_keyboard("premium"),
+        )
+    except Exception:
+        await callback.message.answer(
+            text=(
+                "⭐ <b>Premium — 1 месяц</b>\n\n"
+                f"• Telegram Stars: <b>{config.stars_premium_monthly} Stars</b>\n"
+                f"• Картой / СБП / Крипто: <b>{int(config.platega_premium_price)} ₽</b>\n\n"
+                "Выбери способ оплаты:"
+            ),
+            parse_mode="HTML",
+            reply_markup=payment_method_keyboard("premium"),
+        )
     await callback.answer()
 
 
 @premium_router.callback_query(lambda c: c.data == "choose_vip")
 async def choose_vip(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    await callback.message.edit_text(
-        text=(
-            "💎 <b>VIP — 1 месяц</b>\n\n"
-            f"• Telegram Stars: <b>{config.stars_vip_monthly} Stars</b>\n"
-            f"• Картой / СБП / Крипто: <b>{int(config.platega_vip_price)} ₽</b>\n\n"
-            "Выбери способ оплаты:"
-        ),
-        parse_mode="HTML",
-        reply_markup=payment_method_keyboard("vip"),
-    )
+    try:
+        await callback.message.edit_text(
+            text=(
+                "💎 <b>VIP — 1 месяц</b>\n\n"
+                f"• Telegram Stars: <b>{config.stars_vip_monthly} Stars</b>\n"
+                f"• Картой / СБП / Крипто: <b>{int(config.platega_vip_price)} ₽</b>\n\n"
+                "Выбери способ оплаты:"
+            ),
+            parse_mode="HTML",
+            reply_markup=payment_method_keyboard("vip"),
+        )
+    except Exception:
+        await callback.message.answer(
+            text=(
+                "💎 <b>VIP — 1 месяц</b>\n\n"
+                f"• Telegram Stars: <b>{config.stars_vip_monthly} Stars</b>\n"
+                f"• Картой / СБП / Крипто: <b>{int(config.platega_vip_price)} ₽</b>\n\n"
+                "Выбери способ оплаты:"
+            ),
+            parse_mode="HTML",
+            reply_markup=payment_method_keyboard("vip"),
+        )
     await callback.answer()
 
 

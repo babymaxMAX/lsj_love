@@ -130,12 +130,12 @@ async def create_platega_payment(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{PLATEGA_BASE_URL}/api/transaction/create",
+                f"{PLATEGA_BASE_URL}/transaction/process",
                 json=request_body,
                 headers=headers,
             ) as resp:
                 data = await resp.json()
-                logger.info(f"Platega create response: {data}")
+                logger.info(f"Platega create response ({resp.status}): {data}")
 
                 if resp.status not in (200, 201):
                     logger.error(f"Platega error {resp.status}: {data}")
@@ -210,7 +210,7 @@ async def get_payment_status(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{PLATEGA_BASE_URL}/api/transaction/{transaction_id}",
+                f"{PLATEGA_BASE_URL}/transaction/{transaction_id}",
                 headers=headers,
             ) as resp:
                 data = await resp.json()
