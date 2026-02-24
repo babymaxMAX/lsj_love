@@ -53,7 +53,6 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [photoLikes, setPhotoLikes] = useState<Record<number, number>>({});
-    const [totalComments, setTotalComments] = useState<Record<number, number>>({});
     const fileRef = useRef<HTMLInputElement>(null);
     const sliderRef = useRef<HTMLDivElement>(null);
     const touchStartX = useRef<number | null>(null);
@@ -86,17 +85,13 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
 
     useEffect(() => { loadUser(); }, [loadUser]);
 
-    // Загружаем лайки и комменты для каждого фото
+    // Загружаем лайки для каждого фото
     useEffect(() => {
         if (!mediaUrls.length) return;
         mediaUrls.forEach((_, i) => {
             fetch(`${BackEnd_URL}/api/v1/photo-interactions/likes/${userId}/${i}?viewer_id=${userId}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(d => d && setPhotoLikes(prev => ({ ...prev, [i]: d.count })))
-                .catch(() => {});
-            fetch(`${BackEnd_URL}/api/v1/photo-interactions/comments/${userId}/${i}`)
-                .then(r => r.ok ? r.json() : null)
-                .then(d => d && setTotalComments(prev => ({ ...prev, [i]: (d.comments || []).length })))
                 .catch(() => {});
         });
     }, [userId, mediaUrls]);
@@ -365,19 +360,12 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                             </div>
                         )}
 
-                        {/* Лайки и комменты к текущему фото */}
-                        {((photoLikes[sliderIdx] ?? 0) > 0 || (totalComments[sliderIdx] ?? 0) > 0) && (
+                        {/* Лайки к текущему фото */}
+                        {(photoLikes[sliderIdx] ?? 0) > 0 && (
                             <div className="absolute bottom-10 left-3 flex gap-2">
-                                {(photoLikes[sliderIdx] ?? 0) > 0 && (
-                                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.85)", backdropFilter: "blur(6px)" }}>
-                                        ❤️ {photoLikes[sliderIdx]}
-                                    </div>
-                                )}
-                                {(totalComments[sliderIdx] ?? 0) > 0 && (
-                                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(124,58,237,0.85)", backdropFilter: "blur(6px)" }}>
-                                        💬 {totalComments[sliderIdx]}
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(239,68,68,0.85)", backdropFilter: "blur(6px)" }}>
+                                    ❤️ {photoLikes[sliderIdx]}
+                                </div>
                             </div>
                         )}
 

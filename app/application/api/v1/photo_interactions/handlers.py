@@ -1,22 +1,39 @@
-from fastapi import Depends, HTTPException, status
+import asyncio
+import logging
+from datetime import datetime, timezone
+
+from fastapi import Depends, status
 from fastapi.routing import APIRouter
 from pydantic import BaseModel
 
 from punq import Container
 
-from app.infra.repositories.mongo import (
-    MongoDBPhotoCommentsRepository,
-    MongoDBPhotoLikesRepository,
-)
+from app.infra.repositories.mongo import MongoDBPhotoLikesRepository
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
-from app.domain.exceptions.base import ApplicationException
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/photo-interactions",
     tags=["PhotoInteractions"],
 )
+
+
+def _is_premium_active(user) -> bool:
+    if not user:
+        return False
+    premium_type = getattr(user, "premium_type", None)
+    premium_until = getattr(user, "premium_until", None)
+    if not premium_type or not premium_until:
+        return False
+    try:
+        now = datetime.now(timezone.utc)
+        if hasattr(premium_until, "tzinfo") and premium_until.tzinfo is None:
+            premium_until = premium_until.replace(tzinfo=timezone.utc)
+        return now < premium_until
+    except Exception:
+        return False
 
 
 class PhotoLikeRequest(BaseModel):
@@ -31,31 +48,8 @@ class PhotoLikeResponse(BaseModel):
     liked_by_me: bool
 
 
-class PhotoCommentRequest(BaseModel):
-    from_user: int
-    owner_id: int
-    photo_index: int
-    text: str
-
-
-class PhotoCommentItem(BaseModel):
-    id: str
-    from_user: int
-    from_name: str
-    text: str
-    created_at: str
-
-
-class PhotoCommentsResponse(BaseModel):
-    comments: list[PhotoCommentItem]
-
-
 def _get_likes_repo(container: Container) -> MongoDBPhotoLikesRepository:
     return container.resolve(MongoDBPhotoLikesRepository)
-
-
-def _get_comments_repo(container: Container) -> MongoDBPhotoCommentsRepository:
-    return container.resolve(MongoDBPhotoCommentsRepository)
 
 
 @router.post(
@@ -81,21 +75,23 @@ async def toggle_photo_like(
 
     # Уведомляем владельца если лайк добавлен (не снят) и это не лайк своего фото
     if liked and body.from_user != body.owner_id:
-        try:
-            service: BaseUsersService = container.resolve(BaseUsersService)
-            liker = await service.get_user(telegram_id=body.from_user)
-            owner = await service.get_user(telegram_id=body.owner_id)
-            liker_name = str(getattr(liker, "name", "Кто-то") or "Кто-то")
-            owner_is_premium = _is_premium_active(owner)
-            from app.bot.utils.notificator import send_photo_liked_notification
-            asyncio.create_task(send_photo_liked_notification(
-                owner_id=body.owner_id,
-                liker_name=liker_name,
-                photo_idx=body.photo_index,
-                owner_is_premium=owner_is_premium,
-            ))
-        except Exception as e:
-            logger.warning(f"Photo like notification failed: {e}")
+        async def _notify():
+            try:
+                service: BaseUsersService = container.resolve(BaseUsersService)
+                liker = await service.get_user(telegram_id=body.from_user)
+                owner = await service.get_user(telegram_id=body.owner_id)
+                liker_name = str(getattr(liker, "name", "Кто-то") or "Кто-то")
+                owner_is_premium = _is_premium_active(owner)
+                from app.bot.utils.notificator import send_photo_liked_notification
+                await send_photo_liked_notification(
+                    owner_id=body.owner_id,
+                    liker_name=liker_name,
+                    photo_idx=body.photo_index,
+                    owner_is_premium=owner_is_premium,
+                )
+            except Exception as e:
+                logger.warning(f"Photo like notification failed: {e}")
+        asyncio.create_task(_notify())
 
     return PhotoLikeResponse(liked=liked, count=info["count"], liked_by_me=info["liked_by_me"])
 
@@ -121,92 +117,4 @@ async def get_photo_likes(
         liked=info["liked_by_me"],
         count=info["count"],
         liked_by_me=info["liked_by_me"],
-    )
-
-
-@router.post(
-    "/comments",
-    status_code=status.HTTP_200_OK,
-    description="Добавить комментарий к фото.",
-)
-async def add_photo_comment(
-    body: PhotoCommentRequest,
-    container: Container = Depends(init_container),
-) -> PhotoCommentItem:
-    if not body.text or not body.text.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Комментарий не может быть пустым"},
-        )
-    text = body.text.strip()[:300]
-
-    # Получаем имя автора
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    from_name = "Пользователь"
-    try:
-        author = await service.get_user(telegram_id=body.from_user)
-        from_name = str(author.name) if author.name else "Пользователь"
-    except ApplicationException:
-        pass
-
-    repo = _get_comments_repo(container)
-    doc = await repo.add_comment(
-        from_user=body.from_user,
-        from_name=from_name,
-        owner_id=body.owner_id,
-        photo_index=body.photo_index,
-        text=text,
-    )
-
-    # Уведомляем владельца о комментарии (не своём)
-    if body.from_user != body.owner_id:
-        try:
-            owner = await service.get_user(telegram_id=body.owner_id)
-            owner_is_premium = _is_premium_active(owner)
-            from app.bot.utils.notificator import send_photo_commented_notification
-            asyncio.create_task(send_photo_commented_notification(
-                owner_id=body.owner_id,
-                commenter_name=from_name,
-                comment_text=text,
-                photo_idx=body.photo_index,
-                owner_is_premium=owner_is_premium,
-            ))
-        except Exception as e:
-            logger.warning(f"Photo comment notification failed: {e}")
-
-    return PhotoCommentItem(
-        id=doc.get("id", ""),
-        from_user=doc["from_user"],
-        from_name=doc.get("from_name", ""),
-        text=doc["text"],
-        created_at=doc.get("created_at", "").isoformat() if hasattr(doc.get("created_at", ""), "isoformat") else str(doc.get("created_at", "")),
-    )
-
-
-@router.get(
-    "/comments/{owner_id}/{photo_index}",
-    status_code=status.HTTP_200_OK,
-    description="Получить комментарии к фото.",
-)
-async def get_photo_comments(
-    owner_id: int,
-    photo_index: int,
-    container: Container = Depends(init_container),
-) -> PhotoCommentsResponse:
-    repo = _get_comments_repo(container)
-    comments_raw = await repo.get_comments(
-        owner_id=owner_id,
-        photo_index=photo_index,
-    )
-    return PhotoCommentsResponse(
-        comments=[
-            PhotoCommentItem(
-                id=c["id"],
-                from_user=c["from_user"],
-                from_name=c.get("from_name", ""),
-                text=c["text"],
-                created_at=c.get("created_at", ""),
-            )
-            for c in comments_raw
-        ]
     )

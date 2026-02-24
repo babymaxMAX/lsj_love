@@ -1,39 +1,9 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { BackEnd_URL } from "@/config/url";
 import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
 import { DailyQuestion } from "@/components/daily-question";
-
-const SKIPPED_KEY = (userId: string) => `skipped_${userId}`;
-const LIKED_KEY = (userId: string) => `liked_${userId}`;
-
-function getSkippedIds(userId: string): Set<number> {
-    try {
-        const raw = localStorage.getItem(SKIPPED_KEY(userId));
-        return new Set(raw ? JSON.parse(raw) : []);
-    } catch { return new Set(); }
-}
-function getLikedIds(userId: string): Set<number> {
-    try {
-        const raw = localStorage.getItem(LIKED_KEY(userId));
-        return new Set(raw ? JSON.parse(raw) : []);
-    } catch { return new Set(); }
-}
-function addSkipped(userId: string, targetId: number) {
-    try {
-        const ids = getSkippedIds(userId);
-        ids.add(targetId);
-        localStorage.setItem(SKIPPED_KEY(userId), JSON.stringify([...ids]));
-    } catch {}
-}
-function addLiked(userId: string, targetId: number) {
-    try {
-        const ids = getLikedIds(userId);
-        ids.add(targetId);
-        localStorage.setItem(LIKED_KEY(userId), JSON.stringify([...ids]));
-    } catch {}
-}
 
 async function fetchUsers(user_id: string) {
     try {
@@ -54,9 +24,7 @@ async function getDailyQuestion() {
         });
         if (!res.ok) return null;
         return res.json();
-    } catch {
-        return null;
-    }
+    } catch { return null; }
 }
 
 // @ts-ignore
@@ -66,25 +34,29 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     const [dailyQuestion, setDailyQuestion] = useState<any>(null);
     const [showQuestion, setShowQuestion] = useState(false);
     const [loading, setLoading] = useState(true);
+    // IDs пролайканных в этой сессии — чтобы не показывать снова если бэк вернул их
+    const [seenIds] = useState<Set<number>>(() => new Set());
 
-    useEffect(() => {
-        Promise.all([
+    const loadUsers = useCallback(async () => {
+        setLoading(true);
+        const [items, question] = await Promise.all([
             fetchUsers(params.users),
             getDailyQuestion(),
-        ]).then(([items, question]) => {
-            // Фильтруем уже просмотренных из localStorage
-            const skipped = getSkippedIds(params.users);
-            const liked = getLikedIds(params.users);
-            const seen = new Set([...skipped, ...liked]);
-            const filtered = items.filter((u: any) => !seen.has(u.telegram_id));
-            setUsers(filtered);
-            setDailyQuestion(question);
-            setLoading(false);
-        });
-    }, [params.users]);
+        ]);
+        // Фильтруем только тех кого лайкнули/дизлайкнули В ЭТОЙ сессии
+        const fresh = items.filter((u: any) => !seenIds.has(u.telegram_id));
+        setUsers(fresh);
+        setCurrentIndex(0);
+        setDailyQuestion(question);
+        setLoading(false);
+    }, [params.users, seenIds]);
+
+    useEffect(() => {
+        loadUsers();
+    }, [loadUsers]);
 
     const handleLike = async (targetId: number) => {
-        addLiked(params.users, targetId);
+        seenIds.add(targetId);
         try {
             await fetch(`${BackEnd_URL}/api/v1/likes/`, {
                 method: "POST",
@@ -98,13 +70,15 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     };
 
     const handleDislike = (targetId: number) => {
-        addSkipped(params.users, targetId);
+        seenIds.add(targetId); // не показывать снова в этой сессии
         nextUser();
     };
 
     const nextUser = () => {
         setCurrentIndex((prev) => prev + 1);
     };
+
+    const currentUser = users[currentIndex];
 
     if (loading) {
         return (
@@ -116,8 +90,6 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             </div>
         );
     }
-
-    const currentUser = users[currentIndex];
 
     return (
         <div className="flex flex-col min-h-screen pb-20">
@@ -154,9 +126,16 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                     <div className="text-center px-8">
                         <div className="text-6xl mb-6">😔</div>
                         <h2 className="text-xl font-semibold mb-2">Анкеты закончились</h2>
-                        <p className="text-default-500 text-sm">
-                            Мы показали тебе все подходящие профили. Возвращайся позже — появятся новые!
+                        <p className="text-default-500 text-sm mb-6">
+                            Ты просмотрел все профили. Возвращайся позже — появятся новые!
                         </p>
+                        <button
+                            onClick={loadUsers}
+                            className="px-6 py-3 rounded-2xl text-white font-semibold text-sm transition-all active:scale-95"
+                            style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)" }}
+                        >
+                            🔄 Обновить
+                        </button>
                     </div>
                 )}
             </div>
