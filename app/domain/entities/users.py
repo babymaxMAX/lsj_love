@@ -47,9 +47,15 @@ class UserEntity(BaseEntity):
 
     @classmethod
     def from_telegram_user(cls, user: User) -> "UserEntity":
+        # Имя в Telegram может быть 1 символ или пустым — подставляем fallback
+        raw_name = (user.first_name or "").strip()
+        if len(raw_name) < 2:
+            raw_name = user.username or "Пользователь"
+        if len(raw_name) < 2:
+            raw_name = "Пользователь"
         return cls(
             telegram_id=user.id,
             username=user.username or "",
-            name=Name(user.first_name),
+            name=Name(raw_name),
             created_at=datetime.now()
         )
