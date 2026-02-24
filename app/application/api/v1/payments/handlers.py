@@ -38,7 +38,6 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 PLATEGA_BASE_URL = "https://app.platega.io"
 
 PAYMENT_METHODS = {
-    "card":   10,   # Карты RUB
     "sbp":    2,    # СБП QR
     "crypto": 13,   # Криптовалюта (USDT)
 }
@@ -55,7 +54,7 @@ PRODUCTS = {
 class CreatePaymentRequest(BaseModel):
     telegram_id: int
     product: Literal["premium", "vip", "superlike"]
-    method: Literal["card", "sbp", "crypto"] = "card"
+    method: Literal["sbp", "crypto"] = "sbp"
 
 
 class CreatePaymentResponse(BaseModel):
@@ -64,15 +63,7 @@ class CreatePaymentResponse(BaseModel):
     product: str
     amount: float
     currency: str = "RUB"
-    # Редирект на страницу оплаты (для карты и как fallback)
     redirect_url: Optional[str] = None
-    # Для СБП: данные QR (строка для генерации QR-кода)
-    qr_data: Optional[str] = None
-    # Для крипто: адрес кошелька и сумма в USDT
-    wallet_address: Optional[str] = None
-    usdt_amount: Optional[float] = None
-    usdt_rate: Optional[float] = None
-    # Время до истечения
     expires_in: Optional[str] = None
 
 
@@ -163,7 +154,7 @@ async def create_platega_payment(
         "created_at": datetime.utcnow(),
     })
 
-    # Строим ответ
+    # Строим ответ (оба метода используют redirect_url страницы Platega)
     response = CreatePaymentResponse(
         transaction_id=transaction_id,
         method=body.method,
@@ -172,24 +163,6 @@ async def create_platega_payment(
         redirect_url=redirect_url,
         expires_in=expires_in,
     )
-
-    if body.method == "sbp":
-        # payment_details — строка с данными для QR
-        if isinstance(payment_details, str):
-            response.qr_data = payment_details
-        else:
-            # Если вернули только redirect — используем его для QR
-            response.qr_data = redirect_url
-
-    elif body.method == "crypto":
-        # payment_details — адрес кошелька
-        if isinstance(payment_details, str):
-            response.wallet_address = payment_details
-        elif isinstance(payment_details, dict):
-            response.wallet_address = payment_details.get("address") or payment_details.get("wallet")
-        response.usdt_rate = usdt_rate
-        if usdt_rate and amount:
-            response.usdt_amount = round(amount / usdt_rate, 2)
 
     return response
 

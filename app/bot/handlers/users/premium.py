@@ -1,6 +1,7 @@
 """
-Premium handler: поддерживает Telegram Stars и Platega (карта, СБП, крипто).
+Premium handler: Telegram Stars + Platega (СБП, Крипто).
 """
+import logging
 import aiohttp
 from datetime import datetime, timedelta
 
@@ -22,34 +23,44 @@ from app.logic.services.base import BaseUsersService
 from app.settings.config import Config
 
 
+logger = logging.getLogger(__name__)
 premium_router = Router(name="Premium router")
 
-PLATEGA_BASE_URL = "https://app.platega.io"
+BACKEND_URL = "https://lsjlove.duckdns.org"
 
 
-def payment_method_keyboard(product: str) -> InlineKeyboardMarkup:
-    """Клавиатура выбора способа оплаты."""
+def payment_method_keyboard(product: str, config: Config) -> InlineKeyboardMarkup:
+    """Клавиатура выбора способа оплаты (только СБП и Крипто)."""
+    prices = {
+        "premium":   int(config.platega_premium_price),
+        "vip":       int(config.platega_vip_price),
+        "superlike": int(config.platega_superlike_price),
+    }
+    stars = {
+        "premium":   config.stars_premium_monthly,
+        "vip":       config.stars_vip_monthly,
+        "superlike": config.stars_superlike,
+    }
+    rub = prices.get(product, 0)
+    st  = stars.get(product, 0)
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⭐ Telegram Stars",
+                    text=f"⭐ Telegram Stars — {st} Stars",
                     callback_data=f"stars_{product}",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="💳 Карта (RUB)",
-                    callback_data=f"platega_{product}_card",
-                ),
-                InlineKeyboardButton(
-                    text="📱 СБП",
+                    text=f"📱 СБП — {rub} ₽",
                     callback_data=f"platega_{product}_sbp",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="₿ Крипто",
+                    text=f"₿ Крипто (USDT) — {rub} ₽",
                     callback_data=f"platega_{product}_crypto",
                 ),
             ],
@@ -65,13 +76,13 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"⭐ Premium — {config.stars_premium_monthly} Stars / {int(config.platega_premium_price)}₽",
+                    text=f"⭐ Premium — {int(config.platega_premium_price)} ₽ / мес",
                     callback_data="choose_premium",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text=f"💎 VIP — {config.stars_vip_monthly} Stars / {int(config.platega_vip_price)}₽",
+                    text=f"💎 VIP — {int(config.platega_vip_price)} ₽ / мес",
                     callback_data="choose_vip",
                 ),
             ],
@@ -79,53 +90,53 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
     )
 
 
-async def create_platega_link(
-    config: Config,
+async def create_payment_via_backend(
     telegram_id: int,
     product: str,
     method: str,
-) -> str | None:
-    """Создаёт платёж в Platega и возвращает payment URL."""
-    method_map = {"card": 10, "sbp": 2, "crypto": 13}
-    prices = {
-        "premium": config.platega_premium_price,
-        "vip": config.platega_vip_price,
-        "superlike": config.platega_superlike_price,
-    }
-    names = {
-        "premium": "Premium подписка (1 месяц)",
-        "vip": "VIP подписка (1 месяц)",
-        "superlike": "Суперлайк LSJLove",
-    }
-
+) -> tuple[str | None, str | None]:
+    """
+    Создаёт платёж через наш Backend API.
+    Возвращает (redirect_url, error_message).
+    """
+    url = f"{BACKEND_URL}/api/v1/payments/platega/create"
     body = {
-        "paymentMethod": method_map[method],
-        "paymentDetails": {"amount": prices[product], "currency": "RUB"},
-        "description": names[product],
-        "return": f"https://lsjlove.duckdns.org/users/{telegram_id}/premium?status=success",
-        "failedUrl": f"https://lsjlove.duckdns.org/users/{telegram_id}/premium?status=failed",
-        "payload": f"{telegram_id}:{product}",
+        "telegram_id": telegram_id,
+        "product": product,
+        "method": method,
     }
-    headers = {
-        "X-MerchantId": config.platega_merchant_id,
-        "X-Secret": config.platega_secret,
-        "Content-Type": "application/json",
-    }
-
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{PLATEGA_BASE_URL}/transaction/process",
+                url,
                 json=body,
-                headers=headers,
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json()
-                return data.get("redirect")
-    except Exception:
-        return None
+                logger.info(f"Backend payment response ({resp.status}): {data}")
+
+                if resp.status != 200:
+                    err = data.get("detail", str(data))
+                    logger.error(f"Backend error {resp.status}: {err}")
+                    return None, err
+
+                redirect = data.get("redirect_url")
+                if not redirect:
+                    logger.error(f"No redirect_url in response: {data}")
+                    return None, "Сервис оплаты не вернул ссылку"
+
+                return redirect, None
+
+    except aiohttp.ClientError as e:
+        logger.error(f"Network error calling backend: {e}")
+        return None, f"Ошибка сети: {e}"
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return None, str(e)
 
 
-# ─── /premium команда ────────────────────────────────────────────────────────
+# ─── Команда /premium ────────────────────────────────────────────────────────
 
 @premium_router.message(Command("premium"))
 async def premium_command(message: Message, container: Container = init_container()):
@@ -140,7 +151,6 @@ async def premium_command(message: Message, container: Container = init_containe
 @premium_router.callback_query(lambda c: c.data == "premium_info")
 async def premium_info_callback(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    # Нельзя edit_text на фото-сообщении — удаляем и отправляем новое
     try:
         await callback.message.delete()
     except Exception:
@@ -153,61 +163,49 @@ async def premium_info_callback(callback: CallbackQuery, container: Container = 
     await callback.answer()
 
 
-# ─── Выбор продукта → показ способов оплаты ──────────────────────────────────
+# ─── Выбор тарифа → выбор метода оплаты ─────────────────────────────────────
+
+def _plan_text(label: str, stars: int, rub: int) -> str:
+    return (
+        f"{label}\n\n"
+        f"📌 <b>Что входит:</b>\n"
+        f"{'❤️ Безлимитные лайки\n👁 Кто тебя лайкнул\n↩️ Откат свайпа\n💫 1 суперлайк/день' if 'Premium' in label else '✅ Всё из Premium\n🤖 AI Icebreaker ×10/день\n🚀 Буст профиля ×3/нед\n🏆 Приоритет в поиске'}\n\n"
+        f"💰 <b>Стоимость:</b>\n"
+        f"• Telegram Stars: <b>{stars} ⭐</b>\n"
+        f"• СБП / Крипто: <b>{rub} ₽</b>\n\n"
+        f"Выбери способ оплаты 👇"
+    )
+
 
 @premium_router.callback_query(lambda c: c.data == "choose_premium")
 async def choose_premium(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
+    text = _plan_text(
+        "⭐ <b>Premium — 1 месяц</b>",
+        config.stars_premium_monthly,
+        int(config.platega_premium_price),
+    )
+    kb = payment_method_keyboard("premium", config)
     try:
-        await callback.message.edit_text(
-            text=(
-                "⭐ <b>Premium — 1 месяц</b>\n\n"
-                f"• Telegram Stars: <b>{config.stars_premium_monthly} Stars</b>\n"
-                f"• Картой / СБП / Крипто: <b>{int(config.platega_premium_price)} ₽</b>\n\n"
-                "Выбери способ оплаты:"
-            ),
-            parse_mode="HTML",
-            reply_markup=payment_method_keyboard("premium"),
-        )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        await callback.message.answer(
-            text=(
-                "⭐ <b>Premium — 1 месяц</b>\n\n"
-                f"• Telegram Stars: <b>{config.stars_premium_monthly} Stars</b>\n"
-                f"• Картой / СБП / Крипто: <b>{int(config.platega_premium_price)} ₽</b>\n\n"
-                "Выбери способ оплаты:"
-            ),
-            parse_mode="HTML",
-            reply_markup=payment_method_keyboard("premium"),
-        )
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
 @premium_router.callback_query(lambda c: c.data == "choose_vip")
 async def choose_vip(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
+    text = _plan_text(
+        "💎 <b>VIP — 1 месяц</b>",
+        config.stars_vip_monthly,
+        int(config.platega_vip_price),
+    )
+    kb = payment_method_keyboard("vip", config)
     try:
-        await callback.message.edit_text(
-            text=(
-                "💎 <b>VIP — 1 месяц</b>\n\n"
-                f"• Telegram Stars: <b>{config.stars_vip_monthly} Stars</b>\n"
-                f"• Картой / СБП / Крипто: <b>{int(config.platega_vip_price)} ₽</b>\n\n"
-                "Выбери способ оплаты:"
-            ),
-            parse_mode="HTML",
-            reply_markup=payment_method_keyboard("vip"),
-        )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        await callback.message.answer(
-            text=(
-                "💎 <b>VIP — 1 месяц</b>\n\n"
-                f"• Telegram Stars: <b>{config.stars_vip_monthly} Stars</b>\n"
-                f"• Картой / СБП / Крипто: <b>{int(config.platega_vip_price)} ₽</b>\n\n"
-                "Выбери способ оплаты:"
-            ),
-            parse_mode="HTML",
-            reply_markup=payment_method_keyboard("vip"),
-        )
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -231,7 +229,7 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
     config: Config = container.resolve(Config)
     await callback.message.answer_invoice(
         title="LSJLove VIP",
-        description="AI Icebreaker x10/день, буст профиля, приоритет в выдаче + всё из Premium",
+        description="AI Icebreaker ×10/день, буст профиля, приоритет в выдаче + всё из Premium",
         payload="vip_monthly",
         currency="XTR",
         prices=[LabeledPrice(label="VIP на месяц", amount=config.stars_vip_monthly)],
@@ -239,55 +237,74 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
     await callback.answer()
 
 
-# ─── Platega (карта / СБП / крипто) ──────────────────────────────────────────
+# ─── Platega (СБП / Крипто) ────────────────────────────────────────────────
 
 @premium_router.callback_query(lambda c: c.data and c.data.startswith("platega_"))
 async def platega_payment(callback: CallbackQuery, container: Container = init_container()):
     """Обрабатывает platega_{product}_{method}"""
-    parts = callback.data.split("_")  # ["platega", product, method]
+    parts = callback.data.split("_")
     if len(parts) != 3:
         await callback.answer("Ошибка", show_alert=True)
         return
 
     _, product, method = parts
-    config: Config = container.resolve(Config)
+    method_labels = {"sbp": "📱 СБП", "crypto": "₿ Крипто"}
+    product_labels = {"premium": "Premium", "vip": "VIP", "superlike": "Суперлайк"}
 
-    await callback.answer("⏳ Создаём ссылку для оплаты...")
+    await callback.answer("⏳ Создаём ссылку...")
 
-    payment_url = await create_platega_link(
-        config=config,
+    redirect_url, error = await create_payment_via_backend(
         telegram_id=callback.from_user.id,
         product=product,
         method=method,
     )
 
-    if not payment_url:
+    if error or not redirect_url:
+        logger.error(f"Payment creation failed: {error}")
         await callback.message.answer(
-            "❌ Не удалось создать платёж. Попробуй позже или выбери другой способ.",
+            f"❌ <b>Не удалось создать платёж</b>\n\n"
+            f"Попробуй позже или выбери другой способ.\n"
+            f"<code>{error or 'нет ссылки'}</code>",
+            parse_mode="HTML",
         )
         return
 
-    method_labels = {"card": "💳 Картой", "sbp": "📱 СБП", "crypto": "₿ Крипто"}
-    product_labels = {"premium": "Premium", "vip": "VIP", "superlike": "Суперлайк"}
+    m_label = method_labels.get(method, method)
+    p_label = product_labels.get(product, product)
+
+    if method == "sbp":
+        instruction = (
+            "1. Нажми кнопку <b>«Открыть СБП»</b> ниже\n"
+            "2. Выбери банк или отсканируй QR\n"
+            "3. Подтверди оплату в приложении"
+        )
+        btn_text = "📱 Открыть СБП"
+    else:
+        instruction = (
+            "1. Нажми кнопку <b>«Открыть страницу оплаты»</b>\n"
+            "2. Переведи USDT на указанный адрес\n"
+            "3. Дождись подтверждения сети"
+        )
+        btn_text = "₿ Открыть страницу оплаты"
 
     await callback.message.answer(
         text=(
-            f"✅ Ссылка для оплаты готова!\n\n"
-            f"Продукт: <b>{product_labels.get(product, product)}</b>\n"
-            f"Способ: <b>{method_labels.get(method, method)}</b>\n\n"
-            f"Нажми кнопку ниже для оплаты 👇"
+            f"✅ <b>Платёж создан!</b>\n\n"
+            f"Продукт: <b>{p_label}</b>\n"
+            f"Способ: <b>{m_label}</b>\n\n"
+            f"<b>Как оплатить:</b>\n{instruction}"
         ),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Перейти к оплате", url=payment_url)],
+                [InlineKeyboardButton(text=btn_text, url=redirect_url)],
                 [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
             ]
         ),
     )
 
 
-# ─── Telegram Stars: обработка успешной оплаты ───────────────────────────────
+# ─── Stars: успешная оплата ────────────────────────────────────────────────
 
 @premium_router.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
@@ -301,9 +318,9 @@ async def successful_payment(message: Message, container: Container = init_conta
     service: BaseUsersService = container.resolve(BaseUsersService)
 
     if payload == "premium_monthly":
-        premium_type, label = "premium", "Premium"
+        premium_type, label = "premium", "⭐ Premium"
     elif payload == "vip_monthly":
-        premium_type, label = "vip", "VIP"
+        premium_type, label = "vip", "💎 VIP"
     else:
         await message.answer("✅ Оплата получена!")
         return
@@ -314,12 +331,12 @@ async def successful_payment(message: Message, container: Container = init_conta
             telegram_id=message.from_user.id,
             data={"premium_type": premium_type, "premium_until": until},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Stars premium activation failed: {e}")
 
     await message.answer(
-        f"✅ Оплата прошла успешно!\n\n"
-        f"🎉 Активирован <b>LSJLove {label}</b> на 30 дней!\n"
-        f"Открой профиль чтобы убедиться.",
+        f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+        f"Активирован <b>LSJLove {label}</b> на 30 дней.\n\n"
+        f"Открой приложение и наслаждайся! ✨",
         parse_mode="HTML",
     )
