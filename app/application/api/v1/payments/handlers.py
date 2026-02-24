@@ -84,7 +84,47 @@ def _get_transactions_collection(container: Container):
     return client[config.mongodb_dating_database]["transactions"]
 
 
+async def _fetch_usdt_rate(merchant_id: str) -> Optional[float]:
+    """
+    Получает текущий курс RUB→USDT от Platega.
+    Endpoint: GET /rates/payment_method_rate
+    Возвращает rate: сколько USDT за 1 RUB (например, 0.0106).
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{PLATEGA_BASE_URL}/rates/payment_method_rate",
+                params={
+                    "merchantId": merchant_id,
+                    "paymentMethod": 13,   # Crypto (USDT)
+                    "currencyFrom": "RUB",
+                    "currencyTo": "USDT",
+                },
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(f"USDT rate endpoint returned {resp.status}")
+                    return None
+                data = await resp.json()
+                logger.info(f"USDT rate response: {data}")
+                rate = data.get("rate")
+                return float(rate) if rate else None
+    except Exception as e:
+        logger.warning(f"Failed to fetch USDT rate: {e}")
+        return None
+
+
 # ─── Endpoints ───────────────────────────────────────────────────────────────
+
+
+@router.get("/platega/usdt-rate")
+async def get_usdt_rate(container: Container = Depends(init_container)):
+    """Возвращает текущий курс RUB→USDT для отображения в UI."""
+    config: Config = container.resolve(Config)
+    if not config.platega_merchant_id:
+        return {"rate": None, "error": "not configured"}
+    rate = await _fetch_usdt_rate(config.platega_merchant_id)
+    return {"rate": rate}  # rate = USDT за 1 RUB, например 0.0106
 
 @router.post("/platega/create", response_model=CreatePaymentResponse)
 async def create_platega_payment(
@@ -156,11 +196,23 @@ async def create_platega_payment(
         "created_at": datetime.utcnow(),
     })
 
-    # Строим ответ (оба метода используют redirect_url страницы Platega)
-    usdt_rate = data.get("usdtRate")
+    # usdtRate от Platega = сколько RUB за 1 USDT (например 94.5)
+    # Если не вернули в create response — запрашиваем отдельно
+    platega_usdt_rate = data.get("usdtRate")  # RUB per USDT
     usdt_amount = None
-    if body.method == "crypto" and usdt_rate and amount:
-        usdt_amount = round(amount / float(usdt_rate), 2)
+    rub_per_usdt = None
+
+    if body.method == "crypto":
+        if platega_usdt_rate:
+            rub_per_usdt = float(platega_usdt_rate)
+        else:
+            # Получаем курс через rates endpoint (rate = USDT per RUB)
+            rub_to_usdt_rate = await _fetch_usdt_rate(config.platega_merchant_id)
+            if rub_to_usdt_rate:
+                rub_per_usdt = round(1.0 / rub_to_usdt_rate, 2)
+
+        if rub_per_usdt and amount:
+            usdt_amount = round(amount / rub_per_usdt, 4)
 
     response = CreatePaymentResponse(
         transaction_id=transaction_id,
@@ -169,7 +221,7 @@ async def create_platega_payment(
         amount=amount,
         redirect_url=redirect_url,
         expires_in=expires_in,
-        usdt_rate=float(usdt_rate) if usdt_rate else None,
+        usdt_rate=rub_per_usdt,
         usdt_amount=usdt_amount,
     )
 
