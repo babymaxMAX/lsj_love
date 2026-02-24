@@ -1,9 +1,13 @@
 import aiohttp
 import base64
+from typing import Optional
 
 from fastapi import (
     Depends,
+    File,
+    Form,
     HTTPException,
+    UploadFile,
     status,
 )
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -264,6 +268,79 @@ async def add_user_photo(
     else:
         photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
         # Первое фото — обновляем photo для обратной совместимости
+        if idx == 0:
+            await service.update_user_info_after_reg(
+                telegram_id=user_id,
+                data={"photo": s3_key},
+            )
+
+    photos_urls = [f"/api/v1/users/{user_id}/photo/{i}" for i in range(len(photos))]
+    return PhotosResponse(photos=photos_urls)
+
+
+@router.post(
+    "/{user_id}/photos/upload",
+    status_code=status.HTTP_200_OK,
+    description="Загрузка фото/видео через multipart form (для больших файлов без base64 overhead).",
+)
+async def upload_user_media_multipart(
+    user_id: int,
+    file: UploadFile = File(...),
+    replace_index: Optional[int] = Form(None),
+    container: Container = Depends(init_container),
+) -> PhotosResponse:
+    """Принимает файл через multipart/form-data. Поддерживает видео до 60 МБ."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    current_photos = getattr(user, "photos", []) or []
+    media_type = file.content_type or "application/octet-stream"
+    ext = _EXT_MAP.get(media_type, "jpg")
+
+    is_replace = replace_index is not None
+    if is_replace:
+        idx = replace_index
+        if idx < 0 or idx >= len(current_photos):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Неверный индекс для замены"},
+            )
+    else:
+        if len(current_photos) >= 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Максимум 6 фото/видео"},
+            )
+        idx = len(current_photos)
+
+    # Читаем файл
+    try:
+        file_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": f"Ошибка чтения файла: {str(e)}"},
+        )
+
+    # Загружаем в S3
+    s3_key = f"{user_id}_{idx}.{ext}"
+    try:
+        await uploader.upload_file(file=file_bytes, file_name=s3_key)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": f"Ошибка загрузки в S3: {str(e)}"},
+        )
+
+    if is_replace:
+        photos = await service.replace_photo(telegram_id=user_id, index=idx, s3_key=s3_key)
+    else:
+        photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
         if idx == 0:
             await service.update_user_info_after_reg(
                 telegram_id=user_id,

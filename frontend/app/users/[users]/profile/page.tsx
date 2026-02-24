@@ -111,21 +111,20 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
         const isVideo = file.type.startsWith("video/");
 
         if (isVideo) {
-            // Videos: size limit 50MB, send raw base64
-            if (file.size > 50 * 1024 * 1024) {
-                setError("Видео слишком большое (максимум 50 МБ)");
+            // Видео: проверяем размер (60 МБ максимум) и загружаем через FormData
+            if (file.size > 60 * 1024 * 1024) {
+                setError("Видео слишком большое (максимум 60 МБ)");
                 setPendingSlot(null);
                 return;
             }
-            const reader = new FileReader();
-            reader.onload = async () => {
-                const result = reader.result as string;
-                const base64 = result.split(",")[1] ?? "";
-                await uploadMedia(base64, file.type);
-            };
-            reader.readAsDataURL(file);
+            uploadMediaMultipart(file);
         } else {
-            // Images: resize + compress
+            // Изображения: сжимаем через canvas и загружаем через base64
+            if (file.size > 20 * 1024 * 1024) {
+                setError("Фото слишком большое (максимум 20 МБ)");
+                setPendingSlot(null);
+                return;
+            }
             const reader = new FileReader();
             reader.onload = () => {
                 const result = reader.result as string;
@@ -145,7 +144,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
                     const compressed = canvas.toDataURL("image/jpeg", 0.85);
                     const base64 = compressed.split(",")[1] ?? "";
-                    await uploadMedia(base64, "image/jpeg");
+                    await uploadMediaBase64(base64, "image/jpeg");
                 };
                 img.src = result;
             };
@@ -153,7 +152,47 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
         }
     };
 
-    const uploadMedia = async (base64: string, mimeType: string) => {
+    /** Загрузка видео через multipart FormData — без base64 overhead, до 60 МБ */
+    const uploadMediaMultipart = async (file: File) => {
+        const slot = pendingSlot;
+        setPendingSlot(null);
+        setUploading(true);
+        setError(null);
+
+        const isReplace = slot !== null && slot < mediaUrls.length;
+        const formData = new FormData();
+        formData.append("file", file);
+        if (isReplace && slot !== null) {
+            formData.append("replace_index", String(slot));
+        }
+
+        try {
+            const res = await fetch(`${BackEnd_URL}/api/v1/users/${userId}/photos/upload`, {
+                method: "POST",
+                body: formData,
+                // НЕ устанавливаем Content-Type — браузер сам добавит boundary для multipart
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                const errMsg = data?.detail?.error || data?.error || data?.detail || "Ошибка загрузки видео";
+                setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
+                return;
+            }
+            const newUrls = (data.photos as string[]).map((p) =>
+                p.startsWith("http") ? p : `${BackEnd_URL}${p}`
+            );
+            setMediaUrls(newUrls);
+            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
+            setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
+        } catch {
+            setError("Ошибка соединения при загрузке видео");
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    /** Загрузка изображений через JSON/base64 (со сжатием) */
+    const uploadMediaBase64 = async (base64: string, mimeType: string) => {
         const slot = pendingSlot;
         setPendingSlot(null);
         setUploading(true);
@@ -174,7 +213,8 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             });
             const data = await res.json();
             if (!res.ok) {
-                setError(data?.error || data?.detail?.error || "Ошибка загрузки");
+                const errMsg = data?.detail?.error || data?.error || data?.detail || "Ошибка загрузки";
+                setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
                 return;
             }
             const newUrls = (data.photos as string[]).map((p) =>
@@ -182,6 +222,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             );
             setMediaUrls(newUrls);
             setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
+            setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
         } catch {
             setError("Ошибка соединения");
         } finally {

@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "fix: photo likes notif, remove comments, profile reappear logic, full audit"
+git commit -m "fix: video upload via multipart FormData, nginx 80m limit for photos endpoint"
 git push
 pause
