@@ -53,6 +53,12 @@ class BaseUsersRepository(ABC):
         exclude_ids: list[int] | None = None,
     ) -> Iterable[UserEntity]: ...
 
+    @abstractmethod
+    async def get_icebreaker_count(self, telegram_id: int) -> int: ...
+
+    @abstractmethod
+    async def increment_icebreaker_count(self, telegram_id: int) -> int: ...
+
 
 @dataclass
 class BaseLikesRepository(ABC):

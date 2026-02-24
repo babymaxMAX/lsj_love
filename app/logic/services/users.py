@@ -71,3 +71,9 @@ class UsersService(BaseUsersService):
 
     async def get_users_liked_by(self, users_list: list[int]) -> Iterable[UserEntity]:
         return await self.user_repository.get_users_liked_by(user_list=users_list)
+
+    async def get_icebreaker_count(self, telegram_id: int) -> int:
+        return await self.user_repository.get_icebreaker_count(telegram_id=telegram_id)
+
+    async def increment_icebreaker_count(self, telegram_id: int) -> int:
+        return await self.user_repository.increment_icebreaker_count(telegram_id=telegram_id)

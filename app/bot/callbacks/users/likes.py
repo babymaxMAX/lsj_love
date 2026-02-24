@@ -14,6 +14,97 @@ from app.logic.services.base import BaseLikesService, BaseUsersService
 callback_like_router = Router()
 
 
+# ─── Icebreaker reply/skip handlers ──────────────────────────────────────────
+
+@callback_like_router.callback_query(
+    lambda c: c.data and c.data.startswith("icebreaker_reply_")
+)
+async def handle_icebreaker_reply(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    """Пользователь нажал 'Ответить' на icebreaker → создаём лайк → проверяем матч."""
+    await callback.answer()
+
+    likes_service: BaseLikesService = container.resolve(BaseLikesService)
+    users_service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        sender_id = int(callback.data.split("_")[-1])
+    except (ValueError, IndexError):
+        return
+
+    target_id = callback.from_user.id
+
+    # Редактируем сообщение, убираем кнопки
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    try:
+        target_user = await users_service.get_user(target_id)
+        sender_user = await users_service.get_user(sender_id)
+    except Exception:
+        await callback.message.answer("Что-то пошло не так. Попробуй позже.")
+        return
+
+    # Создаём лайк от target к sender (если ещё нет)
+    already = await likes_service.check_like_is_exists(
+        from_user_id=target_id,
+        to_user_id=sender_id,
+    )
+    if not already:
+        try:
+            await likes_service.create_like(
+                from_user_id=target_id,
+                to_user_id=sender_id,
+            )
+        except Exception:
+            pass
+
+    # Проверяем матч
+    is_match = await likes_service.check_match(
+        from_user_id=target_id,
+        to_user_id=sender_id,
+    )
+
+    if is_match:
+        # Уведомляем обоих о матче
+        from app.bot.utils.notificator import send_match_message
+        try:
+            await send_match_message(to_user_id=target_id, matched_user=sender_user)
+        except Exception:
+            pass
+        try:
+            await send_match_message(to_user_id=sender_id, matched_user=target_user)
+        except Exception:
+            pass
+    else:
+        # Лайк создан, ждём ответного
+        username = getattr(sender_user, "username", None)
+        sender_name = getattr(sender_user, "name", "этого человека")
+        text = (
+            f"❤️ Ты ответил(а) на сообщение от <b>{sender_name}</b>!\n"
+            f"Если он(а) тоже лайкнет тебя — это матч 💕"
+        )
+        if username:
+            text += f"\n\n👉 <a href='https://t.me/{username}'>Написать {sender_name}</a>"
+        await callback.message.answer(text)
+
+
+@callback_like_router.callback_query(
+    lambda c: c.data and c.data.startswith("icebreaker_skip_")
+)
+async def handle_icebreaker_skip(callback: CallbackQuery):
+    """Пользователь нажал 'Пропустить' на icebreaker."""
+    await callback.answer("Окей, пропускаем 👌")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+
 class UserSession:
     def __init__(self, users):
         self.users = users

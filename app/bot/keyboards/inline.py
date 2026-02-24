@@ -146,6 +146,23 @@ def liked_by_keyboard():
     return keyboard
 
 
+def icebreaker_keyboard(sender_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="❤️ Ответить",
+                    callback_data=f"icebreaker_reply_{sender_id}",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Пропустить",
+                    callback_data=f"icebreaker_skip_{sender_id}",
+                ),
+            ],
+        ]
+    )
+
+
 def match_keyboard(username: str | None = None):
     buttons = []
     if username:

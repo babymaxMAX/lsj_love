@@ -159,6 +159,26 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         return result
 
+    async def get_icebreaker_count(self, telegram_id: int) -> int:
+        doc = await self._collection.find_one(
+            filter={"telegram_id": telegram_id},
+            projection={"icebreaker_used": 1},
+        )
+        if not doc:
+            return 0
+        return int(doc.get("icebreaker_used", 0))
+
+    async def increment_icebreaker_count(self, telegram_id: int) -> int:
+        result = await self._collection.find_one_and_update(
+            filter={"telegram_id": telegram_id},
+            update={"$inc": {"icebreaker_used": 1}},
+            return_document=True,
+            projection={"icebreaker_used": 1},
+        )
+        if not result:
+            return 1
+        return int(result.get("icebreaker_used", 1))
+
 
 @dataclass
 class MongoDBLikesRepository(BaseLikesRepository, BaseMongoDBRepository):

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { BottomNav } from "@/components/bottom-nav";
 import { BackEnd_URL } from "@/config/url";
 
-type Product = "premium" | "vip" | "superlike";
+type Product = "premium" | "vip" | "superlike" | "icebreaker_pack";
 type Method  = "sbp" | "crypto";
 
 interface PaymentData {
@@ -66,6 +66,21 @@ const PLANS = [
         features: [
             { icon: "🔝", title: "Твой профиль — первым", desc: "Появишься в самом начале ленты у выбранного пользователя." },
             { icon: "🔔", title: "Уведомление", desc: "Человек получает уведомление что ты им суперлайкнул." },
+        ],
+    },
+    {
+        id: "icebreaker_pack" as Product,
+        name: "Пак Icebreaker ×5",
+        emoji: "💌",
+        stars: 100,
+        rub: 0,
+        period: "разово",
+        badge: "Без подписки",
+        gradient: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",
+        features: [
+            { icon: "✨", title: "5 AI Icebreakers", desc: "Пиши первым до матча. ИИ анализирует фото и профиль." },
+            { icon: "🎯", title: "5 тем на выбор", desc: "Юмор, комплимент, интрига, найти общее или прямо." },
+            { icon: "📩", title: "3 варианта сразу", desc: "Выбираешь лучший из трёх и отправляешь одним нажатием." },
         ],
     },
 ];

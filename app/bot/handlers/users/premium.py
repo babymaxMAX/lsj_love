@@ -92,6 +92,12 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
                 ),
             ],
             [
+                InlineKeyboardButton(
+                    text=f"💌 Пак Icebreaker ×5 — {config.stars_icebreaker_pack} Stars",
+                    callback_data="buy_icebreaker_pack",
+                ),
+            ],
+            [
                 InlineKeyboardButton(text="🔙 Назад", callback_data="profile_page"),
             ],
         ]
@@ -291,6 +297,44 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
     await callback.answer()
 
 
+@premium_router.callback_query(lambda c: c.data == "buy_icebreaker_pack")
+async def buy_icebreaker_pack(callback: CallbackQuery, container: Container = init_container()):
+    config: Config = container.resolve(Config)
+    text = (
+        "💌 <b>Пак AI Icebreaker ×5</b>\n\n"
+        "Получи 5 дополнительных попыток отправить первое\n"
+        "сообщение с помощью ИИ — без подписки.\n\n"
+        "ИИ анализирует фото и профиль, ты выбираешь тему\n"
+        "и один из 3 вариантов сообщения.\n\n"
+        f"Стоимость: <b>{config.stars_icebreaker_pack} ⭐ Stars</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"⭐ Купить за {config.stars_icebreaker_pack} Stars",
+            callback_data="stars_icebreaker_pack",
+        )],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
+    ])
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+@premium_router.callback_query(lambda c: c.data == "stars_icebreaker_pack")
+async def stars_icebreaker_pack(callback: CallbackQuery, container: Container = init_container()):
+    config: Config = container.resolve(Config)
+    await callback.message.answer_invoice(
+        title="AI Icebreaker ×5",
+        description="5 дополнительных AI-сообщений: ИИ анализирует фото и профиль, предлагает 3 варианта.",
+        payload="icebreaker_pack_5",
+        currency="XTR",
+        prices=[LabeledPrice(label="Пак Icebreaker ×5", amount=config.stars_icebreaker_pack)],
+    )
+    await callback.answer()
+
+
 # ─── Platega (СБП / Крипто) ────────────────────────────────────────────────
 
 @premium_router.callback_query(lambda c: c.data and c.data.startswith("platega_"))
@@ -392,6 +436,24 @@ async def successful_payment(message: Message, container: Container = init_conta
         premium_type, label = "premium", "⭐ Premium"
     elif payload == "vip_monthly":
         premium_type, label = "vip", "💎 VIP"
+    elif payload == "icebreaker_pack_5":
+        # Добавляем 5 Icebreaker-ов пользователю (сбрасываем счётчик на N назад)
+        try:
+            current = await service.get_icebreaker_count(telegram_id=message.from_user.id)
+            new_count = max(0, current - 5)
+            await service.update_user_info_after_reg(
+                telegram_id=message.from_user.id,
+                data={"icebreaker_used": new_count},
+            )
+        except Exception as e:
+            logger.error(f"Icebreaker pack activation failed: {e}")
+        await message.answer(
+            "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
+            "Открой приложение и свайпай анкеты — "
+            "кнопка ✨ AI Icebreaker теперь снова доступна.",
+            parse_mode="HTML",
+        )
+        return
     else:
         await message.answer("✅ Оплата получена!")
         return

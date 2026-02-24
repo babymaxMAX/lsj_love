@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { BackEnd_URL } from "@/config/url";
 
@@ -20,10 +20,26 @@ interface SwipeCardProps {
     onDislike: () => void;
 }
 
+const TOPICS = [
+    { id: "humor",      emoji: "😄", label: "Шутка",           desc: "Лёгкий юмор по профилю" },
+    { id: "compliment", emoji: "💫", label: "Комплимент",       desc: "Что именно зацепило" },
+    { id: "intrigue",   emoji: "🧩", label: "Интрига",          desc: "Вызвать любопытство" },
+    { id: "common",     emoji: "🌍", label: "Найти общее",      desc: "Город, интересы" },
+    { id: "direct",     emoji: "🔥", label: "Прямолинейно",     desc: "Честно и смело" },
+];
+
+type IceStep = "idle" | "topic" | "loading" | "variants" | "sent" | "locked";
+
+const STORAGE_KEY = (userId: string) => `ice_uses_left_${userId}`;
+
 export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
-    const [icebreaker, setIcebreaker] = useState<string | null>(null);
-    const [loadingIce, setLoadingIce] = useState(false);
     const [showAbout, setShowAbout] = useState(false);
+    const [iceStep, setIceStep] = useState<IceStep>("idle");
+    const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+    const [variants, setVariants] = useState<string[]>([]);
+    const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
+    const [usesLeft, setUsesLeft] = useState<number | null>(null);
+    const [sending, setSending] = useState(false);
 
     const x = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -31,37 +47,291 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
     const dislikeOpacity = useTransform(x, [-100, 0], [1, 0]);
 
     const handleDragEnd = (_: any, info: PanInfo) => {
-        if (info.offset.x > 100) {
-            onLike();
-        } else if (info.offset.x < -100) {
-            onDislike();
-        }
+        if (info.offset.x > 100) onLike();
+        else if (info.offset.x < -100) onDislike();
     };
 
-    const generateIcebreaker = async () => {
-        setLoadingIce(true);
+    // Загружаем статус из localStorage / backend при монтировании
+    useEffect(() => {
+        const cached = localStorage.getItem(STORAGE_KEY(userId));
+        if (cached !== null) {
+            setUsesLeft(parseInt(cached, 10));
+        } else {
+            fetch(`${BackEnd_URL}/api/v1/ai/icebreaker/status/${userId}`)
+                .then((r) => r.json())
+                .then((d) => {
+                    const left = d.uses_left ?? 5;
+                    setUsesLeft(left);
+                    localStorage.setItem(STORAGE_KEY(userId), String(left));
+                })
+                .catch(() => setUsesLeft(5));
+        }
+    }, [userId]);
+
+    const handleIcebreakerClick = () => {
+        if (usesLeft === 0) {
+            setIceStep("locked");
+            return;
+        }
+        setIceStep("topic");
+        setSelectedTopic(null);
+        setVariants([]);
+        setSelectedVariant(null);
+    };
+
+    const handleTopicSelect = async (topicId: string) => {
+        setSelectedTopic(topicId);
+        setIceStep("loading");
+
         try {
             const res = await fetch(`${BackEnd_URL}/api/v1/ai/icebreaker`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sender_id: parseInt(userId), target_id: user.telegram_id }),
+                body: JSON.stringify({
+                    sender_id: parseInt(userId),
+                    target_id: user.telegram_id,
+                    topic: topicId,
+                }),
             });
+
+            if (res.status === 403) {
+                setUsesLeft(0);
+                localStorage.setItem(STORAGE_KEY(userId), "0");
+                setIceStep("locked");
+                return;
+            }
+
             const data = await res.json();
-            setIcebreaker(data.message);
+            const newLeft = data.uses_left ?? 0;
+            setUsesLeft(newLeft);
+            localStorage.setItem(STORAGE_KEY(userId), String(newLeft));
+
+            const v: string[] = data.variants || [];
+            if (v.length > 0) {
+                setVariants(v);
+                setIceStep("variants");
+            } else {
+                setIceStep("idle");
+            }
         } catch {
-            setIcebreaker("Привет! Твой профиль меня заинтересовал — расскажи о себе?");
-        } finally {
-            setLoadingIce(false);
+            setIceStep("idle");
         }
     };
 
-    const copyToClipboard = () => {
-        if (icebreaker) {
-            navigator.clipboard.writeText(icebreaker);
-            if (window.Telegram?.WebApp) {
-                window.Telegram.WebApp.showAlert("Скопировано! Отправь это сообщение в чате.");
-            }
+    const handleSend = async () => {
+        if (!selectedVariant) return;
+        setSending(true);
+        try {
+            await fetch(`${BackEnd_URL}/api/v1/ai/icebreaker/send`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    sender_id: parseInt(userId),
+                    target_id: user.telegram_id,
+                    message: selectedVariant,
+                }),
+            });
+            setIceStep("sent");
+        } catch {
+            setIceStep("sent");
+        } finally {
+            setSending(false);
         }
+    };
+
+    const resetIce = () => {
+        setIceStep("idle");
+        setSelectedTopic(null);
+        setVariants([]);
+        setSelectedVariant(null);
+    };
+
+    // ─── Icebreaker overlay ────────────────────────────────────────────────────
+    const renderIceOverlay = () => {
+        if (iceStep === "idle") return null;
+
+        return (
+            <div
+                className="absolute inset-0 z-20 rounded-3xl overflow-hidden flex flex-col"
+                style={{ background: "rgba(0,0,0,0.92)" }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Закрыть */}
+                <button
+                    onClick={resetIce}
+                    className="absolute top-3 right-3 text-white/60 text-2xl hover:text-white z-30"
+                >
+                    ✕
+                </button>
+
+                {/* Шаг: выбор темы */}
+                {iceStep === "topic" && (
+                    <div className="flex flex-col h-full p-5 pt-8">
+                        <p className="text-white font-bold text-base mb-1">
+                            ✨ AI Icebreaker
+                        </p>
+                        <p className="text-white/60 text-xs mb-4">
+                            Выбери тему первого сообщения для {user.name}
+                        </p>
+                        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+                            {TOPICS.map((t) => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => handleTopicSelect(t.id)}
+                                    className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-left"
+                                >
+                                    <span className="text-2xl">{t.emoji}</span>
+                                    <div>
+                                        <p className="text-white font-semibold text-sm">{t.label}</p>
+                                        <p className="text-white/50 text-xs">{t.desc}</p>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        {usesLeft !== null && (
+                            <p className="text-white/40 text-xs text-center mt-3">
+                                Осталось: {usesLeft} из 5 бесплатных
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* Шаг: загрузка */}
+                {iceStep === "loading" && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
+                        <div className="text-5xl animate-bounce">🤖</div>
+                        <p className="text-white font-semibold text-base text-center">
+                            ИИ изучает профиль {user.name}...
+                        </p>
+                        <p className="text-white/50 text-xs text-center">
+                            Анализирую фото, описание и подбираю слова
+                        </p>
+                        <div className="flex gap-1 mt-2">
+                            {[0, 1, 2].map((i) => (
+                                <div
+                                    key={i}
+                                    className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"
+                                    style={{ animationDelay: `${i * 0.15}s` }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Шаг: варианты */}
+                {iceStep === "variants" && (
+                    <div className="flex flex-col h-full p-4 pt-8">
+                        <p className="text-white font-bold text-sm mb-1">
+                            ✨ Выбери сообщение
+                        </p>
+                        <p className="text-white/50 text-xs mb-3">
+                            Нажми на понравившееся
+                        </p>
+                        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+                            {variants.map((v, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => setSelectedVariant(v)}
+                                    className={`text-left px-4 py-3 rounded-2xl text-sm transition-all active:scale-95 ${
+                                        selectedVariant === v
+                                            ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/30"
+                                            : "bg-white/10 text-white/90 hover:bg-white/20"
+                                    }`}
+                                >
+                                    <span className="text-white/40 text-xs mr-1">{i + 1}.</span> {v}
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={handleSend}
+                            disabled={!selectedVariant || sending}
+                            className={`mt-3 py-3 rounded-2xl font-semibold text-sm transition-all ${
+                                selectedVariant && !sending
+                                    ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg"
+                                    : "bg-white/10 text-white/30 cursor-not-allowed"
+                            }`}
+                        >
+                            {sending ? "⏳ Отправляем..." : "💌 Отправить сообщение"}
+                        </button>
+                    </div>
+                )}
+
+                {/* Шаг: успех */}
+                {iceStep === "sent" && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 p-6 text-center">
+                        <div className="text-6xl">💌</div>
+                        <p className="text-white font-bold text-lg">
+                            Сообщение отправлено!
+                        </p>
+                        <p className="text-white/60 text-sm">
+                            {user.name} получит уведомление в бот.
+                            Если ответит — это матч 💕
+                        </p>
+                        <button
+                            onClick={onLike}
+                            className="mt-2 px-6 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-red-500 text-white text-sm font-medium"
+                        >
+                            ❤️ Лайкнуть тоже
+                        </button>
+                        <button
+                            onClick={onDislike}
+                            className="px-6 py-2 rounded-xl bg-white/10 text-white/60 text-sm"
+                        >
+                            Следующий профиль →
+                        </button>
+                    </div>
+                )}
+
+                {/* Шаг: лимит исчерпан */}
+                {iceStep === "locked" && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 p-6 text-center">
+                        <div className="text-5xl">🔒</div>
+                        <p className="text-white font-bold text-base">
+                            Бесплатные Icebreakers закончились
+                        </p>
+                        <p className="text-white/60 text-sm">
+                            Ты использовал все 5 бесплатных попыток.
+                            Получи больше с подпиской или купи пак.
+                        </p>
+                        <button
+                            onClick={resetIce}
+                            className="mt-2 px-6 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium"
+                        >
+                            ⭐ Получить Premium
+                        </button>
+                        <button
+                            onClick={resetIce}
+                            className="px-6 py-2 rounded-xl bg-white/10 text-white/60 text-sm"
+                        >
+                            Закрыть
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // ─── Кнопка Icebreaker (в карточке) ──────────────────────────────────────
+    const renderIcebreakerButton = () => {
+        const left = usesLeft;
+        const isLocked = left === 0;
+
+        return (
+            <button
+                onClick={handleIcebreakerClick}
+                className={`w-full py-2 px-4 rounded-xl text-white text-sm font-medium transition-all active:scale-95 ${
+                    isLocked
+                        ? "bg-white/20 opacity-70"
+                        : "bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 shadow-md shadow-purple-500/30"
+                }`}
+            >
+                {isLocked
+                    ? "🔒 AI Icebreaker — нужна подписка"
+                    : left !== null
+                    ? `✨ AI Icebreaker (осталось ${left})`
+                    : "✨ AI Icebreaker — что написать?"}
+            </button>
+        );
     };
 
     return (
@@ -83,24 +353,30 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
             {/* Карточка */}
             <motion.div
                 style={{ x, rotate }}
-                drag="x"
+                drag={iceStep === "idle" ? "x" : false}
                 dragConstraints={{ left: 0, right: 0 }}
                 onDragEnd={handleDragEnd}
-                className="cursor-grab active:cursor-grabbing rounded-3xl overflow-hidden shadow-2xl bg-content1 select-none"
-                whileTap={{ scale: 1.02 }}
+                className="relative cursor-grab active:cursor-grabbing rounded-3xl overflow-hidden shadow-2xl bg-content1 select-none"
+                whileTap={iceStep === "idle" ? { scale: 1.02 } : {}}
             >
+                {/* Overlay icebreaker */}
+                {renderIceOverlay()}
+
                 {/* Фото */}
                 <div className="relative">
                     <img
-                        src={user.photo || "/placeholder.jpg"}
+                        src={user.photo
+                            ? `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`
+                            : "/placeholder.jpg"}
                         alt={user.name}
                         className="w-full h-96 object-cover"
                         draggable={false}
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).src = "/placeholder.jpg";
+                        }}
                     />
-                    {/* Градиент */}
                     <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
 
-                    {/* Инфо поверх фото */}
                     <div className="absolute bottom-4 left-4 right-4 text-white">
                         <div className="flex items-end justify-between">
                             <div>
@@ -126,35 +402,9 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                     </div>
                 )}
 
-                {/* AI Icebreaker */}
+                {/* AI Icebreaker кнопка */}
                 <div className="px-4 py-3">
-                    {!icebreaker ? (
-                        <button
-                            onClick={generateIcebreaker}
-                            disabled={loadingIce}
-                            className="w-full py-2 px-4 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-                        >
-                            {loadingIce ? "⏳ Генерирую..." : "✨ AI Icebreaker — что написать?"}
-                        </button>
-                    ) : (
-                        <div className="bg-content2 rounded-xl p-3">
-                            <p className="text-sm text-default-700 mb-2">{icebreaker}</p>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={copyToClipboard}
-                                    className="flex-1 py-1.5 rounded-lg bg-primary text-white text-xs font-medium"
-                                >
-                                    📋 Скопировать
-                                </button>
-                                <button
-                                    onClick={() => setIcebreaker(null)}
-                                    className="py-1.5 px-3 rounded-lg bg-default-200 text-default-600 text-xs"
-                                >
-                                    ↩️
-                                </button>
-                            </div>
-                        </div>
-                    )}
+                    {renderIcebreakerButton()}
                 </div>
             </motion.div>
 

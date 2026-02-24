@@ -55,9 +55,16 @@ class Config(BaseSettings):
     stars_boost: int = Field(default=150, alias="STARS_BOOST")
     stars_ai_pack: int = Field(default=200, alias="STARS_AI_PACK")
 
+    # Стоимость Icebreaker пака в Stars
+    stars_icebreaker_pack: int = Field(default=100, alias="STARS_ICEBREAKER_PACK")
+
     # Лимиты (бесплатный тариф)
     daily_likes_free: int = Field(default=10, alias="DAILY_LIKES_FREE")
-    daily_icebreaker_free: int = Field(default=1, alias="DAILY_ICEBREAKER_FREE")
+    # Всего бесплатных Icebreaker для новых пользователей (не в день, а всего)
+    icebreaker_free_total: int = Field(default=5, alias="ICEBREAKER_FREE_TOTAL")
+    # Дневные лимиты для подписчиков (VIP/Premium)
+    icebreaker_daily_premium: int = Field(default=5, alias="ICEBREAKER_DAILY_PREMIUM")
+    icebreaker_daily_vip: int = Field(default=10, alias="ICEBREAKER_DAILY_VIP")
 
     @property
     def full_webhook_url(self) -> str:

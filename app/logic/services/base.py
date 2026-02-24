@@ -49,6 +49,12 @@ class BaseUsersService(ABC):
         users_list: list[int],
     ) -> Iterable[UserEntity]: ...
 
+    @abstractmethod
+    async def get_icebreaker_count(self, telegram_id: int) -> int: ...
+
+    @abstractmethod
+    async def increment_icebreaker_count(self, telegram_id: int) -> int: ...
+
 
 @dataclass
 class BaseLikesService(ABC):
