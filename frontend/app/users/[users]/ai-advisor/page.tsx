@@ -155,6 +155,17 @@ export default function AiAdvisorPage() {
             }
 
             const data = await res.json();
+            if (!res.ok) {
+                const errDetail = data?.detail?.error || data?.detail || data?.error || `Ошибка сервера ${res.status}`;
+                const errMsg: Message = {
+                    id: Date.now().toString(),
+                    role: "assistant",
+                    content: `⚠️ ${errDetail}`,
+                    ts: Date.now(),
+                };
+                setMessages((prev) => [...prev, errMsg]);
+                return;
+            }
             if (data.reply) {
                 const aiMsg: Message = {
                     id: Date.now().toString(),
@@ -169,13 +180,19 @@ export default function AiAdvisorPage() {
                     );
                 }
             } else {
-                throw new Error("Empty reply");
+                const errMsg: Message = {
+                    id: Date.now().toString(),
+                    role: "assistant",
+                    content: "⚠️ Сервер не вернул ответ. Попробуй ещё раз.",
+                    ts: Date.now(),
+                };
+                setMessages((prev) => [...prev, errMsg]);
             }
-        } catch {
+        } catch (e: any) {
             const errMsg: Message = {
                 id: Date.now().toString(),
                 role: "assistant",
-                content: "⚠️ Что-то пошло не так. Попробуй ещё раз.",
+                content: `⚠️ Ошибка соединения: ${e?.message || "попробуй ещё раз"}`,
                 ts: Date.now(),
             };
             setMessages((prev) => [...prev, errMsg]);

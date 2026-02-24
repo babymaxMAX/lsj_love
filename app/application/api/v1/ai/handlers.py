@@ -515,9 +515,10 @@ async def _generate_advisor_reply(
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
-    # Добавляем историю (последние 12 сообщений для контекста)
+    # Добавляем историю (последние 12 сообщений для контекста, пропускаем пустые)
     for h in history[-12:]:
-        messages.append({"role": h.role, "content": h.content})
+        if h.content and h.content.strip():
+            messages.append({"role": h.role, "content": h.content})
 
     # Текущее сообщение
     if image_base64:
@@ -651,10 +652,20 @@ async def dialog_advisor(
             history=data.history,
         )
     except Exception as e:
-        logger.error(f"OpenAI dialog-advisor error: {e}")
+        err_str = str(e)
+        logger.error(f"OpenAI dialog-advisor error: {err_str}")
+        # Передаём понятное сообщение на клиент
+        if "api_key" in err_str.lower() or "authentication" in err_str.lower() or "401" in err_str:
+            detail_msg = "OpenAI API ключ недействителен. Обновите OPENAI_API_KEY в .env"
+        elif "quota" in err_str.lower() or "429" in err_str:
+            detail_msg = "Лимит OpenAI исчерпан. Проверьте баланс аккаунта."
+        elif "model" in err_str.lower():
+            detail_msg = f"Ошибка модели: {err_str[:120]}"
+        else:
+            detail_msg = f"Ошибка генерации: {err_str[:150]}"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Ошибка генерации. Попробуй ещё раз."},
+            detail={"error": detail_msg},
         )
 
     return DialogAdvisorResponse(
