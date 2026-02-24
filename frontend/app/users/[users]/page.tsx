@@ -47,8 +47,10 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     const handleLike = async (targetId: number) => {
         try {
-            await fetch(`${BackEnd_URL}/api/v1/likes/${params.users}/${targetId}`, {
+            await fetch(`${BackEnd_URL}/api/v1/likes/`, {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
             });
         } catch (e) {
             console.error(e);

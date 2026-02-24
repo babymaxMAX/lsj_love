@@ -1,23 +1,14 @@
-from aiogram import (
-    F,
-    Router,
-)
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from punq import Container
 
 from app.bot.handlers.users.profile import profile
-from app.bot.keyboards.inline import like_dislike_keyboard
-from app.bot.utils.constants import (
-    match_text_message,
-    profile_text_message,
-)
+from app.bot.keyboards.inline import like_dislike_keyboard, match_keyboard
+from app.bot.utils.constants import match_text_message, profile_text_message
 from app.domain.entities.users import UserEntity
 from app.logic.init import init_container
-from app.logic.services.base import (
-    BaseLikesService,
-    BaseUsersService,
-)
+from app.logic.services.base import BaseLikesService, BaseUsersService
 
 
 callback_like_router = Router()
@@ -40,11 +31,22 @@ class UserSession:
 
 
 async def send_user_profile(callback: CallbackQuery, user: UserEntity):
-    await callback.message.answer_photo(
-        photo=user.photo,
-        caption=profile_text_message(user),
-        reply_markup=like_dislike_keyboard(user_id=user.telegram_id),
-    )
+    """Отправляет профиль пользователя с клавиатурой лайк/дизлайк, удаляет предыдущее сообщение."""
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    try:
+        await callback.message.answer_photo(
+            photo=user.photo,
+            caption=profile_text_message(user),
+            reply_markup=like_dislike_keyboard(user_id=user.telegram_id),
+        )
+    except Exception:
+        await callback.message.answer(
+            text=profile_text_message(user),
+            reply_markup=like_dislike_keyboard(user_id=user.telegram_id),
+        )
 
 
 async def process_next_user(callback: CallbackQuery, session: UserSession):
@@ -52,7 +54,11 @@ async def process_next_user(callback: CallbackQuery, session: UserSession):
     if next_user:
         await send_user_profile(callback, next_user)
     else:
-        await callback.message.answer("That's all.")
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer("Анкеты закончились 🤷‍♂️")
         await profile(callback)
 
 
@@ -67,35 +73,78 @@ async def handle_like_user(
     likes_service: BaseLikesService = container.resolve(BaseLikesService)
     users_service: BaseUsersService = container.resolve(BaseUsersService)
 
+    await callback.answer()
+
     liked_user_id = int(callback.data.split("_")[1])
-    user_liked = await users_service.get_user(liked_user_id)
-    user_who_liked = await users_service.get_user(callback.from_user.id)
 
-    await likes_service.create_like(
+    try:
+        user_liked = await users_service.get_user(liked_user_id)
+        user_who_liked = await users_service.get_user(callback.from_user.id)
+    except Exception:
+        data = await state.get_data()
+        session = data.get("session")
+        if session:
+            await process_next_user(callback, session)
+        return
+
+    # Проверяем: не лайкали ли мы уже этого пользователя
+    already_liked = await likes_service.check_like_is_exists(
         from_user_id=user_who_liked.telegram_id,
         to_user_id=user_liked.telegram_id,
     )
 
-    await callback.message.answer_photo(
-        photo=user_liked.photo,
-        caption=match_text_message(user_liked),
-    )
-    await likes_service.delete_like(
+    if not already_liked:
+        try:
+            await likes_service.create_like(
+                from_user_id=user_who_liked.telegram_id,
+                to_user_id=user_liked.telegram_id,
+            )
+        except Exception:
+            pass
+
+    # Проверяем взаимный лайк (матч)
+    is_match = await likes_service.check_match(
         from_user_id=user_who_liked.telegram_id,
         to_user_id=user_liked.telegram_id,
     )
-    await likes_service.delete_like(
-        from_user_id=user_liked.telegram_id,
-        to_user_id=user_who_liked.telegram_id,
-    )
 
-    # Завантажуємо поточну сесію зі стану
-    data = await state.get_data()
-    session = data.get("session")
+    if is_match:
+        # Удаляем текущее сообщение с анкетой
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
 
-    # If the session exists, we continue to display the next user
-    if session:
-        await process_next_user(callback, session)
+        # Отправляем матч обоим
+        username = getattr(user_liked, "username", None)
+        match_caption = match_text_message(user_liked)
+        try:
+            await callback.message.answer_photo(
+                photo=user_liked.photo,
+                caption=match_caption,
+                reply_markup=match_keyboard(username),
+            )
+        except Exception:
+            await callback.message.answer(
+                text=match_caption,
+                reply_markup=match_keyboard(username),
+            )
+
+        # Уведомляем второго участника если он ещё не знает
+        try:
+            from app.bot.utils.notificator import send_match_message
+            await send_match_message(
+                to_user_id=user_liked.telegram_id,
+                matched_user=user_who_liked,
+            )
+        except Exception:
+            pass
+    else:
+        # Просто переходим к следующей анкете
+        data = await state.get_data()
+        session = data.get("session")
+        if session:
+            await process_next_user(callback, session)
 
 
 @callback_like_router.callback_query(
@@ -106,19 +155,11 @@ async def handle_dislike_user(
     state: FSMContext,
     container: Container = init_container(),
 ):
-    likes_service: BaseLikesService = container.resolve(BaseLikesService)
+    await callback.answer()
 
-    disliked_user_id = int(callback.data.split("_")[1])
-    await likes_service.delete_like(
-        from_user_id=disliked_user_id,
-        to_user_id=callback.from_user.id,
-    )
-
-    # We load the current session from the state
     data = await state.get_data()
     session = data.get("session")
 
-    # We continue processing with the current session
     if session:
         await process_next_user(callback, session)
 
@@ -132,16 +173,46 @@ async def handle_see_who_liked(
     likes_service: BaseLikesService = container.resolve(BaseLikesService)
     users_service: BaseUsersService = container.resolve(BaseUsersService)
 
+    await callback.answer()
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     likes = await likes_service.get_users_ids_liked_by(callback.from_user.id)
 
     if likes:
-        liked_users = [await users_service.get_user(user_id) for user_id in likes]
+        # Фильтруем тех, кого мы уже лайкали (уже матч)
+        pending = []
+        for uid in likes:
+            already = await likes_service.check_like_is_exists(
+                from_user_id=callback.from_user.id,
+                to_user_id=uid,
+            )
+            if not already:
+                pending.append(uid)
+
+        if not pending:
+            await callback.message.answer("Нет новых лайков от других пользователей 🤷")
+            await profile(callback)
+            return
+
+        liked_users = []
+        for user_id in pending:
+            try:
+                liked_users.append(await users_service.get_user(user_id))
+            except Exception:
+                pass
+
+        if not liked_users:
+            await callback.message.answer("Нет новых лайков 🤷")
+            await profile(callback)
+            return
 
         session = UserSession(liked_users)
-
-        # We save the session in the user state
         await state.update_data(session=session)
-
         await process_next_user(callback, session)
     else:
-        await callback.message.answer("No likes found.")
+        await callback.message.answer("Тебя ещё никто не лайкнул 🙈\nСвайпай анкеты — и лайки придут!")
+        await profile(callback)

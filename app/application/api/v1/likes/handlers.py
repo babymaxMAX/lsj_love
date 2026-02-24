@@ -16,10 +16,10 @@ from app.application.api.v1.likes.schemas import (
     GetLikeRequestSchema,
     GetLikeResponseSchema,
 )
-from app.bot.utils.notificator import send_liked_message
+from app.bot.utils.notificator import send_liked_message, send_match_message
 from app.domain.exceptions.base import ApplicationException
 from app.logic.init import init_container
-from app.logic.services.base import BaseLikesService
+from app.logic.services.base import BaseLikesService, BaseUsersService
 
 
 router = APIRouter(
@@ -72,15 +72,34 @@ async def add_like_to_user(
     container: Container = Depends(init_container),
 ) -> CreateLikeResponseSchema:
     service: BaseLikesService = container.resolve(BaseLikesService)
+    users_service: BaseUsersService = container.resolve(BaseUsersService)
 
     try:
         like = await service.create_like(
             from_user_id=schema.from_user,
             to_user_id=schema.to_user,
         )
-        await send_liked_message(
+
+        # Проверяем взаимный лайк → матч
+        is_match = await service.check_match(
+            from_user_id=schema.from_user,
             to_user_id=schema.to_user,
         )
+
+        if is_match:
+            try:
+                user_from = await users_service.get_user(telegram_id=schema.from_user)
+                user_to = await users_service.get_user(telegram_id=schema.to_user)
+                await send_match_message(to_user_id=schema.to_user, matched_user=user_from)
+                await send_match_message(to_user_id=schema.from_user, matched_user=user_to)
+            except Exception:
+                pass
+        else:
+            try:
+                await send_liked_message(to_user_id=schema.to_user)
+            except Exception:
+                pass
+
     except ApplicationException as exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

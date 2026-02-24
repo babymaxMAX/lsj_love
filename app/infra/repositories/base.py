@@ -50,6 +50,7 @@ class BaseUsersRepository(ABC):
     async def get_best_result_for_user(
         self,
         telegram_id: int,
+        exclude_ids: list[int] | None = None,
     ) -> Iterable[UserEntity]: ...
 
 

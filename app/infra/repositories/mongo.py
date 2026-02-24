@@ -85,7 +85,9 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         return chats, count
 
-    async def get_best_result_for_user(self, telegram_id: int) -> Iterable[UserEntity]:
+    async def get_best_result_for_user(
+        self, telegram_id: int, exclude_ids: list[int] | None = None
+    ) -> Iterable[UserEntity]:
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
             return []
@@ -93,23 +95,31 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         user_age = user.age
         user_city = user.city
 
-        age_min = int(user_age) - 3
-        age_max = int(user_age) + 3
+        age_min = int(user_age) - 5
+        age_max = int(user_age) + 5
 
-        users_documents = self._collection.find(
-            filter={
-                "city": user_city,
-                "telegram_id": {"$ne": telegram_id},
-                "$expr": {
-                    "$and": [
-                        {"$gte": [{"$toInt": "$age"}, age_min]},
-                        {"$lte": [{"$toInt": "$age"}, age_max]},
-                    ],
-                },
+        excluded = list(exclude_ids or [])
+        excluded.append(telegram_id)
+
+        query_filter: dict = {
+            "telegram_id": {"$nin": excluded},
+            "$expr": {
+                "$and": [
+                    {"$gte": [{"$toInt": "$age"}, age_min]},
+                    {"$lte": [{"$toInt": "$age"}, age_max]},
+                ],
             },
-        )
+        }
 
-        # Конвертуємо документи у сутності
+        # Если известен пол — показываем противоположный
+        if hasattr(user, "gender") and user.gender:
+            gender_map = {"Мужской": "Женский", "Женский": "Мужской", "Man": "Female", "Female": "Man"}
+            target_gender = gender_map.get(str(user.gender))
+            if target_gender:
+                query_filter["gender"] = target_gender
+
+        users_documents = self._collection.find(filter=query_filter)
+
         return [
             convert_user_document_to_entity(user_document=user_document)
             async for user_document in users_documents

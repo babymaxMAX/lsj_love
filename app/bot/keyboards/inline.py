@@ -146,6 +146,24 @@ def liked_by_keyboard():
     return keyboard
 
 
+def match_keyboard(username: str | None = None):
+    buttons = []
+    if username:
+        buttons.append([
+            InlineKeyboardButton(
+                text="💬 Написать",
+                url=f"https://t.me/{username}",
+            ),
+        ])
+    buttons.append([
+        InlineKeyboardButton(
+            text="💗 Смотреть анкеты",
+            callback_data="profile_page",
+        ),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def like_dislike_keyboard(user_id: int):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[

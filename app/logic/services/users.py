@@ -60,9 +60,10 @@ class UsersService(BaseUsersService):
     async def get_all_users(self, filters: GetAllUsersFilters) -> Iterable[UserEntity]:
         return await self.user_repository.get_all_user(filters=filters)
 
-    async def get_best_result_for_user(self, telegram_id: int):
+    async def get_best_result_for_user(self, telegram_id: int, exclude_ids: list[int] | None = None):
         return await self.user_repository.get_best_result_for_user(
             telegram_id=telegram_id,
+            exclude_ids=exclude_ids,
         )
 
     async def get_users_liked_from(self, users_list: list[int]) -> Iterable[UserEntity]:

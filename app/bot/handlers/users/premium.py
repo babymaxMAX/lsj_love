@@ -91,6 +91,9 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
                     callback_data="choose_vip",
                 ),
             ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="profile_page"),
+            ],
         ]
     )
 
@@ -178,15 +181,16 @@ async def premium_command(message: Message, container: Container = init_containe
 @premium_router.callback_query(lambda c: c.data == "premium_info")
 async def premium_info_callback(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
+    text = premium_info_message()
+    kb = premium_main_keyboard(config)
     try:
-        await callback.message.delete()
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        pass
-    await callback.message.answer(
-        text=premium_info_message(),
-        parse_mode="HTML",
-        reply_markup=premium_main_keyboard(config),
-    )
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -310,12 +314,18 @@ async def platega_payment(callback: CallbackQuery, container: Container = init_c
 
     if error or not redirect_url:
         logger.error(f"Payment creation failed: {error}")
-        await callback.message.answer(
+        err_text = (
             f"❌ <b>Не удалось создать платёж</b>\n\n"
             f"Попробуй позже или выбери другой способ.\n"
-            f"<code>{error or 'нет ссылки'}</code>",
-            parse_mode="HTML",
+            f"<code>{error or 'нет ссылки'}</code>"
         )
+        err_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
+        ])
+        try:
+            await callback.message.edit_text(err_text, parse_mode="HTML", reply_markup=err_kb)
+        except Exception:
+            await callback.message.answer(err_text, parse_mode="HTML", reply_markup=err_kb)
         return
 
     p_label = product_labels.get(product, product)
@@ -349,16 +359,20 @@ async def platega_payment(callback: CallbackQuery, container: Container = init_c
         )
         btn_text = "₿ Открыть страницу оплаты"
 
-    await callback.message.answer(
-        text=text,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=btn_text, url=redirect_url)],
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
-            ]
-        ),
+    pay_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=btn_text, url=redirect_url)],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
+        ]
     )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=pay_kb)
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=pay_kb)
 
 
 # ─── Stars: успешная оплата ────────────────────────────────────────────────

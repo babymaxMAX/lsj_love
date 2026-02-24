@@ -135,7 +135,7 @@ async def get_user_handler(
 @router.get(
     "/best_result/{user_id}",
     status_code=status.HTTP_200_OK,
-    description="Get best result for user.",
+    description="Get best result for user (excludes already-liked profiles).",
     responses={
         status.HTTP_200_OK: {"model": GetUsersFromResponseSchema},
         status.HTTP_400_BAD_REQUEST: {"model": ErrorSchema},
@@ -146,9 +146,11 @@ async def get_users_best_result(
     container: Container = Depends(init_container),
 ) -> GetUsersFromResponseSchema:
     service_users: BaseUsersService = container.resolve(BaseUsersService)
+    service_likes: BaseLikesService = container.resolve(BaseLikesService)
 
     try:
-        users = await service_users.get_best_result_for_user(user_id)
+        already_liked = await service_likes.get_telegram_id_liked_from(user_id=user_id)
+        users = await service_users.get_best_result_for_user(user_id, exclude_ids=already_liked)
     except ApplicationException as exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
