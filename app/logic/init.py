@@ -12,6 +12,8 @@ from app.infra.repositories.base import (
 )
 from app.infra.repositories.mongo import (
     MongoDBLikesRepository,
+    MongoDBPhotoCommentsRepository,
+    MongoDBPhotoLikesRepository,
     MongoDBUserRepository,
 )
 from app.infra.s3.base import BaseS3Storage
@@ -126,6 +128,32 @@ def _init_container() -> Container:
     container.register(
         BaseLikesService,
         factory=init_likes_service,
+        scope=Scope.singleton,
+    )
+
+    def init_photo_likes_repo() -> MongoDBPhotoLikesRepository:
+        return MongoDBPhotoLikesRepository(
+            mongo_db_client=client,
+            mongo_db_name=config.mongodb_dating_database,
+            mongo_db_collection_name="photo_likes",
+        )
+
+    def init_photo_comments_repo() -> MongoDBPhotoCommentsRepository:
+        return MongoDBPhotoCommentsRepository(
+            mongo_db_client=client,
+            mongo_db_name=config.mongodb_dating_database,
+            mongo_db_collection_name="photo_comments",
+        )
+
+    container.register(
+        MongoDBPhotoLikesRepository,
+        factory=init_photo_likes_repo,
+        scope=Scope.singleton,
+    )
+
+    container.register(
+        MongoDBPhotoCommentsRepository,
+        factory=init_photo_comments_repo,
         scope=Scope.singleton,
     )
 

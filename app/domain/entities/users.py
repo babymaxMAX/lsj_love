@@ -25,10 +25,15 @@ class UserEntity(BaseEntity):
     looking_for: Optional[Gender] = None
     about: Optional[AboutText] = None
     photo: Optional[str] = None
+    photos: list = None  # S3 ключи вида {telegram_id}_{index}.png
     is_active: bool = False
     # Premium статус: None = бесплатный, "premium" = Premium, "vip" = VIP
     premium_type: Optional[Literal["premium", "vip"]] = None
     premium_until: Optional[datetime] = None
+
+    def __post_init__(self):
+        if self.photos is None:
+            self.photos = []
 
     @classmethod
     def from_telegram_user(cls, user: User) -> "UserEntity":

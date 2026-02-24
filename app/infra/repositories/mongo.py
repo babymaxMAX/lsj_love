@@ -195,6 +195,35 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             update={"$set": {"ai_advisor_first_used": datetime.now(timezone.utc)}},
         )
 
+    async def get_photos(self, telegram_id: int) -> list[str]:
+        doc = await self._collection.find_one(
+            filter={"telegram_id": telegram_id},
+            projection={"photos": 1},
+        )
+        if not doc:
+            return []
+        return doc.get("photos") or []
+
+    async def add_photo(self, telegram_id: int, s3_key: str) -> list[str]:
+        await self._collection.update_one(
+            filter={"telegram_id": telegram_id},
+            update={"$push": {"photos": s3_key}},
+        )
+        return await self.get_photos(telegram_id)
+
+    async def remove_photo(self, telegram_id: int, index: int) -> list[str]:
+        photos = await self.get_photos(telegram_id)
+        if index < 0 or index >= len(photos):
+            return photos
+        photos.pop(index)
+        # Обновляем первое фото для обратной совместимости
+        main_photo = photos[0] if photos else None
+        await self._collection.update_one(
+            filter={"telegram_id": telegram_id},
+            update={"$set": {"photos": photos, "photo": main_photo}},
+        )
+        return photos
+
 
 @dataclass
 class MongoDBLikesRepository(BaseLikesRepository, BaseMongoDBRepository):
@@ -245,3 +274,68 @@ class MongoDBLikesRepository(BaseLikesRepository, BaseMongoDBRepository):
                 result.append(telegram_id)
 
         return result
+
+
+@dataclass
+class MongoDBPhotoLikesRepository(BaseMongoDBRepository):
+    """Лайки к конкретным фотографиям."""
+
+    async def toggle_like(self, from_user: int, owner_id: int, photo_index: int) -> bool:
+        """Добавляет или удаляет лайк. Возвращает True если лайк добавлен."""
+        existing = await self._collection.find_one(
+            filter={"from_user": from_user, "owner_id": owner_id, "photo_index": photo_index},
+        )
+        if existing:
+            await self._collection.delete_one({"_id": existing["_id"]})
+            return False
+        from datetime import datetime, timezone
+        await self._collection.insert_one({
+            "from_user": from_user,
+            "owner_id": owner_id,
+            "photo_index": photo_index,
+            "created_at": datetime.now(timezone.utc),
+        })
+        return True
+
+    async def get_likes_info(self, owner_id: int, photo_index: int, viewer_id: int) -> dict:
+        count = await self._collection.count_documents(
+            {"owner_id": owner_id, "photo_index": photo_index}
+        )
+        liked_by_me = bool(await self._collection.find_one(
+            {"from_user": viewer_id, "owner_id": owner_id, "photo_index": photo_index}
+        ))
+        return {"count": count, "liked_by_me": liked_by_me}
+
+
+@dataclass
+class MongoDBPhotoCommentsRepository(BaseMongoDBRepository):
+    """Комментарии к фотографиям."""
+
+    async def add_comment(self, from_user: int, from_name: str, owner_id: int, photo_index: int, text: str) -> dict:
+        from datetime import datetime, timezone
+        doc = {
+            "from_user": from_user,
+            "from_name": from_name,
+            "owner_id": owner_id,
+            "photo_index": photo_index,
+            "text": text,
+            "created_at": datetime.now(timezone.utc),
+        }
+        result = await self._collection.insert_one(doc)
+        doc["id"] = str(result.inserted_id)
+        return doc
+
+    async def get_comments(self, owner_id: int, photo_index: int, limit: int = 20) -> list[dict]:
+        cursor = self._collection.find(
+            filter={"owner_id": owner_id, "photo_index": photo_index},
+        ).sort("created_at", -1).limit(limit)
+        comments = []
+        async for doc in cursor:
+            comments.append({
+                "id": str(doc.get("_id", "")),
+                "from_user": doc["from_user"],
+                "from_name": doc.get("from_name", ""),
+                "text": doc["text"],
+                "created_at": doc["created_at"].isoformat() if doc.get("created_at") else "",
+            })
+        return list(reversed(comments))

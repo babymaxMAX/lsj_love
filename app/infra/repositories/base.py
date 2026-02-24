@@ -65,6 +65,15 @@ class BaseUsersRepository(ABC):
     @abstractmethod
     async def set_advisor_trial_start(self, telegram_id: int): ...
 
+    @abstractmethod
+    async def add_photo(self, telegram_id: int, s3_key: str) -> list[str]: ...
+
+    @abstractmethod
+    async def remove_photo(self, telegram_id: int, index: int) -> list[str]: ...
+
+    @abstractmethod
+    async def get_photos(self, telegram_id: int) -> list[str]: ...
+
 
 @dataclass
 class BaseLikesRepository(ABC):

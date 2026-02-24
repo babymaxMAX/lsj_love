@@ -1,12 +1,14 @@
 import aiohttp
+import base64
 
 from fastapi import (
     Depends,
     HTTPException,
     status,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.routing import APIRouter
+from pydantic import BaseModel
 
 from punq import Container
 
@@ -18,12 +20,21 @@ from app.application.api.v1.users.schemas import (
     UserDetailSchema,
 )
 from app.domain.exceptions.base import ApplicationException
+from app.infra.s3.base import BaseS3Storage
 from app.logic.init import init_container
 from app.logic.services.base import (
     BaseLikesService,
     BaseUsersService,
 )
 from app.settings.config import Config
+
+
+class AddPhotoRequest(BaseModel):
+    image_base64: str  # Чистый base64 без data: prefix
+
+
+class PhotosResponse(BaseModel):
+    photos: list[str]
 
 
 router = APIRouter(
@@ -63,10 +74,64 @@ async def get_all_users_handler(
     )
 
 
+async def _serve_photo_from_s3(s3_key: str, uploader: BaseS3Storage):
+    """Возвращает фото из S3 через presigned URL."""
+    try:
+        url = await uploader.upload_file.__func__  # Получаем presigned URL
+    except Exception:
+        pass
+    # Генерируем presigned URL через get_client напрямую
+    try:
+        async with uploader.get_client() as client:
+            url = await client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                ExpiresIn=3600,
+            )
+            return RedirectResponse(url=url)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found in S3")
+
+
+@router.get(
+    "/{user_id}/photo/{index}",
+    status_code=status.HTTP_302_FOUND,
+    include_in_schema=False,
+)
+async def get_user_photo_by_index(
+    user_id: int,
+    index: int,
+    container: Container = Depends(init_container),
+):
+    """Возвращает фото пользователя по индексу из массива photos[]."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+
+    try:
+        photos = await service.get_photos(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if not photos or index >= len(photos) or index < 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    s3_key = photos[index]
+    try:
+        async with uploader.get_client() as client:
+            url = await client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                ExpiresIn=3600,
+            )
+            return RedirectResponse(url=url)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found in S3")
+
+
 @router.get(
     "/{user_id}/photo",
     status_code=status.HTTP_302_FOUND,
-    description="Get user photo by redirecting to Telegram file URL.",
+    description="Get user photo (main, index 0 or legacy Telegram file_id).",
     include_in_schema=False,
 )
 async def get_user_photo(
@@ -75,21 +140,37 @@ async def get_user_photo(
 ):
     service: BaseUsersService = container.resolve(BaseUsersService)
     config: Config = container.resolve(Config)
+    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
 
     try:
         user = await service.get_user(telegram_id=user_id)
     except ApplicationException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    # Сначала пробуем photos[] (новый формат S3 ключей)
+    photos = getattr(user, "photos", []) or []
+    if photos:
+        s3_key = photos[0]
+        try:
+            async with uploader.get_client() as client:
+                url = await client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                    ExpiresIn=3600,
+                )
+                return RedirectResponse(url=url)
+        except Exception:
+            pass
+
+    # Фолбэк на старый photo (Telegram file_id или HTTP URL)
     photo = user.photo
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo")
 
-    # Если уже HTTP URL — просто редиректим
     if photo.startswith("http"):
         return RedirectResponse(url=photo)
 
-    # Это Telegram file_id — получаем реальный URL через Bot API
+    # Это Telegram file_id
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -104,6 +185,86 @@ async def get_user_photo(
                 return RedirectResponse(url=file_url)
     except aiohttp.ClientError:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Telegram API error")
+
+
+@router.post(
+    "/{user_id}/photos",
+    status_code=status.HTTP_200_OK,
+)
+async def add_user_photo(
+    user_id: int,
+    body: AddPhotoRequest,
+    container: Container = Depends(init_container),
+) -> PhotosResponse:
+    """Загружает новое фото в S3 и добавляет в массив photos[] пользователя."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+
+    # Проверяем существование пользователя
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    current_photos = getattr(user, "photos", []) or []
+    if len(current_photos) >= 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Максимум 6 фотографий"},
+        )
+
+    # Декодируем base64
+    try:
+        image_bytes = base64.b64decode(body.image_base64)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Неверный формат base64"},
+        )
+
+    # Загружаем в S3
+    index = len(current_photos)
+    s3_key = f"{user_id}_{index}.png"
+    try:
+        await uploader.upload_file(file=image_bytes, file_name=s3_key)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": f"Ошибка загрузки в S3: {str(e)}"},
+        )
+
+    # Если это первое фото — обновляем и поле photo для обратной совместимости
+    if index == 0:
+        await service.update_user_info_after_reg(
+            telegram_id=user_id,
+            data={"photo": s3_key},
+        )
+
+    photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
+    photos_urls = [f"/api/v1/users/{user_id}/photo/{i}" for i in range(len(photos))]
+    return PhotosResponse(photos=photos_urls)
+
+
+@router.delete(
+    "/{user_id}/photos/{index}",
+    status_code=status.HTTP_200_OK,
+)
+async def delete_user_photo(
+    user_id: int,
+    index: int,
+    container: Container = Depends(init_container),
+) -> PhotosResponse:
+    """Удаляет фото по индексу из массива photos[] пользователя."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    photos = await service.remove_photo(telegram_id=user_id, index=index)
+    photos_urls = [f"/api/v1/users/{user_id}/photo/{i}" for i in range(len(photos))]
+    return PhotosResponse(photos=photos_urls)
 
 
 @router.get(

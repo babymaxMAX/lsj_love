@@ -48,12 +48,18 @@ async def send_icebreaker_message(target_id: int, message: str, sender):
         logging.getLogger(__name__).error(f"send_icebreaker_message failed: {e}")
 
 
-async def send_match_message(to_user_id: int, matched_user):
+async def send_match_message(to_user_id: int, matched_user, recipient_id: int | None = None):
+    """
+    to_user_id — кому отправляем уведомление
+    matched_user — пользователь, с которым произошёл матч (чьё фото/имя показываем)
+    recipient_id — telegram_id получателя (для кнопки "Посмотреть профиль")
+    """
     try:
         name = str(getattr(matched_user, "name", "") or "")
         username = getattr(matched_user, "username", None) or None
         age = str(getattr(matched_user, "age", "") or "")
         city = str(getattr(matched_user, "city", "") or "")
+        matched_id = getattr(matched_user, "telegram_id", None)
         # Нормализуем username: пустая строка → None
         if username == "":
             username = None
@@ -65,6 +71,12 @@ async def send_match_message(to_user_id: int, matched_user):
         if username and username.strip():
             text += f"👉 <a href='https://t.me/{username}'>Написать {name}</a>"
 
+        kb = match_keyboard(
+            username=username,
+            to_user_id=recipient_id or to_user_id,
+            matched_user_id=matched_id,
+        )
+
         photo = getattr(matched_user, "photo", None)
         if photo:
             try:
@@ -72,7 +84,7 @@ async def send_match_message(to_user_id: int, matched_user):
                     chat_id=to_user_id,
                     photo=photo,
                     caption=text,
-                    reply_markup=match_keyboard(username),
+                    reply_markup=kb,
                 )
                 return
             except Exception:
@@ -81,7 +93,7 @@ async def send_match_message(to_user_id: int, matched_user):
         await bot.send_message(
             chat_id=to_user_id,
             text=text,
-            reply_markup=match_keyboard(username),
+            reply_markup=kb,
         )
     except Exception:
         pass

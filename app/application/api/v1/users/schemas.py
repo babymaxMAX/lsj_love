@@ -16,17 +16,30 @@ class UserDetailSchema(BaseModel):
     looking_for: Optional[str]
     about: Optional[str]
     photo: Optional[str]
+    photos: list[str] = []
     is_active: bool
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
-        # Если photo — Telegram file_id (не URL), заменяем на прокси-эндпоинт
+        uid = user.telegram_id
+
+        # Главное фото (для обратной совместимости)
         photo = user.photo
         if photo and not photo.startswith("http"):
-            photo = f"/api/v1/users/{user.telegram_id}/photo"
+            photo = f"/api/v1/users/{uid}/photo"
+
+        # Массив фото: если есть photos[] (S3 ключи) — строим URL по индексу
+        user_photos: list = getattr(user, "photos", []) or []
+        if user_photos:
+            photos_urls = [f"/api/v1/users/{uid}/photo/{i}" for i in range(len(user_photos))]
+        elif photo:
+            # Обратная совместимость: одно фото → массив из одного
+            photos_urls = [f"/api/v1/users/{uid}/photo"]
+        else:
+            photos_urls = []
 
         return UserDetailSchema(
-            telegram_id=user.telegram_id,
+            telegram_id=uid,
             name=user.name,
             username=user.username,
             gender=user.gender,
@@ -35,6 +48,7 @@ class UserDetailSchema(BaseModel):
             looking_for=user.looking_for,
             about=user.about,
             photo=photo,
+            photos=photos_urls,
             is_active=user.is_active,
         )
 

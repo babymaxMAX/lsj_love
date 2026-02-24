@@ -163,13 +163,23 @@ def icebreaker_keyboard(sender_id: int):
     )
 
 
-def match_keyboard(username: str | None = None):
+def match_keyboard(username: str | None = None, to_user_id: int | None = None, matched_user_id: int | None = None):
     buttons = []
     if username and username.strip():
         buttons.append([
             InlineKeyboardButton(
                 text="💬 Написать",
                 url=f"https://t.me/{username.strip()}",
+            ),
+        ])
+    # Кнопка просмотра профиля в Mini App
+    if to_user_id and matched_user_id:
+        buttons.append([
+            InlineKeyboardButton(
+                text="👤 Посмотреть профиль",
+                web_app=WebAppInfo(
+                    url=f"{config.front_end_url}/users/{to_user_id}/view-profile/{matched_user_id}",
+                ),
             ),
         ])
     buttons.append([

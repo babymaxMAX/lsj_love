@@ -83,3 +83,12 @@ class UsersService(BaseUsersService):
 
     async def set_advisor_trial_start(self, telegram_id: int):
         await self.user_repository.set_advisor_trial_start(telegram_id=telegram_id)
+
+    async def get_photos(self, telegram_id: int) -> list[str]:
+        return await self.user_repository.get_photos(telegram_id=telegram_id)
+
+    async def add_photo(self, telegram_id: int, s3_key: str) -> list[str]:
+        return await self.user_repository.add_photo(telegram_id=telegram_id, s3_key=s3_key)
+
+    async def remove_photo(self, telegram_id: int, index: int) -> list[str]:
+        return await self.user_repository.remove_photo(telegram_id=telegram_id, index=index)

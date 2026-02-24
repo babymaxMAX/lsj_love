@@ -18,6 +18,7 @@ def convert_user_entity_to_document(user: UserEntity) -> dict:
         "looking_for": user.looking_for.as_generic_type() if user.looking_for else None,
         "about": user.about.as_generic_type() if user.about else None,
         "photo": user.photo if user.photo else None,
+        "photos": user.photos if user.photos else [],
         "is_active": user.is_active,
         "premium_type": user.premium_type,
         "premium_until": user.premium_until,
@@ -37,7 +38,8 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         if user_document["looking_for"]
         else None,
         about=user_document["about"] if user_document["about"] else None,
-        photo=user_document["photo"] if user_document["photo"] else None,
+        photo=user_document["photo"] if user_document.get("photo") else None,
+        photos=user_document.get("photos") or [],
         is_active=user_document["is_active"],
         premium_type=user_document.get("premium_type"),
         premium_until=user_document.get("premium_until"),

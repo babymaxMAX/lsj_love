@@ -9,6 +9,7 @@ interface User {
     age: number;
     city: string;
     photo: string;
+    photos?: string[];
     about?: string;
     username?: string;
 }
@@ -34,6 +35,7 @@ const STORAGE_KEY = (userId: string) => `ice_uses_left_${userId}`;
 
 export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
     const [showAbout, setShowAbout] = useState(false);
+    const [currentPhotoIdx, setCurrentPhotoIdx] = useState(0);
     const [iceStep, setIceStep] = useState<IceStep>("idle");
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
     const [variants, setVariants] = useState<string[]>([]);
@@ -362,41 +364,94 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                 {/* Overlay icebreaker */}
                 {renderIceOverlay()}
 
-                {/* Фото */}
-                <div className="relative">
-                    <img
-                        src={user.photo
-                            ? `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`
-                            : "/placeholder.svg"}
-                        alt={user.name}
-                        className="w-full h-96 object-cover"
-                        draggable={false}
-                        onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            if (!img.src.endsWith("/placeholder.svg")) {
-                                img.src = "/placeholder.svg";
-                            }
-                        }}
-                    />
-                    <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
-
-                    <div className="absolute bottom-4 left-4 right-4 text-white">
-                        <div className="flex items-end justify-between">
-                            <div>
-                                <h2 className="text-2xl font-bold">{user.name}, {user.age}</h2>
-                                <p className="text-sm opacity-80">📍 {user.city}</p>
-                            </div>
-                            {user.about && (
-                                <button
-                                    onClick={() => setShowAbout(!showAbout)}
-                                    className="text-2xl hover:scale-110 transition-transform"
-                                >
-                                    ℹ️
-                                </button>
+                {/* Фото (слайдер) */}
+                {(() => {
+                    // Строим массив URL для фото
+                    const photoUrls: string[] = [];
+                    if (user.photos?.length) {
+                        user.photos.forEach((p) => {
+                            photoUrls.push(p.startsWith("http") ? p : `${BackEnd_URL}${p}`);
+                        });
+                    } else if (user.photo) {
+                        photoUrls.push(`${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`);
+                    } else {
+                        photoUrls.push("/placeholder.svg");
+                    }
+                    const safeIdx = Math.min(currentPhotoIdx, photoUrls.length - 1);
+                    return (
+                        <div className="relative">
+                            {/* Photo dots */}
+                            {photoUrls.length > 1 && (
+                                <div className="absolute top-2 left-0 right-0 flex justify-center gap-1 px-4 z-10">
+                                    {photoUrls.map((_, i) => (
+                                        <div
+                                            key={i}
+                                            className="rounded-full transition-all"
+                                            style={{
+                                                height: 3,
+                                                flex: 1,
+                                                maxWidth: 40,
+                                                background: i === safeIdx ? "#fff" : "rgba(255,255,255,0.35)",
+                                            }}
+                                        />
+                                    ))}
+                                </div>
                             )}
+
+                            <img
+                                src={photoUrls[safeIdx]}
+                                alt={user.name}
+                                className="w-full h-96 object-cover"
+                                draggable={false}
+                                onError={(e) => {
+                                    const img = e.target as HTMLImageElement;
+                                    if (!img.src.endsWith("/placeholder.svg")) {
+                                        img.src = "/placeholder.svg";
+                                    }
+                                }}
+                            />
+
+                            {/* Tap zones for switching photos */}
+                            {photoUrls.length > 1 && (
+                                <>
+                                    <button
+                                        className="absolute left-0 top-0 w-1/3 h-full opacity-0 z-10"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setCurrentPhotoIdx((p) => Math.max(0, p - 1));
+                                        }}
+                                    />
+                                    <button
+                                        className="absolute right-0 top-0 w-1/3 h-full opacity-0 z-10"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setCurrentPhotoIdx((p) => Math.min(photoUrls.length - 1, p + 1));
+                                        }}
+                                    />
+                                </>
+                            )}
+
+                            <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
+
+                            <div className="absolute bottom-4 left-4 right-4 text-white">
+                                <div className="flex items-end justify-between">
+                                    <div>
+                                        <h2 className="text-2xl font-bold">{user.name}, {user.age}</h2>
+                                        <p className="text-sm opacity-80">📍 {user.city}</p>
+                                    </div>
+                                    {user.about && (
+                                        <button
+                                            onClick={() => setShowAbout(!showAbout)}
+                                            className="text-2xl hover:scale-110 transition-transform"
+                                        >
+                                            ℹ️
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
+                    );
+                })()}
 
                 {/* О себе */}
                 {showAbout && user.about && (

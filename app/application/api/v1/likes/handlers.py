@@ -90,8 +90,17 @@ async def add_like_to_user(
             try:
                 user_from = await users_service.get_user(telegram_id=schema.from_user)
                 user_to = await users_service.get_user(telegram_id=schema.to_user)
-                await send_match_message(to_user_id=schema.to_user, matched_user=user_from)
-                await send_match_message(to_user_id=schema.from_user, matched_user=user_to)
+                # recipient_id — это тот, кому отправляем уведомление (для ссылки на профиль)
+                await send_match_message(
+                    to_user_id=schema.to_user,
+                    matched_user=user_from,
+                    recipient_id=schema.to_user,
+                )
+                await send_match_message(
+                    to_user_id=schema.from_user,
+                    matched_user=user_to,
+                    recipient_id=schema.from_user,
+                )
             except Exception:
                 pass
         else:
