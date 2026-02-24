@@ -16,7 +16,7 @@ async def send_liked_message(to_user_id: int):
 async def send_icebreaker_message(target_id: int, message: str, sender):
     """Отправляет icebreaker-сообщение целевому пользователю через бот."""
     try:
-        sender_name = getattr(sender, "name", "Кто-то")
+        sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
         sender_photo = getattr(sender, "photo", None)
 
         text = (
@@ -50,16 +50,19 @@ async def send_icebreaker_message(target_id: int, message: str, sender):
 
 async def send_match_message(to_user_id: int, matched_user):
     try:
-        name = getattr(matched_user, "name", "")
-        username = getattr(matched_user, "username", None)
-        age = getattr(matched_user, "age", "")
-        city = getattr(matched_user, "city", "")
+        name = str(getattr(matched_user, "name", "") or "")
+        username = getattr(matched_user, "username", None) or None
+        age = str(getattr(matched_user, "age", "") or "")
+        city = str(getattr(matched_user, "city", "") or "")
+        # Нормализуем username: пустая строка → None
+        if username == "":
+            username = None
 
         text = (
             f"💕 <b>Взаимная симпатия!</b>\n\n"
-            f"<b>{name}</b>, {age}, {city}\n"
+            f"<b>{name}</b>{(', ' + age) if age else ''}{(', ' + city) if city else ''}\n"
         )
-        if username:
+        if username and username.strip():
             text += f"👉 <a href='https://t.me/{username}'>Написать {name}</a>"
 
         photo = getattr(matched_user, "photo", None)

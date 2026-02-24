@@ -78,7 +78,7 @@ const PLANS = [
         name: "Пак Icebreaker ×5",
         emoji: "💌",
         stars: 100,
-        rub: 0,
+        rub: 49,
         period: "разово",
         badge: "Без подписки",
         gradient: "linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)",

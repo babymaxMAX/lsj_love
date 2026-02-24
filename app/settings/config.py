@@ -44,6 +44,7 @@ class Config(BaseSettings):
     platega_premium_price: float = Field(default=299.0, alias="PLATEGA_PREMIUM_PRICE")
     platega_vip_price: float = Field(default=799.0, alias="PLATEGA_VIP_PRICE")
     platega_superlike_price: float = Field(default=49.0, alias="PLATEGA_SUPERLIKE_PRICE")
+    platega_icebreaker_pack_price: float = Field(default=49.0, alias="PLATEGA_ICEBREAKER_PACK_PRICE")
 
     # OpenAI для AI-фич
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")

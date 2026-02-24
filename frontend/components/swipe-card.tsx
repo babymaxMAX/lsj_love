@@ -133,7 +133,7 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
             });
             setIceStep("sent");
         } catch {
-            setIceStep("sent");
+            setIceStep("variants");
         } finally {
             setSending(false);
         }
@@ -367,12 +367,15 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                     <img
                         src={user.photo
                             ? `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`
-                            : "/placeholder.jpg"}
+                            : "/placeholder.svg"}
                         alt={user.name}
                         className="w-full h-96 object-cover"
                         draggable={false}
                         onError={(e) => {
-                            (e.target as HTMLImageElement).src = "/placeholder.jpg";
+                            const img = e.target as HTMLImageElement;
+                            if (!img.src.endsWith("/placeholder.svg")) {
+                                img.src = "/placeholder.svg";
+                            }
                         }}
                     />
                     <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />

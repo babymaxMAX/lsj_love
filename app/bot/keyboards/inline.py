@@ -165,11 +165,11 @@ def icebreaker_keyboard(sender_id: int):
 
 def match_keyboard(username: str | None = None):
     buttons = []
-    if username:
+    if username and username.strip():
         buttons.append([
             InlineKeyboardButton(
                 text="💬 Написать",
-                url=f"https://t.me/{username}",
+                url=f"https://t.me/{username.strip()}",
             ),
         ])
     buttons.append([

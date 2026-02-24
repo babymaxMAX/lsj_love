@@ -27,7 +27,10 @@ callback_profile_router = Router()
 
 @callback_profile_router.callback_query(F.data == "profile_edit")
 async def profile_edit(callback: CallbackQuery):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer(
         text=(
             "Что хочешь изменить?\n\n"
@@ -51,7 +54,10 @@ async def re_registration_profile(callback: CallbackQuery):
 @callback_profile_router.callback_query(F.data == "form_confirm")
 async def form_edit(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserForm.name)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer(
         text="Хорошо! Введи своё имя:",
         reply_markup=user_name_keyboard(callback.from_user.first_name),
@@ -68,7 +74,10 @@ async def photo_profile(callback: CallbackQuery):
 
 @callback_profile_router.callback_query(F.data == "photo_confirm")
 async def photo_edit(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await state.set_state(UserPhotoUpdate.photo)
     await callback.message.answer(text="📸 Отправь новое фото для профиля:")
 

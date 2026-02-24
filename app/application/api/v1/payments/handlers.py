@@ -43,9 +43,10 @@ PAYMENT_METHODS = {
 }
 
 PRODUCTS = {
-    "premium":   {"name": "Premium (1 месяц)", "days": 30, "premium_type": "premium"},
-    "vip":       {"name": "VIP (1 месяц)",     "days": 30, "premium_type": "vip"},
-    "superlike": {"name": "Суперлайк",         "days": 0,  "premium_type": None},
+    "premium":         {"name": "Premium (1 месяц)", "days": 30, "premium_type": "premium"},
+    "vip":             {"name": "VIP (1 месяц)",     "days": 30, "premium_type": "vip"},
+    "superlike":       {"name": "Суперлайк",         "days": 0,  "premium_type": None},
+    "icebreaker_pack": {"name": "Пак Icebreaker ×5", "days": 0,  "premium_type": None},
 }
 
 
@@ -53,7 +54,7 @@ PRODUCTS = {
 
 class CreatePaymentRequest(BaseModel):
     telegram_id: int
-    product: Literal["premium", "vip", "superlike"]
+    product: Literal["premium", "vip", "superlike", "icebreaker_pack"]
     method: Literal["sbp", "crypto"] = "sbp"
 
 
@@ -191,9 +192,10 @@ async def create_platega_payment(
         raise HTTPException(status_code=503, detail="Platega не настроен")
 
     prices = {
-        "premium":   config.platega_premium_price,
-        "vip":       config.platega_vip_price,
-        "superlike": config.platega_superlike_price,
+        "premium":         config.platega_premium_price,
+        "vip":             config.platega_vip_price,
+        "superlike":       config.platega_superlike_price,
+        "icebreaker_pack": config.platega_icebreaker_pack_price,
     }
     amount = prices[body.product]
     product_info = PRODUCTS[body.product]
@@ -325,12 +327,19 @@ async def get_payment_status(
         tx = await col.find_one({"transaction_id": transaction_id})
 
         if tx and tx.get("status") != "CONFIRMED":
-            # Активируем Premium
             service: BaseUsersService = container.resolve(BaseUsersService)
             product_info = PRODUCTS.get(tx["product"], {})
+
             if product_info.get("premium_type"):
-                until = datetime.utcnow() + timedelta(days=product_info["days"])
+                # Активация подписки: продлевать от текущей даты окончания
                 try:
+                    user = await service.get_user(telegram_id=tx["telegram_id"])
+                    now = datetime.utcnow()
+                    current_until = getattr(user, "premium_until", None) or now
+                    if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
+                        current_until = current_until.replace(tzinfo=None)
+                    base = max(current_until, now)
+                    until = base + timedelta(days=product_info["days"])
                     await service.update_user_info_after_reg(
                         telegram_id=tx["telegram_id"],
                         data={
@@ -341,6 +350,20 @@ async def get_payment_status(
                     premium_activated = True
                 except Exception as e:
                     logger.error(f"Premium activation error: {e}")
+
+            elif tx["product"] == "icebreaker_pack":
+                # Добавляем 5 использований icebreaker
+                try:
+                    from app.logic.services.base import BaseUsersService as _BUS
+                    current = await service.get_icebreaker_count(telegram_id=tx["telegram_id"])
+                    new_count = max(0, current - 5)
+                    await service.update_user_info_after_reg(
+                        telegram_id=tx["telegram_id"],
+                        data={"icebreaker_used": new_count},
+                    )
+                    premium_activated = True
+                except Exception as e:
+                    logger.error(f"Icebreaker pack activation error: {e}")
 
             # Обновляем статус в БД
             await col.update_one(
@@ -403,10 +426,17 @@ async def platega_webhook(
         return JSONResponse({"ok": True, "already_confirmed": True})
 
     product_info = PRODUCTS.get(tx["product"], {})
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
     if product_info.get("premium_type"):
-        service: BaseUsersService = container.resolve(BaseUsersService)
-        until = datetime.utcnow() + timedelta(days=product_info["days"])
         try:
+            user = await service.get_user(telegram_id=tx["telegram_id"])
+            now = datetime.utcnow()
+            current_until = getattr(user, "premium_until", None) or now
+            if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
+                current_until = current_until.replace(tzinfo=None)
+            base = max(current_until, now)
+            until = base + timedelta(days=product_info["days"])
             await service.update_user_info_after_reg(
                 telegram_id=tx["telegram_id"],
                 data={
@@ -414,10 +444,22 @@ async def platega_webhook(
                     "premium_until": until,
                 },
             )
-            logger.info(f"Premium activated via webhook: user={tx['telegram_id']}")
+            logger.info(f"Premium activated via webhook: user={tx['telegram_id']}, until={until}")
         except Exception as e:
             logger.error(f"Premium activation failed: {e}")
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    elif tx.get("product") == "icebreaker_pack":
+        try:
+            current = await service.get_icebreaker_count(telegram_id=tx["telegram_id"])
+            new_count = max(0, current - 5)
+            await service.update_user_info_after_reg(
+                telegram_id=tx["telegram_id"],
+                data={"icebreaker_used": new_count},
+            )
+            logger.info(f"Icebreaker pack activated via webhook: user={tx['telegram_id']}")
+        except Exception as e:
+            logger.error(f"Icebreaker pack activation failed: {e}")
 
     await col.update_one(
         {"transaction_id": transaction_id},

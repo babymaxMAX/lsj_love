@@ -93,7 +93,7 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text=f"💌 Пак Icebreaker ×5 — {config.stars_icebreaker_pack} Stars",
+                    text=f"💌 Пак Icebreaker ×5 — {int(config.platega_icebreaker_pack_price)} ₽",
                     callback_data="buy_icebreaker_pack",
                 ),
             ],
@@ -300,19 +300,33 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
 @premium_router.callback_query(lambda c: c.data == "buy_icebreaker_pack")
 async def buy_icebreaker_pack(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
+    usdt_rate = await get_usdt_rate()
+    usdt_str = rub_to_usdt(config.platega_icebreaker_pack_price, usdt_rate)
+    usdt_label = f" · ≈ {usdt_str} USDT" if usdt_str else ""
     text = (
         "💌 <b>Пак AI Icebreaker ×5</b>\n\n"
         "Получи 5 дополнительных попыток отправить первое\n"
         "сообщение с помощью ИИ — без подписки.\n\n"
         "ИИ анализирует фото и профиль, ты выбираешь тему\n"
         "и один из 3 вариантов сообщения.\n\n"
-        f"Стоимость: <b>{config.stars_icebreaker_pack} ⭐ Stars</b>"
+        f"💳 <b>{int(config.platega_icebreaker_pack_price)} ₽</b>{usdt_label} · "
+        f"<b>{config.stars_icebreaker_pack} ⭐ Stars</b>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"⭐ Купить за {config.stars_icebreaker_pack} Stars",
+            text=f"⭐ {config.stars_icebreaker_pack} Stars",
             callback_data="stars_icebreaker_pack",
         )],
+        [
+            InlineKeyboardButton(
+                text=f"📱 СБП — {int(config.platega_icebreaker_pack_price)} ₽",
+                callback_data="platega_icebreaker_pack_sbp",
+            ),
+            InlineKeyboardButton(
+                text=f"₿ Крипто — {usdt_str}",
+                callback_data="platega_icebreaker_pack_crypto",
+            ),
+        ],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="premium_info")],
     ])
     try:
@@ -339,14 +353,24 @@ async def stars_icebreaker_pack(callback: CallbackQuery, container: Container = 
 
 @premium_router.callback_query(lambda c: c.data and c.data.startswith("platega_"))
 async def platega_payment(callback: CallbackQuery, container: Container = init_container()):
-    """Обрабатывает platega_{product}_{method}"""
-    parts = callback.data.split("_")
-    if len(parts) != 3:
+    """Обрабатывает platega_{product}_{method}, product может содержать _"""
+    data = callback.data  # e.g. "platega_icebreaker_pack_sbp"
+    if not data.endswith("_sbp") and not data.endswith("_crypto"):
         await callback.answer("Ошибка", show_alert=True)
         return
 
-    _, product, method = parts
-    product_labels = {"premium": "⭐ Premium", "vip": "💎 VIP", "superlike": "💫 Суперлайк"}
+    method = "sbp" if data.endswith("_sbp") else "crypto"
+    # product = всё между "platega_" и "_{method}"
+    prefix = "platega_"
+    suffix = f"_{method}"
+    product = data[len(prefix):-len(suffix)]  # e.g. "icebreaker_pack", "premium", "vip"
+
+    product_labels = {
+        "premium":         "⭐ Premium",
+        "vip":             "💎 VIP",
+        "superlike":       "💫 Суперлайк",
+        "icebreaker_pack": "💌 Пак Icebreaker ×5",
+    }
 
     await callback.answer("⏳ Создаём ссылку...")
 

@@ -130,6 +130,26 @@ class ProfileTipsResponse(BaseModel):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+def _is_premium_active(user, required_type: str | None = None) -> bool:
+    """Проверяет активна ли подписка (с учётом срока premium_until)."""
+    pt = getattr(user, "premium_type", None)
+    until = getattr(user, "premium_until", None)
+    if not pt or not until:
+        return False
+    if hasattr(until, "tzinfo") and until.tzinfo is None:
+        until = until.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) >= until:
+        return False
+    return required_type is None or pt == required_type
+
+
+def _get_active_premium_type(user) -> str | None:
+    """Возвращает тип подписки если она активна, иначе None."""
+    if _is_premium_active(user):
+        return getattr(user, "premium_type", None)
+    return None
+
+
 def _get_limit(premium_type: str | None, config: Config) -> int:
     """Возвращает лимит для пользователя (всего для free, в день для подписчиков)."""
     if premium_type == "vip":
@@ -261,7 +281,7 @@ async def generate_icebreaker(
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
 
-    premium_type = getattr(sender, "premium_type", None)
+    premium_type = _get_active_premium_type(sender)
     is_premium = premium_type in ("premium", "vip")
 
     # Получаем использованное количество
@@ -375,7 +395,7 @@ async def get_icebreaker_status(
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
 
-    premium_type = getattr(user, "premium_type", None)
+    premium_type = _get_active_premium_type(user)
     is_premium = premium_type in ("premium", "vip")
     used = await service.get_icebreaker_count(telegram_id=user_id)
     limit = _get_limit(premium_type, config)
@@ -555,8 +575,7 @@ async def get_advisor_status(
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
 
-    premium_type = getattr(user, "premium_type", None)
-    is_vip = premium_type == "vip"
+    is_vip = _is_premium_active(user, "vip")
 
     if is_vip:
         return AdvisorStatusResponse(
@@ -599,8 +618,7 @@ async def dialog_advisor(
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
 
-    premium_type = getattr(user, "premium_type", None)
-    is_vip = premium_type == "vip"
+    is_vip = _is_premium_active(user, "vip")
 
     if not is_vip:
         trial_start = await service.get_advisor_trial_start(telegram_id=data.user_id)
