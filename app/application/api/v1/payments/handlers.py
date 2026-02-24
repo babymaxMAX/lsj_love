@@ -65,6 +65,8 @@ class CreatePaymentResponse(BaseModel):
     currency: str = "RUB"
     redirect_url: Optional[str] = None
     expires_in: Optional[str] = None
+    usdt_rate: Optional[float] = None
+    usdt_amount: Optional[float] = None
 
 
 class PaymentStatusResponse(BaseModel):
@@ -155,6 +157,11 @@ async def create_platega_payment(
     })
 
     # Строим ответ (оба метода используют redirect_url страницы Platega)
+    usdt_rate = data.get("usdtRate")
+    usdt_amount = None
+    if body.method == "crypto" and usdt_rate and amount:
+        usdt_amount = round(amount / float(usdt_rate), 2)
+
     response = CreatePaymentResponse(
         transaction_id=transaction_id,
         method=body.method,
@@ -162,6 +169,8 @@ async def create_platega_payment(
         amount=amount,
         redirect_url=redirect_url,
         expires_in=expires_in,
+        usdt_rate=float(usdt_rate) if usdt_rate else None,
+        usdt_amount=usdt_amount,
     )
 
     return response
