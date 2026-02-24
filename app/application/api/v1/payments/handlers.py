@@ -110,6 +110,53 @@ async def _activate_superlike(container: Container, telegram_id: int):
     )
 
 
+async def _pay_referral_bonus(container: Container, telegram_id: int, amount: float):
+    """
+    Если пользователь пришёл по реферальной ссылке — начисляет 10% реферреру.
+    Также отправляет реферреру уведомление в Telegram.
+    """
+    try:
+        service: BaseUsersService = container.resolve(BaseUsersService)
+        user = await service.get_user(telegram_id=telegram_id)
+        referred_by = getattr(user, "referred_by", None)
+        if not referred_by:
+            return
+
+        bonus = round(amount * 0.10, 2)
+        if bonus <= 0:
+            return
+
+        col = _get_users_collection(container)
+        await col.update_one(
+            {"telegram_id": referred_by},
+            {"$inc": {"referral_balance": bonus}},
+        )
+        logger.info(f"Referral bonus +{bonus}₽ → user {referred_by} (invited {telegram_id})")
+
+        # Уведомляем реферера
+        try:
+            from app.logic.init import init_container as _ic
+            from aiogram import Bot
+            _container = _ic()
+            from app.settings.config import Config as _Cfg
+            _cfg = _container.resolve(_Cfg)
+            _bot = Bot(token=_cfg.token)
+            await _bot.send_message(
+                chat_id=referred_by,
+                text=(
+                    f"💰 <b>+{bonus:.2f} ₽</b> на реферальный баланс!\n"
+                    f"Приглашённый тобой пользователь совершил покупку."
+                ),
+                parse_mode="HTML",
+            )
+            await _bot.session.close()
+        except Exception as e:
+            logger.warning(f"Referral notify failed: {e}")
+
+    except Exception as e:
+        logger.warning(f"Referral bonus error: {e}")
+
+
 async def _activate_subscription(
     container: Container,
     telegram_id: int,
@@ -380,7 +427,6 @@ async def get_payment_status(
             product_info = PRODUCTS.get(tx["product"], {})
 
             if product_info.get("premium_type"):
-                # Активация подписки: продлевать от текущей даты окончания
                 try:
                     await _activate_subscription(
                         container,
@@ -393,12 +439,24 @@ async def get_payment_status(
                     logger.error(f"Premium activation error: {e}")
 
             elif tx["product"] == "icebreaker_pack":
-                # Атомарно добавляем +5 кредитов Icebreaker
                 try:
                     await _activate_icebreaker_pack(container, tx["telegram_id"])
                     premium_activated = True
                 except Exception as e:
                     logger.error(f"Icebreaker pack activation error: {e}")
+
+            elif tx["product"] == "superlike":
+                try:
+                    await _activate_superlike(container, tx["telegram_id"])
+                    premium_activated = True
+                except Exception as e:
+                    logger.error(f"Superlike activation error: {e}")
+
+            # Начисляем реферальный бонус 10%
+            try:
+                await _pay_referral_bonus(container, tx["telegram_id"], tx.get("amount", 0))
+            except Exception as e:
+                logger.warning(f"Referral bonus (polling) failed: {e}")
 
             # Обновляем статус в БД
             await col.update_one(
@@ -488,6 +546,12 @@ async def platega_webhook(
             logger.info(f"Superlike credit (+1) added via webhook: user={tx['telegram_id']}")
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
+
+    # Начисляем реферальный бонус 10%
+    try:
+        await _pay_referral_bonus(container, tx["telegram_id"], tx.get("amount", 0))
+    except Exception as e:
+        logger.warning(f"Referral bonus (webhook) failed: {e}")
 
     await col.update_one(
         {"transaction_id": transaction_id},

@@ -37,6 +37,9 @@ class UserEntity(BaseEntity):
     boost_until: Optional[datetime] = None
     boosts_this_week: int = 0
     boost_week_reset: Optional[datetime] = None
+    # Реферальная система
+    referred_by: Optional[int] = None       # telegram_id кто пригласил
+    referral_balance: float = 0.0           # заработанный реферальный баланс (руб)
 
     def __post_init__(self):
         if self.photos is None:

@@ -31,6 +31,7 @@ interface UserProfile {
     photos: string[];
     media_types: string[];
     is_active: boolean;
+    referral_balance?: number;
 }
 
 const MAX_MEDIA = 6;
@@ -53,6 +54,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [photoLikes, setPhotoLikes] = useState<Record<number, number>>({});
+    const [refCopied, setRefCopied] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
     const sliderRef = useRef<HTMLDivElement>(null);
     const touchStartX = useRef<number | null>(null);
@@ -509,6 +511,54 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     <p className="text-sm text-white/40 text-center">
                         Для редактирования имени, города и описания — используй кнопку ⚙️ в боте
                     </p>
+                </div>
+
+                {/* Referral card */}
+                <div className="rounded-2xl p-4 space-y-3" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(79,70,229,0.1))", border: "1px solid rgba(124,58,237,0.25)" }}>
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base">🔗</span>
+                        <p className="text-sm font-semibold text-white">Реферальная программа</p>
+                    </div>
+                    <p className="text-xs text-white/50 leading-relaxed">
+                        Приглашай друзей — получай <b className="text-purple-300">10%</b> с каждой их покупки
+                    </p>
+
+                    {(user.referral_balance ?? 0) > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(124,58,237,0.2)" }}>
+                            <span className="text-sm">💰</span>
+                            <span className="text-sm font-bold text-green-300">
+                                Баланс: {(user.referral_balance ?? 0).toFixed(2)} ₽
+                            </span>
+                        </div>
+                    )}
+
+                    <button
+                        onClick={() => {
+                            const link = `https://t.me/LsJ_loveBot?start=ref_${userId}`;
+                            if (navigator.clipboard) {
+                                navigator.clipboard.writeText(link).then(() => {
+                                    setRefCopied(true);
+                                    setTimeout(() => setRefCopied(false), 2500);
+                                });
+                            }
+                        }}
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all"
+                        style={{ background: refCopied ? "rgba(34,197,94,0.3)" : "rgba(124,58,237,0.4)", border: "1px solid rgba(124,58,237,0.4)" }}
+                    >
+                        {refCopied ? "✅ Ссылка скопирована!" : "📋 Скопировать реферальную ссылку"}
+                    </button>
+
+                    {(user.referral_balance ?? 0) > 0 && (
+                        <a
+                            href={`https://t.me/babymaxx?text=${encodeURIComponent("Здравствуйте, я хотел бы запросить вывод средств по реферальной системе LsJ_Love")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all"
+                            style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(34,197,94,0.35)", color: "#86efac", textDecoration: "none" }}
+                        >
+                            💸 Запросить вывод средств
+                        </a>
+                    )}
                 </div>
             </div>
 

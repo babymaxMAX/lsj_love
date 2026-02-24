@@ -27,6 +27,7 @@ class UserDetailSchema(BaseModel):
     photos: list[str] = []
     media_types: list[str] = []  # "image" | "video" for each item in photos
     is_active: bool
+    referral_balance: float = 0.0
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -60,6 +61,7 @@ class UserDetailSchema(BaseModel):
             photos=photos_urls,
             media_types=media_types,
             is_active=user.is_active,
+            referral_balance=float(getattr(user, "referral_balance", 0) or 0),
         )
 
 

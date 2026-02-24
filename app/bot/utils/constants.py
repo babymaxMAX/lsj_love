@@ -84,6 +84,11 @@ def user_profile_text_message(user: UserEntity) -> str:
     sl_str = f"  ·  ⭐ Суперлайки: {sl_credits}" if sl_credits > 0 else ""
     lines.append(f"{badge}{sl_str}")
 
+    # Реферальный баланс (только если > 0)
+    ref_balance = float(getattr(user, "referral_balance", 0) or 0)
+    if ref_balance > 0:
+        lines.append(f"💰  Реф. баланс: <b>{ref_balance:.2f} ₽</b>")
+
     return "\n".join(lines)
 
 

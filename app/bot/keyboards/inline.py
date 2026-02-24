@@ -46,6 +46,9 @@ def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int 
         ),
     )
     builder.row(
+        InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="referral_info"),
+    )
+    builder.row(
         InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info"),
     )
     return builder.as_markup()

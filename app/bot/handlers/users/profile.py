@@ -103,6 +103,70 @@ async def profile(
     )
 
 
+@user_profile_router.callback_query(F.data == "referral_info")
+async def referral_info(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    await callback.answer()
+
+    try:
+        user = await service.get_user(telegram_id=callback.from_user.id)
+    except Exception:
+        await callback.message.answer("Ошибка получения профиля.")
+        return
+
+    # Получаем username бота для формирования ссылки
+    try:
+        bot_me = await callback.bot.get_me()
+        bot_username = bot_me.username
+    except Exception:
+        bot_username = "LsJ_loveBot"
+
+    referral_link = f"https://t.me/{bot_username}?start=ref_{callback.from_user.id}"
+    balance = float(getattr(user, "referral_balance", 0) or 0)
+    referred_by = getattr(user, "referred_by", None)
+
+    referred_line = ""
+    if referred_by:
+        referred_line = f"\n📨 Ты пришёл по реферальной ссылке."
+
+    text = (
+        f"🔗 <b>Реферальная программа LSJLove</b>\n\n"
+        f"Приглашай друзей — зарабатывай 10% с каждой их покупки!\n\n"
+        f"<b>Твоя ссылка:</b>\n"
+        f"<code>{referral_link}</code>\n\n"
+        f"💰 <b>Твой баланс: {balance:.2f} ₽</b>\n"
+        f"{referred_line}\n"
+        f"─────────────────────\n"
+        f"Как это работает:\n"
+        f"1. Поделись ссылкой с другом\n"
+        f"2. Друг регистрируется и оплачивает подписку\n"
+        f"3. Ты автоматически получаешь <b>10%</b> от суммы на баланс\n\n"
+        f"💸 <b>Вывод средств:</b> нажми кнопку ниже — откроется чат,\n"
+        f"сообщение о выводе заполнится автоматически.\n\n"
+        f"<i>Баланс виден только тебе.</i>"
+    )
+
+    withdraw_text = "Здравствуйте, я хотел бы запросить вывод средств по реферальной системе LsJ_Love"
+    import urllib.parse
+    withdraw_url = f"https://t.me/babymaxx?text={urllib.parse.quote(withdraw_text)}"
+
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Скопировать ссылку", switch_inline_query=referral_link)],
+        [InlineKeyboardButton(text="💸 Запросить вывод средств", url=withdraw_url)],
+        [InlineKeyboardButton(text="🔙 В профиль", callback_data="profile_page")],
+    ])
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=back_kb)
+
+
 @user_profile_router.callback_query(F.data == "toggle_visibility")
 async def toggle_visibility(
     callback: CallbackQuery,

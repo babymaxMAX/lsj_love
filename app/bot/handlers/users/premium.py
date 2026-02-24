@@ -26,6 +26,45 @@ from app.settings.config import Config
 logger = logging.getLogger(__name__)
 premium_router = Router(name="Premium router")
 
+
+async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub_amount: float, bot):
+    """Начисляет 10% реферальный бонус рефереру при оплате Stars."""
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        service: BaseUsersService = container.resolve(BaseUsersService)
+        user = await service.get_user(telegram_id=telegram_id)
+        referred_by = getattr(user, "referred_by", None)
+        if not referred_by:
+            return
+
+        bonus = round(rub_amount * 0.10, 2)
+        if bonus <= 0:
+            return
+
+        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        config: Config = container.resolve(Config)
+        users_col = client[config.mongodb_dating_database]["users"]
+        await users_col.update_one(
+            {"telegram_id": referred_by},
+            {"$inc": {"referral_balance": bonus}},
+        )
+        logger.info(f"Stars referral bonus +{bonus}₽ → {referred_by} (from {telegram_id})")
+
+        try:
+            await bot.send_message(
+                chat_id=referred_by,
+                text=(
+                    f"💰 <b>+{bonus:.2f} ₽</b> на реферальный баланс!\n"
+                    f"Приглашённый тобой пользователь совершил покупку."
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning(f"Referral notify failed: {e}")
+
+    except Exception as e:
+        logger.warning(f"Stars referral bonus error: {e}")
+
 BACKEND_URL = "https://lsjlove.duckdns.org"
 
 
@@ -477,13 +516,13 @@ async def successful_payment(message: Message, container: Container = init_conta
 
     if payload == "icebreaker_pack_5":
         try:
-            # Атомарно добавляем +5 кредитов: уменьшаем счётчик использований на 5
             await users_col.update_one(
                 {"telegram_id": user_id},
                 {"$inc": {"icebreaker_used": -5}},
             )
         except Exception as e:
             logger.error(f"Icebreaker pack activation failed: {e}")
+        await _give_stars_referral_bonus(container, user_id, config.platega_icebreaker_pack_price, message.bot)
         await message.answer(
             "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
             "Открой приложение и свайпай анкеты — "
@@ -495,13 +534,13 @@ async def successful_payment(message: Message, container: Container = init_conta
 
     elif payload == "superlike_1":
         try:
-            # Атомарно добавляем +1 суперлайк
             await users_col.update_one(
                 {"telegram_id": user_id},
                 {"$inc": {"superlike_credits": 1}},
             )
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
+        await _give_stars_referral_bonus(container, user_id, config.platega_superlike_price, message.bot)
         await message.answer(
             "⭐ <b>Суперлайк активирован!</b>\n\n"
             "Открой приложение, найди анкету и нажми кнопку ⭐ — "
@@ -513,8 +552,8 @@ async def successful_payment(message: Message, container: Container = init_conta
     elif payload in ("premium_monthly", "vip_monthly"):
         premium_type = "premium" if payload == "premium_monthly" else "vip"
         label = "⭐ Premium" if premium_type == "premium" else "💎 VIP"
+        rub_price = config.platega_premium_price if premium_type == "premium" else config.platega_vip_price
         try:
-            # Продлеваем от текущей даты окончания (не теряем оставшиеся дни)
             service: BaseUsersService = container.resolve(BaseUsersService)
             user = await service.get_user(telegram_id=user_id)
             now = datetime.utcnow()
@@ -527,6 +566,7 @@ async def successful_payment(message: Message, container: Container = init_conta
                 telegram_id=user_id,
                 data={"premium_type": premium_type, "premium_until": until},
             )
+            await _give_stars_referral_bonus(container, user_id, rub_price, message.bot)
             days_left = (until - now).days
             await message.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"

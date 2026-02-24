@@ -19,23 +19,33 @@ user_router: Router = Router(
 
 @user_router.message(CommandStart())
 async def start(message: Message, state: FSMContext, container: Container = init_container()):
-    # Сбрасываем любое зависшее состояние регистрации
     await state.clear()
 
     service: BaseUsersService = container.resolve(BaseUsersService)
+
+    # Парсим реферальный параметр: /start ref_12345678
+    referral_from: int | None = None
+    parts = message.text.split(maxsplit=1)
+    if len(parts) > 1:
+        arg = parts[1].strip()
+        if arg.startswith("ref_"):
+            try:
+                candidate = int(arg[4:])
+                if candidate != message.from_user.id:
+                    referral_from = candidate
+            except ValueError:
+                pass
 
     try:
         user = await service.get_user(telegram_id=message.from_user.id)
 
         if user.is_active:
-            # Пользователь уже зарегистрирован — показываем профиль
             await message.answer(
                 text=f"С возвращением, <b>{message.from_user.first_name}</b>! 💫",
                 parse_mode="HTML",
             )
             await profile(message)
         else:
-            # Пользователь есть в базе, но не заполнил анкету
             if not message.from_user.username:
                 await message.answer(
                     text="Сначала установи <b>username</b> в настройках Telegram, затем напиши /start снова.",
@@ -52,6 +62,15 @@ async def start(message: Message, state: FSMContext, container: Container = init
     except ApplicationException:
         # Новый пользователь
         user = UserEntity.from_telegram_user(user=message.from_user)
+
+        # Если пришёл по реферальной ссылке — проверяем что реферер существует
+        if referral_from:
+            try:
+                await service.get_user(telegram_id=referral_from)
+                user.referred_by = referral_from
+            except ApplicationException:
+                pass  # реферер не найден — игнорируем
+
         await service.create_user(user)
 
         if not message.from_user.username:
@@ -62,10 +81,12 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 parse_mode="HTML",
             )
         else:
-            await message.answer(
-                text=f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
-                     f"Здесь ты найдёшь свою вторую половинку.\n"
-                     f"Заполним анкету прямо сейчас — это займёт меньше минуты!",
-                parse_mode="HTML",
+            welcome = (
+                f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
+                f"Здесь ты найдёшь свою вторую половинку.\n"
+                f"Заполним анкету прямо сейчас — это займёт меньше минуты!"
             )
+            if referral_from:
+                welcome += "\n\n🎁 Ты зарегистрировался по реферальной ссылке!"
+            await message.answer(text=welcome, parse_mode="HTML")
             await start_registration(message, state)
