@@ -465,38 +465,40 @@ async def pre_checkout(query: PreCheckoutQuery):
 
 @premium_router.message(lambda m: m.successful_payment is not None)
 async def successful_payment(message: Message, container: Container = init_container()):
+    from motor.motor_asyncio import AsyncIOMotorClient
     payment = message.successful_payment
     payload = payment.invoice_payload
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    user_id = message.from_user.id
 
-    if payload == "premium_monthly":
-        premium_type, label = "premium", "⭐ Premium"
-    elif payload == "vip_monthly":
-        premium_type, label = "vip", "💎 VIP"
-    elif payload == "icebreaker_pack_5":
+    # Атомарные операции с MongoDB — никаких race condition
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config: Config = container.resolve(Config)
+    users_col = client[config.mongodb_dating_database]["users"]
+
+    if payload == "icebreaker_pack_5":
         try:
-            current = await service.get_icebreaker_count(telegram_id=message.from_user.id)
-            new_count = max(0, current - 5)
-            await service.update_user_info_after_reg(
-                telegram_id=message.from_user.id,
-                data={"icebreaker_used": new_count},
+            # Атомарно добавляем +5 кредитов: уменьшаем счётчик использований на 5
+            await users_col.update_one(
+                {"telegram_id": user_id},
+                {"$inc": {"icebreaker_used": -5}},
             )
         except Exception as e:
             logger.error(f"Icebreaker pack activation failed: {e}")
         await message.answer(
             "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
             "Открой приложение и свайпай анкеты — "
-            "кнопка ✨ AI Icebreaker теперь снова доступна.",
+            "кнопка ✨ AI Icebreaker теперь снова доступна.\n\n"
+            "Каждая покупка суммируется — можно купить несколько пак подряд!",
             parse_mode="HTML",
         )
         return
+
     elif payload == "superlike_1":
         try:
-            user = await service.get_user(telegram_id=message.from_user.id)
-            current_credits = getattr(user, "superlike_credits", 0) or 0
-            await service.update_user_info_after_reg(
-                telegram_id=message.from_user.id,
-                data={"superlike_credits": current_credits + 1},
+            # Атомарно добавляем +1 суперлайк
+            await users_col.update_one(
+                {"telegram_id": user_id},
+                {"$inc": {"superlike_credits": 1}},
             )
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
@@ -507,22 +509,37 @@ async def successful_payment(message: Message, container: Container = init_conta
             parse_mode="HTML",
         )
         return
+
+    elif payload in ("premium_monthly", "vip_monthly"):
+        premium_type = "premium" if payload == "premium_monthly" else "vip"
+        label = "⭐ Premium" if premium_type == "premium" else "💎 VIP"
+        try:
+            # Продлеваем от текущей даты окончания (не теряем оставшиеся дни)
+            service: BaseUsersService = container.resolve(BaseUsersService)
+            user = await service.get_user(telegram_id=user_id)
+            now = datetime.utcnow()
+            current_until = getattr(user, "premium_until", None) or now
+            if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
+                current_until = current_until.replace(tzinfo=None)
+            base = max(current_until, now)
+            until = base + timedelta(days=30)
+            await service.update_user_info_after_reg(
+                telegram_id=user_id,
+                data={"premium_type": premium_type, "premium_until": until},
+            )
+            days_left = (until - now).days
+            await message.answer(
+                f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+                f"Активирован <b>LSJLove {label}</b>.\n"
+                f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b> ({days_left} дн.)\n\n"
+                f"Открой приложение и наслаждайся! ✨",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"Stars premium activation failed: {e}")
+            await message.answer("✅ Оплата получена! Подписка активируется в течение минуты.")
+        return
+
     else:
         await message.answer("✅ Оплата получена!")
         return
-
-    until = datetime.utcnow() + timedelta(days=30)
-    try:
-        await service.update_user_info_after_reg(
-            telegram_id=message.from_user.id,
-            data={"premium_type": premium_type, "premium_until": until},
-        )
-    except Exception as e:
-        logger.error(f"Stars premium activation failed: {e}")
-
-    await message.answer(
-        f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-        f"Активирован <b>LSJLove {label}</b> на 30 дней.\n\n"
-        f"Открой приложение и наслаждайся! ✨",
-        parse_mode="HTML",
-    )

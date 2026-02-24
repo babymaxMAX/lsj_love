@@ -461,50 +461,31 @@ async def platega_webhook(
         return JSONResponse({"ok": True, "already_confirmed": True})
 
     product_info = PRODUCTS.get(tx["product"], {})
-    service: BaseUsersService = container.resolve(BaseUsersService)
 
     if product_info.get("premium_type"):
         try:
-            user = await service.get_user(telegram_id=tx["telegram_id"])
-            now = datetime.utcnow()
-            current_until = getattr(user, "premium_until", None) or now
-            if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
-                current_until = current_until.replace(tzinfo=None)
-            base = max(current_until, now)
-            until = base + timedelta(days=product_info["days"])
-            await service.update_user_info_after_reg(
+            await _activate_subscription(
+                container,
                 telegram_id=tx["telegram_id"],
-                data={
-                    "premium_type": product_info["premium_type"],
-                    "premium_until": until,
-                },
+                premium_type=product_info["premium_type"],
+                days=product_info["days"],
             )
-            logger.info(f"Premium activated via webhook: user={tx['telegram_id']}, until={until}")
+            logger.info(f"Premium activated via webhook: user={tx['telegram_id']}")
         except Exception as e:
             logger.error(f"Premium activation failed: {e}")
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
     elif tx.get("product") == "icebreaker_pack":
         try:
-            current = await service.get_icebreaker_count(telegram_id=tx["telegram_id"])
-            new_count = max(0, current - 5)
-            await service.update_user_info_after_reg(
-                telegram_id=tx["telegram_id"],
-                data={"icebreaker_used": new_count},
-            )
-            logger.info(f"Icebreaker pack activated via webhook: user={tx['telegram_id']}")
+            await _activate_icebreaker_pack(container, tx["telegram_id"])
+            logger.info(f"Icebreaker pack (+5) activated via webhook: user={tx['telegram_id']}")
         except Exception as e:
             logger.error(f"Icebreaker pack activation failed: {e}")
 
     elif tx.get("product") == "superlike":
         try:
-            user = await service.get_user(telegram_id=tx["telegram_id"])
-            current_credits = getattr(user, "superlike_credits", 0) or 0
-            await service.update_user_info_after_reg(
-                telegram_id=tx["telegram_id"],
-                data={"superlike_credits": current_credits + 1},
-            )
-            logger.info(f"Superlike credit added via webhook: user={tx['telegram_id']}")
+            await _activate_superlike(container, tx["telegram_id"])
+            logger.info(f"Superlike credit (+1) added via webhook: user={tx['telegram_id']}")
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
 
