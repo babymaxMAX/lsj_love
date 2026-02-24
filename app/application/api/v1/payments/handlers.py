@@ -84,11 +84,10 @@ def _get_transactions_collection(container: Container):
     return client[config.mongodb_dating_database]["transactions"]
 
 
-async def _fetch_usdt_rate(merchant_id: str) -> Optional[float]:
+async def _fetch_usdt_rate_platega(merchant_id: str, secret: str) -> Optional[float]:
     """
-    Получает текущий курс RUB→USDT от Platega.
-    Endpoint: GET /rates/payment_method_rate
-    Возвращает rate: сколько USDT за 1 RUB (например, 0.0106).
+    Получает курс RUB→USDT через Platega rates endpoint.
+    Возвращает USDT за 1 RUB (например 0.0106), или None при ошибке.
     """
     try:
         async with aiohttp.ClientSession() as session:
@@ -96,22 +95,67 @@ async def _fetch_usdt_rate(merchant_id: str) -> Optional[float]:
                 f"{PLATEGA_BASE_URL}/rates/payment_method_rate",
                 params={
                     "merchantId": merchant_id,
-                    "paymentMethod": 13,   # Crypto (USDT)
+                    "paymentMethod": 13,
                     "currencyFrom": "RUB",
                     "currencyTo": "USDT",
+                },
+                headers={
+                    "X-MerchantId": merchant_id,
+                    "X-Secret": secret,
                 },
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
-                    logger.warning(f"USDT rate endpoint returned {resp.status}")
+                    text = await resp.text()
+                    logger.warning(f"Platega rate {resp.status}: {text[:200]}")
                     return None
                 data = await resp.json()
-                logger.info(f"USDT rate response: {data}")
+                logger.info(f"Platega USDT rate response: {data}")
                 rate = data.get("rate")
-                return float(rate) if rate else None
+                if rate and float(rate) > 0:
+                    return float(rate)
+                return None
     except Exception as e:
-        logger.warning(f"Failed to fetch USDT rate: {e}")
+        logger.warning(f"Platega rate fetch failed: {e}")
         return None
+
+
+async def _fetch_usdt_rate_coingecko() -> Optional[float]:
+    """
+    Fallback: получает курс 1 USDT в RUB через публичный CoinGecko API.
+    Возвращает USDT за 1 RUB (например 0.0106).
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "tether", "vs_currencies": "rub"},
+                headers={"Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                rub_per_usdt = data.get("tether", {}).get("rub")
+                if rub_per_usdt and float(rub_per_usdt) > 0:
+                    rate = 1.0 / float(rub_per_usdt)
+                    logger.info(f"CoinGecko USDT rate: {rub_per_usdt} RUB/USDT → {rate:.6f} USDT/RUB")
+                    return rate
+    except Exception as e:
+        logger.warning(f"CoinGecko rate fetch failed: {e}")
+    return None
+
+
+async def _fetch_usdt_rate(merchant_id: str, secret: str = "") -> Optional[float]:
+    """
+    Получает курс USDT/RUB. Сначала пробует Platega, затем CoinGecko.
+    Возвращает USDT за 1 RUB (например 0.0106).
+    """
+    rate = await _fetch_usdt_rate_platega(merchant_id, secret)
+    if rate:
+        return rate
+    logger.info("Platega rate unavailable, trying CoinGecko...")
+    return await _fetch_usdt_rate_coingecko()
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -127,7 +171,7 @@ async def get_usdt_rate(container: Container = Depends(init_container)):
     config: Config = container.resolve(Config)
     if not config.platega_merchant_id:
         return {"usdt_per_rub": None, "rub_per_usdt": None, "error": "not configured"}
-    usdt_per_rub = await _fetch_usdt_rate(config.platega_merchant_id)
+    usdt_per_rub = await _fetch_usdt_rate(config.platega_merchant_id, config.platega_secret)
     if not usdt_per_rub or usdt_per_rub <= 0:
         return {"usdt_per_rub": None, "rub_per_usdt": None}
     return {
@@ -226,8 +270,8 @@ async def create_platega_payment(
                 usdt_per_rub = 1.0 / raw_rate
 
         if not usdt_per_rub:
-            # Fallback: запрашиваем через rates endpoint
-            usdt_per_rub = await _fetch_usdt_rate(config.platega_merchant_id)
+            # Fallback: запрашиваем через rates endpoint (Platega → CoinGecko)
+            usdt_per_rub = await _fetch_usdt_rate(config.platega_merchant_id, config.platega_secret)
 
         if usdt_per_rub and usdt_per_rub > 0:
             usdt_amount = round(amount * usdt_per_rub, 2)
