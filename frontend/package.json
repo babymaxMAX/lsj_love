@@ -9,6 +9,7 @@
 		"lint": "next lint"
 	},
 	"dependencies": {
+    "react-qr-code": "^2.0.15",
 		"@nextui-org/button": "^2.0.28",
 		"@nextui-org/card": "^2.0.27",
 		"@nextui-org/code": "^2.0.25",
