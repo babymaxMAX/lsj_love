@@ -22,6 +22,10 @@ def convert_user_entity_to_document(user: UserEntity) -> dict:
         "is_active": user.is_active,
         "premium_type": user.premium_type,
         "premium_until": user.premium_until,
+        "superlike_credits": user.superlike_credits or 0,
+        "boost_until": user.boost_until,
+        "boosts_this_week": user.boosts_this_week or 0,
+        "boost_week_reset": user.boost_week_reset,
         "created_at": user.created_at,
     }
 
@@ -43,6 +47,10 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         is_active=user_document["is_active"],
         premium_type=user_document.get("premium_type"),
         premium_until=user_document.get("premium_until"),
+        superlike_credits=int(user_document.get("superlike_credits") or 0),
+        boost_until=user_document.get("boost_until"),
+        boosts_this_week=int(user_document.get("boosts_this_week") or 0),
+        boost_week_reset=user_document.get("boost_week_reset"),
         created_at=user_document["created_at"],
     )
 

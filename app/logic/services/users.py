@@ -92,3 +92,6 @@ class UsersService(BaseUsersService):
 
     async def remove_photo(self, telegram_id: int, index: int) -> list[str]:
         return await self.user_repository.remove_photo(telegram_id=telegram_id, index=index)
+
+    async def replace_photo(self, telegram_id: int, index: int, s3_key: str) -> list[str]:
+        return await self.user_repository.replace_photo(telegram_id=telegram_id, index=index, s3_key=s3_key)

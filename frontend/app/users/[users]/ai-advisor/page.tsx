@@ -45,10 +45,26 @@ export default function AiAdvisorPage() {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<AdvisorStatus | null>(null);
     const [statusLoading, setStatusLoading] = useState(true);
+    const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
     const bottomRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const textRef = useRef<HTMLTextAreaElement>(null);
+
+    const fetchStatus = useCallback(() => {
+        if (!userId) return;
+        fetch(`${BackEnd_URL}/api/v1/ai/dialog-advisor/status/${userId}`)
+            .then((r) => r.json())
+            .then((d: AdvisorStatus) => {
+                setStatus(d);
+                if (!d.is_vip && d.trial_active && d.trial_hours_left !== null) {
+                    setSecondsLeft(Math.round(d.trial_hours_left * 3600));
+                } else if (!d.is_vip && d.trial_expired) {
+                    setSecondsLeft(0);
+                }
+            })
+            .catch(() => setStatus(null));
+    }, [userId]);
 
     // Загружаем статус
     useEffect(() => {
@@ -56,10 +72,45 @@ export default function AiAdvisorPage() {
         setStatusLoading(true);
         fetch(`${BackEnd_URL}/api/v1/ai/dialog-advisor/status/${userId}`)
             .then((r) => r.json())
-            .then((d) => setStatus(d))
+            .then((d: AdvisorStatus) => {
+                setStatus(d);
+                if (!d.is_vip && d.trial_active && d.trial_hours_left !== null) {
+                    setSecondsLeft(Math.round(d.trial_hours_left * 3600));
+                } else if (!d.is_vip && d.trial_expired) {
+                    setSecondsLeft(0);
+                }
+            })
             .catch(() => setStatus(null))
             .finally(() => setStatusLoading(false));
     }, [userId]);
+
+    // Таймер обратного отсчёта
+    useEffect(() => {
+        if (secondsLeft === null) return;
+        if (secondsLeft <= 0) {
+            // Пробный период истёк
+            setStatus((prev) => prev ? { ...prev, trial_active: false, trial_expired: true, trial_hours_left: null } : prev);
+            return;
+        }
+        const timer = setInterval(() => {
+            setSecondsLeft((s) => {
+                if (s === null || s <= 1) {
+                    clearInterval(timer);
+                    setStatus((prev) => prev ? { ...prev, trial_active: false, trial_expired: true, trial_hours_left: null } : prev);
+                    return 0;
+                }
+                return s - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [secondsLeft === null || secondsLeft <= 0]);  // eslint-disable-line
+
+    // Обновляем с сервера каждые 5 минут для синхронизации
+    useEffect(() => {
+        if (!userId) return;
+        const interval = setInterval(fetchStatus, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [fetchStatus]);
 
     // Восстанавливаем историю из localStorage
     useEffect(() => {
@@ -92,10 +143,27 @@ export default function AiAdvisorPage() {
         const reader = new FileReader();
         reader.onload = () => {
             const result = reader.result as string;
-            setImagePreview(result);
-            // Убираем data:image/...;base64, префикс
-            const base64 = result.split(",")[1] ?? "";
-            setImageBase64(base64);
+            // Сжимаем изображение перед отправкой
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                const MAX_W = 1280;
+                const MAX_H = 1280;
+                let w = img.width;
+                let h = img.height;
+                if (w > MAX_W || h > MAX_H) {
+                    const ratio = Math.min(MAX_W / w, MAX_H / h);
+                    w = Math.round(w * ratio);
+                    h = Math.round(h * ratio);
+                }
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+                const compressed = canvas.toDataURL("image/jpeg", 0.8);
+                setImagePreview(compressed);
+                setImageBase64(compressed.split(",")[1] ?? "");
+            };
+            img.src = result;
         };
         reader.readAsDataURL(file);
         e.target.value = "";
@@ -259,12 +327,20 @@ export default function AiAdvisorPage() {
     }
 
     // ── Trial banner content ───────────────────────────────────────────────────
-    const trialBanner = !statusLoading && status && !status.is_vip && status.trial_active && status.trial_hours_left !== null ? (
+    const formatCountdown = (secs: number): string => {
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = secs % 60;
+        if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    };
+
+    const trialBanner = !statusLoading && status && !status.is_vip && status.trial_active && secondsLeft !== null && secondsLeft > 0 ? (
         <div className="flex items-center justify-between px-4 py-2 text-xs"
              style={{ background: "rgba(139,92,246,0.12)", borderBottom: "1px solid rgba(139,92,246,0.2)" }}>
-            <span className="text-purple-300">⏱ Пробный доступ: {status.trial_hours_left < 1
-                ? `${Math.ceil(status.trial_hours_left * 60)} мин`
-                : `${Math.floor(status.trial_hours_left)} ч`} осталось</span>
+            <span className="text-purple-300 font-mono">
+                ⏱ Пробный доступ: <b>{formatCountdown(secondsLeft)}</b>
+            </span>
             <button onClick={() => router.push(`/users/${userId}/premium`)}
                     className="text-purple-400 font-semibold hover:text-purple-300 transition-colors">
                 Получить VIP

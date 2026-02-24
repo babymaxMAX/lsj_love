@@ -17,6 +17,7 @@ class GetLikeResponseSchema(BaseModel):
 class CreateLikeRequestSchema(BaseModel):
     from_user: int
     to_user: int
+    is_superlike: bool = False
 
 
 class CreateLikeResponseSchema(BaseModel):

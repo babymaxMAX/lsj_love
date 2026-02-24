@@ -88,18 +88,19 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
     async def get_best_result_for_user(
         self, telegram_id: int, exclude_ids: list[int] | None = None
     ) -> Iterable[UserEntity]:
+        from datetime import datetime, timezone
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
             return []
 
         user_age = user.age
-        user_city = user.city
-
         age_min = int(user_age) - 5
         age_max = int(user_age) + 5
 
         excluded = list(exclude_ids or [])
         excluded.append(telegram_id)
+
+        now = datetime.now(timezone.utc)
 
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
@@ -111,19 +112,55 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             },
         }
 
-        # Если известен пол — показываем противоположный
         if hasattr(user, "gender") and user.gender:
             gender_map = {"Мужской": "Женский", "Женский": "Мужской", "Man": "Female", "Female": "Man"}
             target_gender = gender_map.get(str(user.gender))
             if target_gender:
                 query_filter["gender"] = target_gender
 
-        users_documents = self._collection.find(filter=query_filter)
-
-        return [
-            convert_user_document_to_entity(user_document=user_document)
-            async for user_document in users_documents
+        # Приоритетная сортировка: boosted → VIP → Premium → бесплатные
+        pipeline = [
+            {"$match": query_filter},
+            {"$addFields": {
+                "_sort_priority": {
+                    "$switch": {
+                        "branches": [
+                            # Boost активен
+                            {
+                                "case": {"$and": [
+                                    {"$gt": ["$boost_until", now]},
+                                ]},
+                                "then": 0,
+                            },
+                            # VIP с активной подпиской
+                            {
+                                "case": {"$and": [
+                                    {"$eq": ["$premium_type", "vip"]},
+                                    {"$gt": ["$premium_until", now]},
+                                ]},
+                                "then": 1,
+                            },
+                            # Premium с активной подпиской
+                            {
+                                "case": {"$and": [
+                                    {"$eq": ["$premium_type", "premium"]},
+                                    {"$gt": ["$premium_until", now]},
+                                ]},
+                                "then": 2,
+                            },
+                        ],
+                        "default": 3,
+                    }
+                }
+            }},
+            {"$sort": {"_sort_priority": 1}},
+            {"$project": {"_sort_priority": 0}},
         ]
+
+        result = []
+        async for doc in self._collection.aggregate(pipeline):
+            result.append(convert_user_document_to_entity(user_document=doc))
+        return result
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:
         users_documents = self._collection.find(
@@ -216,11 +253,24 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         if index < 0 or index >= len(photos):
             return photos
         photos.pop(index)
-        # Обновляем первое фото для обратной совместимости
         main_photo = photos[0] if photos else None
         await self._collection.update_one(
             filter={"telegram_id": telegram_id},
             update={"$set": {"photos": photos, "photo": main_photo}},
+        )
+        return photos
+
+    async def replace_photo(self, telegram_id: int, index: int, s3_key: str) -> list[str]:
+        photos = await self.get_photos(telegram_id)
+        if index < 0 or index >= len(photos):
+            return photos
+        photos[index] = s3_key
+        update_data: dict = {"photos": photos}
+        if index == 0:
+            update_data["photo"] = s3_key
+        await self._collection.update_one(
+            filter={"telegram_id": telegram_id},
+            update={"$set": update_data},
         )
         return photos
 
@@ -274,6 +324,14 @@ class MongoDBLikesRepository(BaseLikesRepository, BaseMongoDBRepository):
                 result.append(telegram_id)
 
         return result
+
+    async def count_likes_today(self, from_user: int) -> int:
+        from datetime import datetime, timezone
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        return await self._collection.count_documents({
+            "from_user": from_user,
+            "created_at": {"$gte": today_start},
+        })
 
 
 @dataclass

@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "feat: multi-photo profiles, photo likes/comments, view-profile page, slider in swipe card"
+git commit -m "feat: full premium audit - timer, photo-bot, superlike, likes-limit, boost, VIP sort, matches nav"
 git push
 pause

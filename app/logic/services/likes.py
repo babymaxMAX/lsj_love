@@ -70,3 +70,6 @@ class LikesService(BaseLikesService):
             from_user=from_user_id,
             to_user=to_user_id,
         )
+
+    async def count_likes_today(self, from_user_id: int) -> int:
+        return await self.like_repository.count_likes_today(from_user=from_user_id)

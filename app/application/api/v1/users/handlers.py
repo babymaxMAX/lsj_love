@@ -29,8 +29,23 @@ from app.logic.services.base import (
 from app.settings.config import Config
 
 
+_EXT_MAP = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+    "video/avi": "avi",
+}
+
+
 class AddPhotoRequest(BaseModel):
-    image_base64: str  # Чистый base64 без data: prefix
+    image_base64: str       # Raw base64 without data: prefix
+    media_type: str = "image/jpeg"  # MIME type of the file
+    replace_index: int | None = None  # If set, replace at this index
 
 
 class PhotosResponse(BaseModel):
@@ -207,15 +222,27 @@ async def add_user_photo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     current_photos = getattr(user, "photos", []) or []
-    if len(current_photos) >= 6:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Максимум 6 фотографий"},
-        )
+    ext = _EXT_MAP.get(body.media_type, "jpg")
+    is_replace = body.replace_index is not None
+
+    if is_replace:
+        idx = body.replace_index
+        if idx < 0 or idx >= len(current_photos):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Неверный индекс для замены"},
+            )
+    else:
+        if len(current_photos) >= 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Максимум 6 фото/видео"},
+            )
+        idx = len(current_photos)
 
     # Декодируем base64
     try:
-        image_bytes = base64.b64decode(body.image_base64)
+        file_bytes = base64.b64decode(body.image_base64)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -223,24 +250,26 @@ async def add_user_photo(
         )
 
     # Загружаем в S3
-    index = len(current_photos)
-    s3_key = f"{user_id}_{index}.png"
+    s3_key = f"{user_id}_{idx}.{ext}"
     try:
-        await uploader.upload_file(file=image_bytes, file_name=s3_key)
+        await uploader.upload_file(file=file_bytes, file_name=s3_key)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": f"Ошибка загрузки в S3: {str(e)}"},
         )
 
-    # Если это первое фото — обновляем и поле photo для обратной совместимости
-    if index == 0:
-        await service.update_user_info_after_reg(
-            telegram_id=user_id,
-            data={"photo": s3_key},
-        )
+    if is_replace:
+        photos = await service.replace_photo(telegram_id=user_id, index=idx, s3_key=s3_key)
+    else:
+        photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
+        # Первое фото — обновляем photo для обратной совместимости
+        if idx == 0:
+            await service.update_user_info_after_reg(
+                telegram_id=user_id,
+                data={"photo": s3_key},
+            )
 
-    photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
     photos_urls = [f"/api/v1/users/{user_id}/photo/{i}" for i in range(len(photos))]
     return PhotosResponse(photos=photos_urls)
 
@@ -358,18 +387,38 @@ async def get_users_liked_from(
 @router.get(
     "/by/{user_id}",
     status_code=status.HTTP_200_OK,
-    description="Get all users that liked the user.",
+    description="Get all users that liked the user (Premium required).",
     responses={
         status.HTTP_200_OK: {"model": GetUsersFromResponseSchema},
         status.HTTP_400_BAD_REQUEST: {"model": ErrorSchema},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorSchema},
     },
 )
 async def get_users_liked_by(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> GetUsersFromResponseSchema:
+    from datetime import datetime, timezone
     service_likes: BaseLikesService = container.resolve(BaseLikesService)
     service_users: BaseUsersService = container.resolve(BaseUsersService)
+
+    # Premium gate for "who liked you"
+    try:
+        requesting_user = await service_users.get_user(telegram_id=user_id)
+        pt = getattr(requesting_user, "premium_type", None)
+        until = getattr(requesting_user, "premium_until", None)
+        now = datetime.now(timezone.utc)
+        if until and hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_premium = bool(pt and until and now < until)
+    except Exception:
+        is_premium = False
+
+    if not is_premium:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Функция «Кто тебя лайкнул» доступна с подпиской Premium.", "requires_premium": True},
+        )
 
     try:
         telegram_ids = await service_likes.get_users_ids_liked_by(

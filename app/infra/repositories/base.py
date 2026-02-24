@@ -72,6 +72,9 @@ class BaseUsersRepository(ABC):
     async def remove_photo(self, telegram_id: int, index: int) -> list[str]: ...
 
     @abstractmethod
+    async def replace_photo(self, telegram_id: int, index: int, s3_key: str) -> list[str]: ...
+
+    @abstractmethod
     async def get_photos(self, telegram_id: int) -> list[str]: ...
 
 
@@ -91,3 +94,6 @@ class BaseLikesRepository(ABC):
 
     @abstractmethod
     async def get_users_ids_liked_by(self, user_id: int) -> list[int]: ...
+
+    @abstractmethod
+    async def count_likes_today(self, from_user: int) -> int: ...

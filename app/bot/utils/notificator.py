@@ -1,5 +1,88 @@
+import logging
+import re
+
+import aiohttp
+from aiogram.types import BufferedInputFile
+
 from app.bot.keyboards.inline import liked_by_keyboard, match_keyboard, icebreaker_keyboard
 from app.bot.main import bot
+
+logger = logging.getLogger(__name__)
+
+# S3 ключ выглядит как: {digits}_{digit}.{ext}
+_S3_KEY_RE = re.compile(r"^\d+_\d+\.\w+$")
+
+
+def _is_s3_key(photo: str) -> bool:
+    """Определяет, является ли photo S3-ключом (не file_id и не URL)."""
+    if not photo:
+        return False
+    if photo.startswith("http"):
+        return False
+    return bool(_S3_KEY_RE.match(photo))
+
+
+async def _resolve_photo(photo: str, user_id: int | None = None) -> str | bytes | None:
+    """
+    Возвращает корректное значение для send_photo:
+    - HTTP URL (для Telegram file_id или http-ссылки)
+    - bytes (если пришёл S3 ключ — скачиваем через наш API и возвращаем байты)
+    - None если фото недоступно
+    """
+    if not photo:
+        return None
+    if not _is_s3_key(photo):
+        return photo  # Telegram file_id или http — отдаём как есть
+
+    # S3 ключ: скачиваем через наш публичный API
+    from app.logic.init import init_container
+    from app.settings.config import Config
+    try:
+        container = init_container()
+        config: Config = container.resolve(Config)
+        api_base = config.front_end_url.rstrip("/")
+        # Извлекаем user_id из ключа, если не передан
+        if user_id is None:
+            user_id = int(photo.split("_")[0])
+        # Индекс из ключа (7741189969_0.jpg → 0)
+        idx = int(photo.split("_")[1].split(".")[0])
+        url = f"{api_base}/api/v1/users/{user_id}/photo/{idx}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, allow_redirects=True) as resp:
+                if resp.status == 200:
+                    return await resp.read()
+    except Exception as e:
+        logger.warning(f"_resolve_photo failed for key={photo}: {e}")
+    return None
+
+
+async def _send_photo_or_text(chat_id: int, photo_raw, text: str, reply_markup, user_id: int | None = None):
+    """Отправляет фото с caption или текст, правильно обрабатывая S3-ключи."""
+    if photo_raw:
+        resolved = await _resolve_photo(photo_raw, user_id)
+        if resolved:
+            try:
+                if isinstance(resolved, bytes):
+                    photo_input = BufferedInputFile(resolved, filename="photo.jpg")
+                else:
+                    photo_input = resolved
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_input,
+                    caption=text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML",
+                )
+                return
+            except Exception as e:
+                logger.warning(f"send_photo failed: {e}")
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode="HTML",
+    )
 
 
 async def send_liked_message(to_user_id: int):
@@ -8,6 +91,7 @@ async def send_liked_message(to_user_id: int):
             to_user_id,
             text="<b>Кто-то поставил тебе лайк 💗</b>\nХочешь узнать кто?",
             reply_markup=liked_by_keyboard(),
+            parse_mode="HTML",
         )
     except Exception:
         pass
@@ -18,34 +102,35 @@ async def send_icebreaker_message(target_id: int, message: str, sender):
     try:
         sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
         sender_photo = getattr(sender, "photo", None)
+        sender_id = getattr(sender, "telegram_id", None)
 
         text = (
             f"💌 <b>{sender_name}</b> хочет познакомиться и написал(а) тебе:\n\n"
             f"<i>«{message}»</i>\n\n"
             f"Хочешь ответить?"
         )
-        kb = icebreaker_keyboard(sender_id=sender.telegram_id)
-
-        if sender_photo:
-            try:
-                await bot.send_photo(
-                    chat_id=target_id,
-                    photo=sender_photo,
-                    caption=text,
-                    reply_markup=kb,
-                )
-                return
-            except Exception:
-                pass
-
-        await bot.send_message(
-            chat_id=target_id,
-            text=text,
-            reply_markup=kb,
-        )
+        kb = icebreaker_keyboard(sender_id=sender_id)
+        await _send_photo_or_text(target_id, sender_photo, text, kb, user_id=sender_id)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"send_icebreaker_message failed: {e}")
+        logger.error(f"send_icebreaker_message failed: {e}")
+
+
+async def send_superlike_message(target_id: int, sender):
+    """Отправляет уведомление о суперлайке."""
+    try:
+        sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
+        sender_photo = getattr(sender, "photo", None)
+        sender_id = getattr(sender, "telegram_id", None)
+
+        text = (
+            f"⭐ <b>{sender_name} отправил(а) тебе Суперлайк!</b>\n\n"
+            f"Ты очень понравился(ась) — он(а) специально выделил(а) тебя.\n"
+            f"Ответить взаимностью?"
+        )
+        kb = liked_by_keyboard()
+        await _send_photo_or_text(target_id, sender_photo, text, kb, user_id=sender_id)
+    except Exception as e:
+        logger.error(f"send_superlike_message failed: {e}")
 
 
 async def send_match_message(to_user_id: int, matched_user, recipient_id: int | None = None):
@@ -60,7 +145,6 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
         age = str(getattr(matched_user, "age", "") or "")
         city = str(getattr(matched_user, "city", "") or "")
         matched_id = getattr(matched_user, "telegram_id", None)
-        # Нормализуем username: пустая строка → None
         if username == "":
             username = None
 
@@ -78,22 +162,6 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
         )
 
         photo = getattr(matched_user, "photo", None)
-        if photo:
-            try:
-                await bot.send_photo(
-                    chat_id=to_user_id,
-                    photo=photo,
-                    caption=text,
-                    reply_markup=kb,
-                )
-                return
-            except Exception:
-                pass
-
-        await bot.send_message(
-            chat_id=to_user_id,
-            text=text,
-            reply_markup=kb,
-        )
-    except Exception:
-        pass
+        await _send_photo_or_text(to_user_id, photo, text, kb, user_id=matched_id)
+    except Exception as e:
+        logger.error(f"send_match_message failed: {e}")

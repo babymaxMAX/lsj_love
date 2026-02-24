@@ -349,6 +349,19 @@ async def stars_icebreaker_pack(callback: CallbackQuery, container: Container = 
     await callback.answer()
 
 
+@premium_router.callback_query(lambda c: c.data == "stars_superlike")
+async def stars_superlike(callback: CallbackQuery, container: Container = init_container()):
+    config: Config = container.resolve(Config)
+    await callback.message.answer_invoice(
+        title="⭐ Суперлайк",
+        description="Твой профиль появится первым у выбранного пользователя, и он получит уведомление.",
+        payload="superlike_1",
+        currency="XTR",
+        prices=[LabeledPrice(label="Суперлайк ×1", amount=config.stars_superlike)],
+    )
+    await callback.answer()
+
+
 # ─── Platega (СБП / Крипто) ────────────────────────────────────────────────
 
 @premium_router.callback_query(lambda c: c.data and c.data.startswith("platega_"))
@@ -461,7 +474,6 @@ async def successful_payment(message: Message, container: Container = init_conta
     elif payload == "vip_monthly":
         premium_type, label = "vip", "💎 VIP"
     elif payload == "icebreaker_pack_5":
-        # Добавляем 5 Icebreaker-ов пользователю (сбрасываем счётчик на N назад)
         try:
             current = await service.get_icebreaker_count(telegram_id=message.from_user.id)
             new_count = max(0, current - 5)
@@ -475,6 +487,23 @@ async def successful_payment(message: Message, container: Container = init_conta
             "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
             "Открой приложение и свайпай анкеты — "
             "кнопка ✨ AI Icebreaker теперь снова доступна.",
+            parse_mode="HTML",
+        )
+        return
+    elif payload == "superlike_1":
+        try:
+            user = await service.get_user(telegram_id=message.from_user.id)
+            current_credits = getattr(user, "superlike_credits", 0) or 0
+            await service.update_user_info_after_reg(
+                telegram_id=message.from_user.id,
+                data={"superlike_credits": current_credits + 1},
+            )
+        except Exception as e:
+            logger.error(f"Superlike activation failed: {e}")
+        await message.answer(
+            "⭐ <b>Суперлайк активирован!</b>\n\n"
+            "Открой приложение, найди анкету и нажми кнопку ⭐ — "
+            "твой профиль появится первым, и человек получит уведомление.",
             parse_mode="HTML",
         )
         return

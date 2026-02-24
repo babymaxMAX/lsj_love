@@ -35,38 +35,74 @@ def second_welcome_message(user: User):
 
 
 def user_profile_text_message(user: UserEntity) -> str:
+    from datetime import datetime, timezone
+
     gender = GENDER_RU.get(str(user.gender), str(user.gender) if user.gender else "—")
     looking = LOOKING_FOR_RU.get(str(user.looking_for), str(user.looking_for) if user.looking_for else "—")
 
-    profile_text = (
-        f"<b>✨ Твоя анкета:</b>\n\n"
-        f"<b>👋 Имя:</b> {user.name} | @{user.username}\n"
-        f"<b>🎂 Возраст:</b> {user.age}\n"
-        f"<b>🌆 Город:</b> {user.city}\n"
-        f"<b>👫 Пол:</b> {gender}\n"
-        f"<b>🔍 Ищу:</b> {looking}\n"
-    )
+    name_line = str(user.name) if user.name else "—"
+    age_str = f", {user.age}" if user.age else ""
+    username_str = f"  ·  @{user.username}" if user.username else ""
+
+    lines = [
+        "✨ <b>LSJLove — Моя анкета</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"👤  <b>{name_line}{age_str}</b>{username_str}",
+        f"📍  {user.city or '—'}",
+        f"🔍  Ищу: {looking}",
+        f"👫  Пол: {gender}",
+    ]
 
     if user.about:
-        profile_text += f"<b>✍️ О себе:</b>\n<i>{user.about}</i>"
+        lines.append("")
+        lines.append(f"💬  <i>{user.about}</i>")
 
-    return profile_text
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+
+    # Статус подписки
+    pt = getattr(user, "premium_type", None)
+    until = getattr(user, "premium_until", None)
+    now = datetime.now(timezone.utc)
+
+    if pt and until:
+        if hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        if until > now:
+            days_left = (until - now).days
+            if pt == "vip":
+                badge = f"💎 VIP  ·  ещё {days_left} д."
+            else:
+                badge = f"⭐ Premium  ·  ещё {days_left} д."
+        else:
+            badge = "🔓 Без подписки"
+    else:
+        badge = "🔓 Без подписки"
+
+    # Суперлайки
+    sl_credits = getattr(user, "superlike_credits", 0) or 0
+    sl_str = f"  ·  ⭐ Суперлайки: {sl_credits}" if sl_credits > 0 else ""
+    lines.append(f"{badge}{sl_str}")
+
+    return "\n".join(lines)
 
 
 def profile_text_message(user: UserEntity) -> str:
     gender = GENDER_RU.get(str(user.gender), str(user.gender) if user.gender else "—")
 
-    profile_text = (
-        f"\n<b>👋 Имя:</b> {user.name}\n"
-        f"<b>🎂 Возраст:</b> {user.age}\n"
-        f"<b>🌆 Город:</b> {user.city}\n"
-        f"<b>👫 Пол:</b> {gender}\n"
-    )
+    name_line = str(user.name) if user.name else "—"
+    age_str = f", {user.age}" if user.age else ""
 
+    lines = [
+        f"<b>{name_line}{age_str}</b>",
+        f"📍  {user.city or '—'}",
+        f"👫  {gender}",
+    ]
     if user.about:
-        profile_text += f"<b>✍️ О пользователе:</b>\n<i>{user.about}</i>"
+        lines.append("")
+        lines.append(f"💬  <i>{user.about}</i>")
 
-    return profile_text
+    return "\n".join(lines)
 
 
 def match_text_message(user: UserEntity) -> str:

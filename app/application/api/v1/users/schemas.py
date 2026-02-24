@@ -6,6 +6,14 @@ from app.application.api.schemas import BaseQueryResponseSchema
 from app.domain.entities.users import UserEntity
 
 
+_VIDEO_EXTS = {"mp4", "mov", "webm", "avi", "mkv"}
+
+
+def _key_is_video(key: str) -> bool:
+    ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+    return ext in _VIDEO_EXTS
+
+
 class UserDetailSchema(BaseModel):
     telegram_id: int
     name: str
@@ -17,26 +25,27 @@ class UserDetailSchema(BaseModel):
     about: Optional[str]
     photo: Optional[str]
     photos: list[str] = []
+    media_types: list[str] = []  # "image" | "video" for each item in photos
     is_active: bool
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
         uid = user.telegram_id
 
-        # Главное фото (для обратной совместимости)
         photo = user.photo
         if photo and not photo.startswith("http"):
             photo = f"/api/v1/users/{uid}/photo"
 
-        # Массив фото: если есть photos[] (S3 ключи) — строим URL по индексу
         user_photos: list = getattr(user, "photos", []) or []
         if user_photos:
             photos_urls = [f"/api/v1/users/{uid}/photo/{i}" for i in range(len(user_photos))]
+            media_types = ["video" if _key_is_video(k) else "image" for k in user_photos]
         elif photo:
-            # Обратная совместимость: одно фото → массив из одного
             photos_urls = [f"/api/v1/users/{uid}/photo"]
+            media_types = ["image"]
         else:
             photos_urls = []
+            media_types = []
 
         return UserDetailSchema(
             telegram_id=uid,
@@ -49,6 +58,7 @@ class UserDetailSchema(BaseModel):
             about=user.about,
             photo=photo,
             photos=photos_urls,
+            media_types=media_types,
             is_active=user.is_active,
         )
 

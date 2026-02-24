@@ -148,6 +148,34 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
         setSelectedVariant(null);
     };
 
+    const handleSuperlike = async () => {
+        try {
+            const res = await fetch(`${BackEnd_URL}/api/v1/likes/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    from_user: parseInt(userId),
+                    to_user: user.telegram_id,
+                    is_superlike: true,
+                }),
+            });
+            if (res.status === 403) {
+                const data = await res.json();
+                const msg = data?.detail?.error || "Нет суперлайков. Купи суперлайк в разделе Premium.";
+                if (typeof window !== "undefined" && window.Telegram?.WebApp?.showAlert) {
+                    window.Telegram.WebApp.showAlert(msg);
+                } else {
+                    alert(msg);
+                }
+                return;
+            }
+            // Суперлайк засчитан — переходим к следующей анкете
+            onLike();
+        } catch {
+            onLike();
+        }
+    };
+
     // ─── Icebreaker overlay ────────────────────────────────────────────────────
     const renderIceOverlay = () => {
         if (iceStep === "idle") return null;
@@ -466,21 +494,36 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                 </div>
             </motion.div>
 
-            {/* Кнопки лайк/дизлайк */}
-            <div className="flex justify-center gap-8 mt-6">
+            {/* Кнопки лайк/дизлайк/суперлайк */}
+            <div className="flex justify-center gap-5 mt-6">
                 <button
                     onClick={onDislike}
-                    className="w-16 h-16 rounded-full bg-content1 shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border border-divider"
+                    className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform border"
+                    style={{ background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.1)" }}
                 >
                     👎
                 </button>
                 <button
+                    onClick={handleSuperlike}
+                    title="Суперлайк"
+                    className="w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-110 transition-transform self-center"
+                    style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", boxShadow: "0 4px 15px rgba(245,158,11,0.4)" }}
+                >
+                    ⭐
+                </button>
+                <button
                     onClick={onLike}
-                    className="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-red-500 shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform"
+                    className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform"
+                    style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)", boxShadow: "0 4px 15px rgba(236,72,153,0.4)" }}
                 >
                     ❤️
                 </button>
             </div>
+
+            {/* Подсказка суперлайка */}
+            <p className="text-center text-xs mt-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+                ⭐ Суперлайк уведомит {user.name} и покажет твой профиль первым
+            </p>
         </div>
     );
 }

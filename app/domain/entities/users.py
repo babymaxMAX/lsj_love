@@ -30,6 +30,12 @@ class UserEntity(BaseEntity):
     # Premium статус: None = бесплатный, "premium" = Premium, "vip" = VIP
     premium_type: Optional[Literal["premium", "vip"]] = None
     premium_until: Optional[datetime] = None
+    # Суперлайки
+    superlike_credits: int = 0
+    # Буст профиля
+    boost_until: Optional[datetime] = None
+    boosts_this_week: int = 0
+    boost_week_reset: Optional[datetime] = None
 
     def __post_init__(self):
         if self.photos is None:

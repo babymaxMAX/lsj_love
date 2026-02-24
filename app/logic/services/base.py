@@ -68,6 +68,9 @@ class BaseUsersService(ABC):
     async def remove_photo(self, telegram_id: int, index: int) -> list[str]: ...
 
     @abstractmethod
+    async def replace_photo(self, telegram_id: int, index: int, s3_key: str) -> list[str]: ...
+
+    @abstractmethod
     async def get_photos(self, telegram_id: int) -> list[str]: ...
 
 
@@ -94,3 +97,6 @@ class BaseLikesService(ABC):
 
     @abstractmethod
     async def check_match(self, from_user_id: int, to_user_id: int) -> bool: ...
+
+    @abstractmethod
+    async def count_likes_today(self, from_user_id: int) -> int: ...

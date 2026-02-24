@@ -461,6 +461,18 @@ async def platega_webhook(
         except Exception as e:
             logger.error(f"Icebreaker pack activation failed: {e}")
 
+    elif tx.get("product") == "superlike":
+        try:
+            user = await service.get_user(telegram_id=tx["telegram_id"])
+            current_credits = getattr(user, "superlike_credits", 0) or 0
+            await service.update_user_info_after_reg(
+                telegram_id=tx["telegram_id"],
+                data={"superlike_credits": current_credits + 1},
+            )
+            logger.info(f"Superlike credit added via webhook: user={tx['telegram_id']}")
+        except Exception as e:
+            logger.error(f"Superlike activation failed: {e}")
+
     await col.update_one(
         {"transaction_id": transaction_id},
         {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.utcnow()}},
