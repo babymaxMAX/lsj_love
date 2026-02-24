@@ -29,8 +29,12 @@ premium_router = Router(name="Premium router")
 BACKEND_URL = "https://lsjlove.duckdns.org"
 
 
-def payment_method_keyboard(product: str, config: Config) -> InlineKeyboardMarkup:
-    """Клавиатура выбора способа оплаты (только СБП и Крипто)."""
+def payment_method_keyboard(
+    product: str,
+    config: Config,
+    usdt_per_rub: float | None = None,
+) -> InlineKeyboardMarkup:
+    """Клавиатура выбора способа оплаты (СБП и Крипто)."""
     prices = {
         "premium":   int(config.platega_premium_price),
         "vip":       int(config.platega_vip_price),
@@ -43,6 +47,7 @@ def payment_method_keyboard(product: str, config: Config) -> InlineKeyboardMarku
     }
     rub = prices.get(product, 0)
     st  = stars.get(product, 0)
+    usdt_label = rub_to_usdt(rub, usdt_per_rub)
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -60,7 +65,7 @@ def payment_method_keyboard(product: str, config: Config) -> InlineKeyboardMarku
             ],
             [
                 InlineKeyboardButton(
-                    text=f"₿ Крипто (USDT) — {rub} ₽",
+                    text=f"₿ Крипто — {usdt_label}",
                     callback_data=f"platega_{product}_crypto",
                 ),
             ],
@@ -90,14 +95,36 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
     )
 
 
+async def get_usdt_rate() -> float | None:
+    """Получает курс USDT из нашего backend. Возвращает USDT за 1 RUB."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{BACKEND_URL}/api/v1/payments/platega/usdt-rate",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                data = await resp.json()
+                return data.get("usdt_per_rub")
+    except Exception as e:
+        logger.warning(f"Failed to get USDT rate: {e}")
+        return None
+
+
+def rub_to_usdt(rub: float, usdt_per_rub: float | None) -> str:
+    """Конвертирует рубли в USDT строку. Например: '3.89 USDT'"""
+    if not usdt_per_rub or usdt_per_rub <= 0:
+        return "≈ ? USDT"
+    return f"≈ {rub * usdt_per_rub:.2f} USDT"
+
+
 async def create_payment_via_backend(
     telegram_id: int,
     product: str,
     method: str,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, float | None, float | None, str | None]:
     """
     Создаёт платёж через наш Backend API.
-    Возвращает (redirect_url, error_message).
+    Возвращает (redirect_url, usdt_amount, rub_per_usdt, error_message).
     """
     url = f"{BACKEND_URL}/api/v1/payments/platega/create"
     body = {
@@ -119,21 +146,21 @@ async def create_payment_via_backend(
                 if resp.status != 200:
                     err = data.get("detail", str(data))
                     logger.error(f"Backend error {resp.status}: {err}")
-                    return None, err
+                    return None, None, None, err
 
                 redirect = data.get("redirect_url")
                 if not redirect:
                     logger.error(f"No redirect_url in response: {data}")
-                    return None, "Сервис оплаты не вернул ссылку"
+                    return None, None, None, "Сервис оплаты не вернул ссылку"
 
-                return redirect, None
+                return redirect, data.get("usdt_amount"), data.get("usdt_rate"), None
 
     except aiohttp.ClientError as e:
         logger.error(f"Network error calling backend: {e}")
-        return None, f"Ошибка сети: {e}"
+        return None, None, None, f"Ошибка сети: {e}"
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        return None, str(e)
+        return None, None, None, str(e)
 
 
 # ─── Команда /premium ────────────────────────────────────────────────────────
@@ -180,12 +207,23 @@ def _plan_text(label: str, stars: int, rub: int) -> str:
 @premium_router.callback_query(lambda c: c.data == "choose_premium")
 async def choose_premium(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    text = _plan_text(
-        "⭐ <b>Premium — 1 месяц</b>",
-        config.stars_premium_monthly,
-        int(config.platega_premium_price),
+    usdt_rate = await get_usdt_rate()
+    rub = int(config.platega_premium_price)
+    usdt_str = rub_to_usdt(rub, usdt_rate)
+    text = (
+        "⭐ <b>Premium — 1 месяц</b>\n\n"
+        f"📌 <b>Что входит:</b>\n"
+        f"❤️ Безлимитные лайки\n"
+        f"👁 Кто тебя лайкнул\n"
+        f"↩️ Откат свайпа\n"
+        f"💫 1 суперлайк/день\n\n"
+        f"💰 <b>Стоимость:</b>\n"
+        f"• Telegram Stars: <b>{config.stars_premium_monthly} ⭐</b>\n"
+        f"• СБП: <b>{rub} ₽</b>\n"
+        f"• Крипто: <b>{usdt_str}</b>\n\n"
+        f"Выбери способ оплаты 👇"
     )
-    kb = payment_method_keyboard("premium", config)
+    kb = payment_method_keyboard("premium", config, usdt_rate)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
@@ -196,12 +234,24 @@ async def choose_premium(callback: CallbackQuery, container: Container = init_co
 @premium_router.callback_query(lambda c: c.data == "choose_vip")
 async def choose_vip(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    text = _plan_text(
-        "💎 <b>VIP — 1 месяц</b>",
-        config.stars_vip_monthly,
-        int(config.platega_vip_price),
+    usdt_rate = await get_usdt_rate()
+    rub = int(config.platega_vip_price)
+    usdt_str = rub_to_usdt(rub, usdt_rate)
+    text = (
+        "💎 <b>VIP — 1 месяц</b>\n\n"
+        f"📌 <b>Что входит:</b>\n"
+        f"✅ Всё из Premium\n"
+        f"🤖 AI Icebreaker ×10/день\n"
+        f"   <i>(ИИ пишет первое сообщение за тебя)</i>\n"
+        f"🚀 Буст профиля ×3/нед\n"
+        f"🏆 Приоритет в поиске\n\n"
+        f"💰 <b>Стоимость:</b>\n"
+        f"• Telegram Stars: <b>{config.stars_vip_monthly} ⭐</b>\n"
+        f"• СБП: <b>{rub} ₽</b>\n"
+        f"• Крипто: <b>{usdt_str}</b>\n\n"
+        f"Выбери способ оплаты 👇"
     )
-    kb = payment_method_keyboard("vip", config)
+    kb = payment_method_keyboard("vip", config, usdt_rate)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
@@ -248,12 +298,11 @@ async def platega_payment(callback: CallbackQuery, container: Container = init_c
         return
 
     _, product, method = parts
-    method_labels = {"sbp": "📱 СБП", "crypto": "₿ Крипто"}
-    product_labels = {"premium": "Premium", "vip": "VIP", "superlike": "Суперлайк"}
+    product_labels = {"premium": "⭐ Premium", "vip": "💎 VIP", "superlike": "💫 Суперлайк"}
 
     await callback.answer("⏳ Создаём ссылку...")
 
-    redirect_url, error = await create_payment_via_backend(
+    redirect_url, usdt_amount, rub_per_usdt, error = await create_payment_via_backend(
         telegram_id=callback.from_user.id,
         product=product,
         method=method,
@@ -269,31 +318,37 @@ async def platega_payment(callback: CallbackQuery, container: Container = init_c
         )
         return
 
-    m_label = method_labels.get(method, method)
     p_label = product_labels.get(product, product)
 
     if method == "sbp":
-        instruction = (
-            "1. Нажми кнопку <b>«Открыть СБП»</b> ниже\n"
-            "2. Выбери банк или отсканируй QR\n"
-            "3. Подтверди оплату в приложении"
+        text = (
+            f"✅ <b>Платёж создан!</b>\n\n"
+            f"Тариф: <b>{p_label}</b>\n"
+            f"Способ: <b>📱 СБП</b>\n\n"
+            f"<b>Как оплатить:</b>\n"
+            f"1. Нажми «Открыть СБП» ниже\n"
+            f"2. Выбери свой банк на странице\n"
+            f"3. Подтверди перевод в приложении банка"
         )
         btn_text = "📱 Открыть СБП"
     else:
-        instruction = (
-            "1. Нажми кнопку <b>«Открыть страницу оплаты»</b>\n"
-            "2. Переведи USDT на указанный адрес\n"
-            "3. Дождись подтверждения сети"
+        usdt_line = f"\nСумма к переводу: <b>{usdt_amount} USDT</b>" if usdt_amount else ""
+        rate_line = f"\nКурс: 1 USDT ≈ {rub_per_usdt} ₽" if rub_per_usdt else ""
+        text = (
+            f"✅ <b>Платёж создан!</b>\n\n"
+            f"Тариф: <b>{p_label}</b>\n"
+            f"Способ: <b>₿ Крипто (USDT TRC-20)</b>"
+            f"{usdt_line}{rate_line}\n\n"
+            f"<b>Как оплатить:</b>\n"
+            f"1. Нажми «Открыть страницу оплаты»\n"
+            f"2. Скопируй адрес кошелька USDT\n"
+            f"3. Переведи ровно <b>{usdt_amount} USDT</b> (если есть сумма)\n"
+            f"4. Перевод подтвердится автоматически (~5 мин)"
         )
         btn_text = "₿ Открыть страницу оплаты"
 
     await callback.message.answer(
-        text=(
-            f"✅ <b>Платёж создан!</b>\n\n"
-            f"Продукт: <b>{p_label}</b>\n"
-            f"Способ: <b>{m_label}</b>\n\n"
-            f"<b>Как оплатить:</b>\n{instruction}"
-        ),
+        text=text,
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[

@@ -354,9 +354,9 @@ export default function PremiumPage({ params }: { params: { users: string } }) {
         fetch(`${BackEnd_URL}/api/v1/payments/platega/usdt-rate`)
             .then(r => r.json())
             .then(d => {
-                // d.rate = USDT per RUB (e.g. 0.0106) → convert to RUB per USDT
-                if (d.rate && d.rate > 0) {
-                    setRubPerUsdt(Math.round(1.0 / d.rate));
+                // d.rub_per_usdt = RUB за 1 USDT (например 94)
+                if (d.rub_per_usdt && d.rub_per_usdt > 0) {
+                    setRubPerUsdt(d.rub_per_usdt);
                 }
             })
             .catch(() => {/* не критично */});
