@@ -4,8 +4,8 @@ import re
 import aiohttp
 from aiogram.types import BufferedInputFile
 
-from app.bot.keyboards.inline import liked_by_keyboard, match_keyboard, icebreaker_keyboard
-from app.bot.main import bot
+# Все импорты из app.bot.* делаются ЛЕНИВО внутри функций,
+# чтобы избежать циклического импорта через bot.main
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ async def _resolve_photo(photo: str, user_id: int | None = None) -> str | bytes 
 
 async def _send_photo_or_text(chat_id: int, photo_raw, text: str, reply_markup, user_id: int | None = None):
     """Отправляет фото с caption или текст, правильно обрабатывая S3-ключи."""
+    from app.bot.main import bot  # ленивый импорт во избежание цикла
     if photo_raw:
         resolved = await _resolve_photo(photo_raw, user_id)
         if resolved:
@@ -86,6 +87,8 @@ async def _send_photo_or_text(chat_id: int, photo_raw, text: str, reply_markup, 
 
 
 async def send_liked_message(to_user_id: int):
+    from app.bot.main import bot  # ленивый импорт
+    from app.bot.keyboards.inline import liked_by_keyboard
     try:
         await bot.send_message(
             to_user_id,
@@ -99,6 +102,7 @@ async def send_liked_message(to_user_id: int):
 
 async def send_icebreaker_message(target_id: int, message: str, sender):
     """Отправляет icebreaker-сообщение целевому пользователю через бот."""
+    from app.bot.keyboards.inline import icebreaker_keyboard
     try:
         sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
         sender_photo = getattr(sender, "photo", None)
@@ -117,6 +121,7 @@ async def send_icebreaker_message(target_id: int, message: str, sender):
 
 async def send_superlike_message(target_id: int, sender):
     """Отправляет уведомление о суперлайке."""
+    from app.bot.keyboards.inline import liked_by_keyboard
     try:
         sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
         sender_photo = getattr(sender, "photo", None)
@@ -139,6 +144,7 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
     matched_user — пользователь, с которым произошёл матч (чьё фото/имя показываем)
     recipient_id — telegram_id получателя (для кнопки "Посмотреть профиль")
     """
+    from app.bot.keyboards.inline import match_keyboard
     try:
         name = str(getattr(matched_user, "name", "") or "")
         username = getattr(matched_user, "username", None) or None
