@@ -55,6 +55,12 @@ class BaseUsersService(ABC):
     @abstractmethod
     async def increment_icebreaker_count(self, telegram_id: int) -> int: ...
 
+    @abstractmethod
+    async def get_advisor_trial_start(self, telegram_id: int): ...
+
+    @abstractmethod
+    async def set_advisor_trial_start(self, telegram_id: int): ...
+
 
 @dataclass
 class BaseLikesService(ABC):

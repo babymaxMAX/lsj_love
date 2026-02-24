@@ -77,3 +77,9 @@ class UsersService(BaseUsersService):
 
     async def increment_icebreaker_count(self, telegram_id: int) -> int:
         return await self.user_repository.increment_icebreaker_count(telegram_id=telegram_id)
+
+    async def get_advisor_trial_start(self, telegram_id: int):
+        return await self.user_repository.get_advisor_trial_start(telegram_id=telegram_id)
+
+    async def set_advisor_trial_start(self, telegram_id: int):
+        await self.user_repository.set_advisor_trial_start(telegram_id=telegram_id)

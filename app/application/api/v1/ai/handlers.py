@@ -1,11 +1,12 @@
 """
 AI Icebreaker — генератор первых сообщений с выбором темы, vision-анализом
 фото и лимитами использования.
+AI Советник диалога — чат-ассистент для помощи в переписке (VIP или 24ч пробный).
 """
 import json
 import logging
 import random
-from datetime import date
+from datetime import date, datetime, timezone
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -438,3 +439,209 @@ async def get_profile_tips(
         tips.append("Твой профиль отлично заполнен! Регулярно обновляй фото для лучших результатов.")
 
     return ProfileTipsResponse(tips=tips, score=min(score, 100))
+
+
+# ─── AI Советник диалога ─────────────────────────────────────────────────────
+
+ADVISOR_TRIAL_SECONDS = 86400  # 24 часа пробный период
+
+
+class DialogMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class DialogAdvisorRequest(BaseModel):
+    user_id: int
+    message: str = ""
+    image_base64: str | None = None
+    history: list[DialogMessage] = []
+
+
+class DialogAdvisorResponse(BaseModel):
+    reply: str
+    is_vip: bool
+    trial_active: bool
+    trial_hours_left: float | None = None
+
+
+class AdvisorStatusResponse(BaseModel):
+    is_vip: bool
+    trial_active: bool
+    trial_hours_left: float | None = None
+    trial_expired: bool
+
+
+async def _generate_advisor_reply(
+    api_key: str,
+    message: str,
+    image_base64: str | None,
+    history: list[DialogMessage],
+) -> str:
+    """Вызывает OpenAI для советника диалога."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    system_prompt = (
+        "Ты — AI Советник по знакомствам и общению. Твоя задача — помогать пользователю "
+        "выстраивать диалог с человеком, который ему нравится.\n"
+        "Если пользователь прислал скриншот переписки — проанализируй его, объясни что "
+        "происходит в диалоге и предложи 2-3 конкретных варианта следующего сообщения.\n"
+        "Если пользователь описывает ситуацию словами — дай конкретные советы и варианты реплик.\n"
+        "Веди себя как умный и тактичный друг, а не как психолог.\n"
+        "Будь конкретным: предлагай готовые фразы, которые можно скопировать и отправить.\n"
+        "Отвечай на русском языке. Форматируй ответ читабельно — используй эмодзи и абзацы."
+    )
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+
+    # Добавляем историю (последние 12 сообщений для контекста)
+    for h in history[-12:]:
+        messages.append({"role": h.role, "content": h.content})
+
+    # Текущее сообщение
+    if image_base64:
+        user_content: list | str = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_base64}",
+                    "detail": "high",
+                },
+            },
+            {"type": "text", "text": message or "Проанализируй эту переписку и помоги мне ответить."},
+        ]
+    else:
+        user_content = message or "Помоги мне с диалогом."
+
+    messages.append({"role": "user", "content": user_content})
+
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        max_tokens=700,
+        temperature=0.8,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _get_trial_info(trial_start) -> tuple[bool, float | None]:
+    """Возвращает (trial_active, hours_left). trial_active=False если истёк."""
+    if trial_start is None:
+        return True, 24.0  # Ещё не начинал — у него ещё есть 24ч
+    ts = trial_start
+    if hasattr(ts, "tzinfo") and ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - ts).total_seconds()
+    if elapsed >= ADVISOR_TRIAL_SECONDS:
+        return False, 0.0
+    hours_left = (ADVISOR_TRIAL_SECONDS - elapsed) / 3600
+    return True, round(hours_left, 1)
+
+
+@router.get(
+    "/dialog-advisor/status/{user_id}",
+    status_code=status.HTTP_200_OK,
+    description="Возвращает статус доступа к AI Советнику диалога.",
+)
+async def get_advisor_status(
+    user_id: int,
+    container: Container = Depends(init_container),
+) -> AdvisorStatusResponse:
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+
+    premium_type = getattr(user, "premium_type", None)
+    is_vip = premium_type == "vip"
+
+    if is_vip:
+        return AdvisorStatusResponse(
+            is_vip=True,
+            trial_active=False,
+            trial_hours_left=None,
+            trial_expired=False,
+        )
+
+    trial_start = await service.get_advisor_trial_start(telegram_id=user_id)
+    trial_active, hours_left = _get_trial_info(trial_start)
+
+    return AdvisorStatusResponse(
+        is_vip=False,
+        trial_active=trial_active,
+        trial_hours_left=hours_left if trial_active else None,
+        trial_expired=not trial_active,
+    )
+
+
+@router.post(
+    "/dialog-advisor",
+    status_code=status.HTTP_200_OK,
+    description="AI Советник диалога. VIP — безлимит, остальным — 24ч пробный доступ.",
+    responses={
+        status.HTTP_200_OK: {"model": DialogAdvisorResponse},
+        status.HTTP_403_FORBIDDEN: {"model": ErrorSchema},
+        status.HTTP_400_BAD_REQUEST: {"model": ErrorSchema},
+    },
+)
+async def dialog_advisor(
+    data: DialogAdvisorRequest,
+    container: Container = Depends(init_container),
+) -> DialogAdvisorResponse:
+    config: Config = container.resolve(Config)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        user = await service.get_user(telegram_id=data.user_id)
+    except ApplicationException as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+
+    premium_type = getattr(user, "premium_type", None)
+    is_vip = premium_type == "vip"
+
+    if not is_vip:
+        trial_start = await service.get_advisor_trial_start(telegram_id=data.user_id)
+        if trial_start is None:
+            await service.set_advisor_trial_start(telegram_id=data.user_id)
+            trial_start = datetime.now(timezone.utc)
+
+        trial_active, hours_left = _get_trial_info(trial_start)
+
+        if not trial_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "Пробный период истёк. Получи VIP для безлимитного доступа."},
+            )
+    else:
+        trial_active = False
+        hours_left = None
+
+    if not config.openai_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "OpenAI не настроен"},
+        )
+
+    try:
+        reply = await _generate_advisor_reply(
+            api_key=config.openai_api_key,
+            message=data.message,
+            image_base64=data.image_base64,
+            history=data.history,
+        )
+    except Exception as e:
+        logger.error(f"OpenAI dialog-advisor error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Ошибка генерации. Попробуй ещё раз."},
+        )
+
+    return DialogAdvisorResponse(
+        reply=reply,
+        is_vip=is_vip,
+        trial_active=not is_vip,
+        trial_hours_left=hours_left,
+    )

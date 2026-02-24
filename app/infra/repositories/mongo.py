@@ -179,6 +179,22 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             return 1
         return int(result.get("icebreaker_used", 1))
 
+    async def get_advisor_trial_start(self, telegram_id: int):
+        doc = await self._collection.find_one(
+            filter={"telegram_id": telegram_id},
+            projection={"ai_advisor_first_used": 1},
+        )
+        if not doc:
+            return None
+        return doc.get("ai_advisor_first_used")
+
+    async def set_advisor_trial_start(self, telegram_id: int):
+        from datetime import datetime, timezone
+        await self._collection.update_one(
+            filter={"telegram_id": telegram_id},
+            update={"$set": {"ai_advisor_first_used": datetime.now(timezone.utc)}},
+        )
+
 
 @dataclass
 class MongoDBLikesRepository(BaseLikesRepository, BaseMongoDBRepository):
