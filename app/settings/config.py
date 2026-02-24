@@ -38,6 +38,13 @@ class Config(BaseSettings):
         alias="S3_ENDPOINT_URL",
     )
 
+    # Platega платёжная система
+    platega_merchant_id: str = Field(default="", alias="PLATEGA_MERCHANT_ID")
+    platega_secret: str = Field(default="", alias="PLATEGA_SECRET")
+    platega_premium_price: float = Field(default=299.0, alias="PLATEGA_PREMIUM_PRICE")
+    platega_vip_price: float = Field(default=799.0, alias="PLATEGA_VIP_PRICE")
+    platega_superlike_price: float = Field(default=49.0, alias="PLATEGA_SUPERLIKE_PRICE")
+
     # OpenAI для AI-фич
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 

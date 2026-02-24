@@ -1,154 +1,173 @@
 "use client";
+import { useState } from "react";
 import { BottomNav } from "@/components/bottom-nav";
+import { BackEnd_URL } from "@/config/url";
 
-const PLANS = [
-    {
-        id: "free",
-        name: "Бесплатно",
-        price: "0",
-        color: "from-gray-500 to-gray-600",
-        features: [
-            "10 лайков в день",
-            "Базовый поиск по городу",
-            "1 AI Icebreaker в день",
-        ],
-        disabled: true,
-        label: "Текущий план",
-    },
-    {
-        id: "premium",
+type Product = "premium" | "vip" | "superlike";
+type Method = "card" | "sbp" | "crypto";
+
+const PRODUCTS = {
+    premium: {
         name: "Premium",
-        price: "500 Stars",
-        color: "from-pink-500 to-rose-500",
-        features: [
-            "Безлимитные лайки",
-            "Кто тебя лайкнул",
-            "Откат последнего свайпа",
-            "1 Суперлайк в день",
-            "5 AI Icebreaker в день",
-        ],
-        disabled: false,
-        label: "Получить Premium",
-        payload: "premium_monthly",
+        emoji: "⭐",
+        stars: 500,
+        rub: 299,
+        features: ["Безлимитные лайки", "Кто тебя лайкнул", "Откат свайпа", "1 суперлайк/день"],
+        color: "from-yellow-500 to-orange-500",
     },
-    {
-        id: "vip",
-        name: "VIP 💎",
-        price: "1500 Stars",
-        color: "from-purple-500 to-indigo-500",
-        features: [
-            "Всё из Premium",
-            "10 AI Icebreaker в день",
-            "Буст профиля 3 раза в неделю",
-            "Приоритет в выдаче",
-            "AI анализ профиля",
-            "Верификация аккаунта ✓",
-        ],
-        disabled: false,
-        label: "Получить VIP",
-        payload: "vip_monthly",
+    vip: {
+        name: "VIP",
+        emoji: "💎",
+        stars: 1500,
+        rub: 799,
+        features: ["Всё из Premium", "AI Icebreaker x10/день", "Буст профиля x3/нед", "Приоритет в выдаче"],
+        color: "from-purple-500 to-pink-500",
     },
-];
+    superlike: {
+        name: "Суперлайк",
+        emoji: "💫",
+        stars: 50,
+        rub: 49,
+        features: ["Твой профиль покажут первым", "Пользователь увидит уведомление"],
+        color: "from-blue-500 to-cyan-500",
+    },
+};
 
-const MICROTX = [
-    { icon: "⭐", name: "Суперлайк", price: "50 Stars", desc: "Твой профиль будет первым", payload: "superlike_single" },
-    { icon: "🚀", name: "Буст профиля", price: "150 Stars", desc: "Попади в топ на 24 часа", payload: "boost_single" },
-    { icon: "🤖", name: "Пакет AI (10 штук)", price: "200 Stars", desc: "10 AI Icebreaker сообщений", payload: "ai_pack" },
+const METHODS: { id: Method; label: string; icon: string }[] = [
+    { id: "card", label: "Карта (RUB)", icon: "💳" },
+    { id: "sbp",  label: "СБП",         icon: "📱" },
+    { id: "crypto", label: "Крипто",    icon: "₿" },
 ];
 
 export default function PremiumPage({ params }: { params: { users: string } }) {
-    const handleBuy = (payload: string) => {
-        if (window.Telegram?.WebApp) {
-            window.Telegram.WebApp.showAlert(
-                "Чтобы оплатить, напиши боту /premium и выбери нужный план. Оплата через Telegram Stars."
-            );
+    const [selected, setSelected] = useState<Product | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
+
+    const handlePlategaPay = async (product: Product, method: Method) => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${BackEnd_URL}/api/v1/payments/platega/create`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    telegram_id: parseInt(params.users),
+                    product,
+                    method,
+                }),
+            });
+            const data = await res.json();
+            if (data.payment_url) {
+                setPaymentUrl(data.payment_url);
+                // Открываем ссылку на оплату
+                window.open(data.payment_url, "_blank");
+            }
+        } catch {
+            alert("Ошибка создания платежа. Попробуй позже.");
+        } finally {
+            setLoading(false);
         }
+    };
+
+    const handleStarsPay = (product: Product) => {
+        // Telegram Stars оплачиваются через бота
+        const tg = (window as any).Telegram?.WebApp;
+        tg?.close();
+        alert("Открой бота и нажми /premium для оплаты через Telegram Stars");
     };
 
     return (
         <div className="flex flex-col min-h-screen pb-20">
             {/* Заголовок */}
-            <div className="px-4 py-6 text-center bg-gradient-to-b from-purple-500/10 to-transparent">
-                <div className="text-4xl mb-2">⭐</div>
-                <h1 className="text-2xl font-bold">LSJLove Premium</h1>
-                <p className="text-default-500 text-sm mt-1">Найди своего человека быстрее</p>
+            <div className="px-4 py-4 border-b border-divider">
+                <h1 className="text-xl font-bold">⭐ Premium</h1>
+                <p className="text-sm text-default-400 mt-1">Открой все возможности LSJLove</p>
             </div>
 
-            {/* Планы */}
-            <div className="px-4 space-y-4">
-                {PLANS.map((plan) => (
+            <div className="p-4 flex flex-col gap-4">
+                {/* Карточки продуктов */}
+                {(Object.entries(PRODUCTS) as [Product, typeof PRODUCTS[Product]][]).map(([id, p]) => (
                     <div
-                        key={plan.id}
-                        className="rounded-2xl border border-divider overflow-hidden bg-content1"
+                        key={id}
+                        onClick={() => setSelected(selected === id ? null : id)}
+                        className={`rounded-2xl overflow-hidden cursor-pointer transition-all shadow-md ${
+                            selected === id ? "ring-2 ring-primary" : ""
+                        }`}
                     >
-                        <div className={`bg-gradient-to-r ${plan.color} p-4`}>
-                            <div className="flex justify-between items-center">
-                                <h2 className="text-white font-bold text-lg">{plan.name}</h2>
-                                <span className="text-white font-semibold">{plan.price}/мес</span>
+                        {/* Шапка карточки */}
+                        <div className={`bg-gradient-to-r ${p.color} p-4 text-white`}>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-lg font-bold">{p.emoji} {p.name}</p>
+                                    <p className="text-sm opacity-90">
+                                        {p.stars} Stars &nbsp;|&nbsp; {p.rub} ₽
+                                    </p>
+                                </div>
+                                <span className="text-2xl">{selected === id ? "▲" : "▼"}</span>
                             </div>
                         </div>
-                        <div className="p-4">
-                            <ul className="space-y-2 mb-4">
-                                {plan.features.map((f) => (
-                                    <li key={f} className="flex items-center gap-2 text-sm text-default-600">
-                                        <span className="text-green-500">✓</span> {f}
-                                    </li>
-                                ))}
-                            </ul>
-                            <button
-                                onClick={() => plan.payload && handleBuy(plan.payload)}
-                                disabled={plan.disabled}
-                                className={`w-full py-3 rounded-xl font-semibold text-sm transition-opacity ${
-                                    plan.disabled
-                                        ? "bg-default-200 text-default-400 cursor-not-allowed"
-                                        : `bg-gradient-to-r ${plan.color} text-white hover:opacity-90`
-                                }`}
-                            >
-                                {plan.label}
-                            </button>
-                        </div>
+
+                        {/* Раскрытые детали */}
+                        {selected === id && (
+                            <div className="bg-content1 p-4">
+                                <ul className="text-sm text-default-600 mb-4 space-y-1">
+                                    {p.features.map((f) => (
+                                        <li key={f}>✅ {f}</li>
+                                    ))}
+                                </ul>
+
+                                {/* Telegram Stars */}
+                                <button
+                                    onClick={() => handleStarsPay(id)}
+                                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-600 text-white font-semibold text-sm mb-2"
+                                >
+                                    ⭐ Оплатить {p.stars} Telegram Stars
+                                </button>
+
+                                {/* Разделитель */}
+                                <div className="flex items-center gap-2 my-3">
+                                    <div className="flex-1 h-px bg-divider" />
+                                    <span className="text-xs text-default-400">или</span>
+                                    <div className="flex-1 h-px bg-divider" />
+                                </div>
+
+                                {/* Platega способы */}
+                                <p className="text-xs text-default-400 mb-2 text-center">
+                                    Оплата картой / СБП / криптой — {p.rub} ₽
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {METHODS.map((m) => (
+                                        <button
+                                            key={m.id}
+                                            disabled={loading}
+                                            onClick={() => handlePlategaPay(id, m.id)}
+                                            className="flex flex-col items-center py-2.5 rounded-xl bg-content2 hover:bg-content3 transition-colors text-sm font-medium disabled:opacity-60"
+                                        >
+                                            <span className="text-xl mb-1">{m.icon}</span>
+                                            <span className="text-xs">{m.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {loading && (
+                                    <p className="text-center text-xs text-default-400 mt-2">
+                                        ⏳ Создаём ссылку для оплаты...
+                                    </p>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ))}
-            </div>
 
-            {/* Микротранзакции */}
-            <div className="px-4 mt-6">
-                <h3 className="font-semibold mb-3 text-default-700">Разовые покупки</h3>
-                <div className="space-y-3">
-                    {MICROTX.map((item) => (
-                        <div
-                            key={item.payload}
-                            className="flex items-center justify-between bg-content1 rounded-2xl px-4 py-3 border border-divider"
-                        >
-                            <div className="flex items-center gap-3">
-                                <span className="text-2xl">{item.icon}</span>
-                                <div>
-                                    <p className="font-medium text-sm">{item.name}</p>
-                                    <p className="text-xs text-default-400">{item.desc}</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => handleBuy(item.payload)}
-                                className="bg-primary text-white text-xs font-semibold px-3 py-2 rounded-xl hover:opacity-90 transition-opacity whitespace-nowrap"
-                            >
-                                {item.price}
-                            </button>
-                        </div>
-                    ))}
+                {/* Инфо */}
+                <div className="bg-content1 rounded-2xl p-4 text-xs text-default-400 text-center space-y-1">
+                    <p>🔒 Все платежи защищены</p>
+                    <p>Platega: карта, СБП, крипто — моментальная активация</p>
+                    <p>Telegram Stars — через бота командой /premium</p>
                 </div>
-            </div>
-
-            <div className="px-4 py-4 text-center text-xs text-default-400">
-                Оплата через Telegram Stars — безопасно, без комиссии 🔒
             </div>
 
             <BottomNav userId={params.users} />
         </div>
     );
-}
-
-declare global {
-    interface Window {
-        Telegram?: { WebApp: { showAlert: (msg: string) => void } };
-    }
 }

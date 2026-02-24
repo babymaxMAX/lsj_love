@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 from aiogram.types import User
 
@@ -26,6 +26,9 @@ class UserEntity(BaseEntity):
     about: Optional[AboutText] = None
     photo: Optional[str] = None
     is_active: bool = False
+    # Premium статус: None = бесплатный, "premium" = Premium, "vip" = VIP
+    premium_type: Optional[Literal["premium", "vip"]] = None
+    premium_until: Optional[datetime] = None
 
     @classmethod
     def from_telegram_user(cls, user: User) -> "UserEntity":
