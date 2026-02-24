@@ -7,6 +7,7 @@ const nextConfig = {
     eslint: {
         ignoreDuringBuilds: true,
     },
+    optimizeFonts: false,
     env: {
         BACKEND_URL: process.env.BACKEND_URL || "https://lsjlove.duckdns.org",
     },

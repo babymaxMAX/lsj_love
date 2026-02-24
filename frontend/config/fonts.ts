@@ -1,11 +1,11 @@
-import { Fira_Code as FontMono, Inter as FontSans } from "next/font/google"
-
-export const fontSans = FontSans({
-  subsets: ["latin"],
+// Используем системные шрифты вместо Google Fonts, чтобы избежать
+// сетевых запросов во время Docker-сборки.
+export const fontSans = {
   variable: "--font-sans",
-})
+  className: "",
+}
 
-export const fontMono = FontMono({
-  subsets: ["latin"],
+export const fontMono = {
   variable: "--font-mono",
-})
+  className: "",
+}
