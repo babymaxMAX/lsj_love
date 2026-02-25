@@ -57,11 +57,11 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
     }
 
     return (
-        <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
+        <div className="flex flex-col min-h-screen pb-20" style={{ background: "#0f0f1a", color: "#fff" }}>
             {/* Header */}
-            <div className="px-4 pt-5 pb-3">
-                <h1 className="text-xl font-bold">💌 Матчи</h1>
-                <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+            <div className="px-4 pt-4 pb-2">
+                <h1 className="text-lg font-bold">💌 Матчи</h1>
+                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
                     {matches.length > 0 ? `${matches.length} взаимных симпатий` : "Взаимные симпатии"}
                 </p>
             </div>
@@ -82,59 +82,60 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                     </button>
                 </div>
             ) : (
-                <div className="flex flex-col gap-3 px-4">
+                <div className="flex flex-col gap-2 px-3 pb-2">
                     {matches.map((user) => (
                         <div
                             key={user.telegram_id}
-                            className="rounded-2xl overflow-hidden"
+                            className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
                             style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
                         >
-                            {/* Clickable top section → view profile */}
+                            {/* Avatar — кликабельна */}
                             <button
-                                className="w-full flex items-center gap-4 p-4 text-left transition-all active:opacity-80"
+                                className="flex-shrink-0"
                                 onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
                             >
-                                <div className="relative flex-shrink-0">
+                                <div className="relative">
                                     <img
                                         src={getPhotoUrl(user)}
                                         alt={user.name}
-                                        className="w-16 h-16 rounded-full object-cover"
+                                        className="w-12 h-12 rounded-full object-cover"
                                         style={{ border: "2px solid rgba(236,72,153,0.5)" }}
                                         onError={(e) => {
                                             const el = e.target as HTMLImageElement;
                                             if (!el.src.endsWith("/placeholder.svg")) el.src = "/placeholder.svg";
                                         }}
                                     />
-                                    {/* Online dot */}
                                     <div
-                                        className="absolute bottom-0 right-0 w-4 h-4 rounded-full"
+                                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full"
                                         style={{ background: "#22c55e", border: "2px solid #0f0f1a" }}
                                     />
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-bold text-base truncate">
-                                        {user.name}{user.age ? `, ${user.age}` : ""}
-                                    </p>
-                                    <p className="text-sm truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
-                                        📍 {user.city}
-                                    </p>
-                                    {user.about && (
-                                        <p className="text-xs truncate mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
-                                            {user.about}
-                                        </p>
-                                    )}
-                                </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2">
-                                    <path d="M9 18l6-6-6-6" />
-                                </svg>
                             </button>
 
-                            {/* Action buttons */}
-                            <div className="flex gap-2 px-4 pb-4">
+                            {/* Info */}
+                            <button
+                                className="flex-1 min-w-0 text-left"
+                                onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
+                            >
+                                <p className="font-semibold text-sm truncate leading-tight">
+                                    {user.name}{user.age ? `, ${user.age}` : ""}
+                                </p>
+                                <p className="text-xs truncate leading-tight" style={{ color: "rgba(255,255,255,0.45)" }}>
+                                    📍 {user.city}
+                                </p>
+                                {user.about && (
+                                    <p className="text-xs truncate leading-tight" style={{ color: "rgba(255,255,255,0.3)" }}>
+                                        {user.about}
+                                    </p>
+                                )}
+                            </button>
+
+                            {/* Action buttons — вертикально справа */}
+                            <div className="flex flex-col gap-1.5 flex-shrink-0">
                                 <button
                                     onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
-                                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
-                                    style={{ background: "rgba(139,92,246,0.2)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.3)" }}
+                                    className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 whitespace-nowrap"
+                                    style={{ background: "rgba(139,92,246,0.25)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }}
                                 >
                                     👤 Профиль
                                 </button>
@@ -143,17 +144,17 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                         href={`https://t.me/${user.username}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-center transition-all active:scale-95"
+                                        className="px-3 py-1.5 rounded-xl text-xs font-semibold text-center transition-all active:scale-95 whitespace-nowrap"
                                         style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)", color: "#fff" }}
                                     >
                                         ✉️ Написать
                                     </a>
                                 ) : (
                                     <div
-                                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-center"
-                                        style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.3)" }}
+                                        className="px-3 py-1.5 rounded-xl text-xs font-semibold text-center whitespace-nowrap"
+                                        style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.25)" }}
                                     >
-                                        Нет username
+                                        Нет @
                                     </div>
                                 )}
                             </div>

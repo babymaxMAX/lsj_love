@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "fix: cache-bust photo URLs after replace/delete so browser shows fresh image"
+git commit -m "fix: compact matches page layout to fit multiple cards on screen"
 git push
 pause
 
