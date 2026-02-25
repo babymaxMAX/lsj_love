@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "feat: online/offline status in swipe cards, matches, view-profile; fix back button on profile error screen"
+git commit -m "fix: online status timezone bug - Motor returns naive datetime, ensure UTC ISO format for JS"
 git push
 pause
 

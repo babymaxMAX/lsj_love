@@ -18,9 +18,11 @@ interface TargetUser {
     last_seen?: string;
 }
 
-function getOnlineStatus(lastSeen?: string): { label: string; color: string; dot: string } {
+function getOnlineStatus(lastSeen?: string | null): { label: string; color: string; dot: string } {
     if (!lastSeen) return { label: "Не в сети", color: "rgba(255,255,255,0.4)", dot: "#6b7280" };
-    const diff = Date.now() - new Date(lastSeen).getTime();
+    const ls = lastSeen.includes("+") || lastSeen.endsWith("Z") ? lastSeen : lastSeen + "Z";
+    const diff = Date.now() - new Date(ls).getTime();
+    if (isNaN(diff)) return { label: "Не в сети", color: "rgba(255,255,255,0.4)", dot: "#6b7280" };
     const minutes = diff / 60000;
     if (minutes < 5) return { label: "Онлайн", color: "#86efac", dot: "#22c55e" };
     if (minutes < 60) return { label: `Был(а) ${Math.floor(minutes)} мин назад`, color: "#fcd34d", dot: "#f59e0b" };

@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+
+def _to_utc_iso(dt: datetime | None) -> str | None:
+    """Возвращает ISO-строку с явным UTC-офсетом, чтобы JavaScript не интерпретировал как локальное время."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
 from pydantic import BaseModel
 
 from app.application.api.schemas import BaseQueryResponseSchema
@@ -64,7 +73,7 @@ class UserDetailSchema(BaseModel):
             media_types=media_types,
             is_active=user.is_active,
             referral_balance=float(getattr(user, "referral_balance", 0) or 0),
-            last_seen=user.last_seen.isoformat() if user.last_seen else None,
+            last_seen=_to_utc_iso(user.last_seen),
         )
 
 

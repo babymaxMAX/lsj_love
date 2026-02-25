@@ -17,16 +17,18 @@ interface MatchUser {
     last_seen?: string;
 }
 
-/** Возвращает { label, color } для статуса онлайн */
-function getOnlineStatus(lastSeen?: string): { label: string; color: string } {
-    if (!lastSeen) return { label: "Не в сети", color: "#6b7280" };
-    const diff = Date.now() - new Date(lastSeen).getTime();
+/** Возвращает { label, color, dot } для статуса онлайн */
+function getOnlineStatus(lastSeen?: string | null): { label: string; color: string; dot: string } {
+    if (!lastSeen) return { label: "Не в сети", color: "rgba(255,255,255,0.35)", dot: "#6b7280" };
+    const ls = lastSeen.includes("+") || lastSeen.endsWith("Z") ? lastSeen : lastSeen + "Z";
+    const diff = Date.now() - new Date(ls).getTime();
+    if (isNaN(diff)) return { label: "Не в сети", color: "rgba(255,255,255,0.35)", dot: "#6b7280" };
     const minutes = diff / 60000;
-    if (minutes < 5) return { label: "Онлайн", color: "#22c55e" };
-    if (minutes < 60) return { label: `Был(а) ${Math.floor(minutes)} мин назад`, color: "#f59e0b" };
+    if (minutes < 5) return { label: "Онлайн", color: "#86efac", dot: "#22c55e" };
+    if (minutes < 60) return { label: `Был(а) ${Math.floor(minutes)} мин назад`, color: "#fcd34d", dot: "#f59e0b" };
     const hours = minutes / 60;
-    if (hours < 24) return { label: `Был(а) ${Math.floor(hours)} ч назад`, color: "#94a3b8" };
-    return { label: "Был(а) давно", color: "#6b7280" };
+    if (hours < 24) return { label: `Был(а) ${Math.floor(hours)} ч назад`, color: "rgba(255,255,255,0.45)", dot: "#94a3b8" };
+    return { label: "Был(а) давно", color: "rgba(255,255,255,0.3)", dot: "#6b7280" };
 }
 
 export default function MatchesPage({ params }: { params: { users: string } }) {
