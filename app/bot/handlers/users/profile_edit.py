@@ -97,20 +97,44 @@ async def photo_edit(
     # Фото прошло проверку — теперь сбрасываем состояние
     await state.clear()
 
-    # Загружаем в S3 (для веб-приложения, ошибки не критичны)
+    uid = message.from_user.id
+    # S3-ключ в формате photos[]: {uid}_0.png — совпадает с Mini App
+    s3_key = f"{uid}_0.png"
+
+    # Загружаем в S3 под стандартным ключом photos[0]
+    s3_ok = False
     try:
-        await uploader.upload_file(
-            file=photo_file_bytes,
-            file_name=f"{message.from_user.id}.png",
-        )
+        await uploader.upload_file(file=photo_file_bytes, file_name=s3_key)
+        s3_ok = True
     except Exception:
         pass
 
-    # Сохраняем Telegram file_id — именно его используем для показа фото
-    await service.update_user_info_after_reg(
-        telegram_id=message.from_user.id,
-        data={"photo": photo_file_id},
-    )
+    # Обновляем базу: photo (file_id для бота) + photos[0] (S3 ключ для Mini App)
+    try:
+        user = await service.get_user(telegram_id=uid)
+        photos = getattr(user, "photos", []) or []
+
+        if s3_ok:
+            if photos:
+                # Заменяем первый слот (photos[0])
+                await service.replace_photo(telegram_id=uid, index=0, s3_key=s3_key)
+            else:
+                # Массив пустой — добавляем как первый элемент
+                await service.add_photo(telegram_id=uid, s3_key=s3_key)
+
+        # Всегда сохраняем file_id в поле photo (fallback для бота)
+        await service.update_user_info_after_reg(
+            telegram_id=uid,
+            data={"photo": photo_file_id},
+        )
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f"Photo DB update failed: {e}")
+        # Fallback: сохраняем хотя бы file_id
+        await service.update_user_info_after_reg(
+            telegram_id=uid,
+            data={"photo": photo_file_id},
+        )
 
     await message.answer("✅ Фото обновлено!", reply_markup=remove_keyboard)
     await profile(message)
