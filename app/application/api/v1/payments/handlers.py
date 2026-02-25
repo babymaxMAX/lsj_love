@@ -138,22 +138,38 @@ async def _pay_referral_bonus(container: Container, telegram_id: int, amount: fl
             logger.warning(f"Referral: referrer {referred_by} not found in DB")
             return
 
-        logger.info(f"Referral bonus +{bonus}₽ (50%) → user {referred_by} (invited {telegram_id})")
+        # Читаем актуальный баланс после начисления
+        referrer_doc = await col.find_one({"telegram_id": referred_by}, {"referral_balance": 1})
+        new_balance = float((referrer_doc or {}).get("referral_balance", 0))
 
-        # Уведомляем реферера
+        logger.info(f"Referral bonus +{bonus}₽ (50%) → user {referred_by} (invited {telegram_id}), new balance={new_balance}")
+
+        # Уведомляем реферера с балансом и кнопкой вывода
         try:
+            import urllib.parse as _urlparse
             from aiogram import Bot
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
             _container = init_container()
             _cfg: Config = _container.resolve(Config)
             _bot = Bot(token=_cfg.token)
+
+            withdraw_text = "Здравствуйте, я хотел бы запросить вывод средств по реферальной системе LsJ_Love"
+            withdraw_url = f"https://t.me/babymaxx?text={_urlparse.quote(withdraw_text)}"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💸 Запросить вывод", url=withdraw_url)],
+                [InlineKeyboardButton(text="🔗 Моя реферальная программа", callback_data="referral_info")],
+            ])
+
             await _bot.send_message(
                 chat_id=referred_by,
                 text=(
-                    f"💰 <b>+{bonus:.2f} ₽</b> на реферальный баланс!\n"
+                    f"💰 <b>+{bonus:.2f} ₽</b> зачислено на реферальный баланс!\n\n"
                     f"Приглашённый тобой пользователь совершил покупку.\n\n"
-                    f"<i>Открой профиль → 🔗 Реферальная программа, чтобы проверить баланс.</i>"
+                    f"📊 Твой баланс: <b>{new_balance:.2f} ₽</b>"
                 ),
                 parse_mode="HTML",
+                reply_markup=kb,
             )
             await _bot.session.close()
         except Exception as e:

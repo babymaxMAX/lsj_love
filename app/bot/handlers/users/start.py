@@ -1,7 +1,10 @@
+import logging
+import urllib.parse
+
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from punq import Container
 
 from app.bot.handlers.users.profile import profile
@@ -11,10 +14,41 @@ from app.domain.exceptions.base import ApplicationException
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
 
+logger = logging.getLogger(__name__)
 
-user_router: Router = Router(
-    name="User router",
-)
+user_router: Router = Router(name="User router")
+
+
+def _referral_notify_kb() -> InlineKeyboardMarkup:
+    """Клавиатура уведомления реферрера — кнопка вывода и просмотра баланса."""
+    withdraw_text = "Здравствуйте, я хотел бы запросить вывод средств по реферальной системе LsJ_Love"
+    withdraw_url = f"https://t.me/babymaxx?text={urllib.parse.quote(withdraw_text)}"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💸 Запросить вывод", url=withdraw_url)],
+        [InlineKeyboardButton(text="🔗 Моя реферальная программа", callback_data="referral_info")],
+    ])
+
+
+async def _notify_referrer_registration(bot, referrer_id: int, new_user: Message, current_balance: float):
+    """Уведомляет реферрера о новой регистрации по его ссылке."""
+    try:
+        tg_user = new_user.from_user
+        name = tg_user.first_name or ""
+        username_part = f" (@{tg_user.username})" if tg_user.username else ""
+
+        await bot.send_message(
+            chat_id=referrer_id,
+            text=(
+                f"🎉 <b>По твоей реферальной ссылке зарегистрировался новый пользователь!</b>\n\n"
+                f"👤 <b>{name}{username_part}</b>\n\n"
+                f"Когда он совершит покупку — ты получишь <b>50%</b> от суммы на баланс.\n\n"
+                f"💰 Текущий баланс: <b>{current_balance:.2f} ₽</b>"
+            ),
+            parse_mode="HTML",
+            reply_markup=_referral_notify_kb(),
+        )
+    except Exception as e:
+        logger.warning(f"Referral registration notify failed: {e}")
 
 
 @user_router.message(CommandStart())
@@ -63,15 +97,26 @@ async def start(message: Message, state: FSMContext, container: Container = init
         # Новый пользователь
         user = UserEntity.from_telegram_user(user=message.from_user)
 
-        # Если пришёл по реферальной ссылке — проверяем что реферер существует
+        # Проверяем реферера
+        referrer = None
         if referral_from:
             try:
-                await service.get_user(telegram_id=referral_from)
+                referrer = await service.get_user(telegram_id=referral_from)
                 user.referred_by = referral_from
             except ApplicationException:
                 pass  # реферер не найден — игнорируем
 
         await service.create_user(user)
+
+        # Уведомляем реферера о новой регистрации
+        if referrer and referral_from:
+            current_balance = float(getattr(referrer, "referral_balance", 0) or 0)
+            await _notify_referrer_registration(
+                bot=message.bot,
+                referrer_id=referral_from,
+                new_user=message,
+                current_balance=current_balance,
+            )
 
         if not message.from_user.username:
             await message.answer(
@@ -86,7 +131,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 f"Здесь ты найдёшь свою вторую половинку.\n"
                 f"Заполним анкету прямо сейчас — это займёт меньше минуты!"
             )
-            if referral_from:
+            if referral_from and referrer:
                 welcome += "\n\n🎁 Ты зарегистрировался по реферальной ссылке!"
             await message.answer(text=welcome, parse_mode="HTML")
             await start_registration(message, state)
