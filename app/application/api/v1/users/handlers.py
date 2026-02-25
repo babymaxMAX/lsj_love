@@ -253,6 +253,23 @@ async def add_user_photo(
             detail={"error": "Неверный формат base64"},
         )
 
+    # Модерация: проверяем фото на 18+ (только для изображений, не для видео)
+    if not body.media_type.startswith("video/"):
+        try:
+            from app.bot.utils.moderation import check_image_safe
+            config: Config = container.resolve(Config)
+            is_safe, reason = await check_image_safe(file_bytes, config.openai_api_key)
+            if not is_safe:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"error": reason},
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"Moderation check failed: {e}")
+
     # Загружаем в S3
     s3_key = f"{user_id}_{idx}.{ext}"
     try:
@@ -326,6 +343,23 @@ async def upload_user_media_multipart(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": f"Ошибка чтения файла: {str(e)}"},
         )
+
+    # Модерация: проверяем изображение на 18+ (видео не проверяем)
+    if not media_type.startswith("video/"):
+        try:
+            from app.bot.utils.moderation import check_image_safe
+            config: Config = container.resolve(Config)
+            is_safe, reason = await check_image_safe(file_bytes, config.openai_api_key)
+            if not is_safe:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"error": reason},
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"Moderation check failed: {e}")
 
     # Загружаем в S3
     s3_key = f"{user_id}_{idx}.{ext}"

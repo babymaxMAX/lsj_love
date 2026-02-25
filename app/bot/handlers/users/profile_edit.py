@@ -21,6 +21,7 @@ from app.domain.values.users import AboutText
 from app.infra.s3.base import BaseS3Storage
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
+from app.settings.config import Config
 
 
 profile_edit_router = Router()
@@ -73,6 +74,23 @@ async def photo_edit(
     file_path = file.file_path
     photo_file_stream = await bot.download_file(file_path)
     photo_file_bytes = photo_file_stream.read()
+
+    # Модерация: проверяем фото на 18+
+    try:
+        from app.bot.utils.moderation import check_image_safe
+        config: Config = container.resolve(Config)
+        is_safe, reason = await check_image_safe(photo_file_bytes, config.openai_api_key)
+        if not is_safe:
+            await message.answer(
+                f"🚫 <b>Фото отклонено модерацией</b>\n\n"
+                f"{reason}\n\n"
+                f"Загрузи обычное фото — портрет или фото в полный рост.",
+                parse_mode="HTML",
+            )
+            return
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f"Bot moderation check failed: {e}")
 
     # Загружаем в S3 (для веб-приложения, ошибки не критичны)
     try:
