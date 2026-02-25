@@ -1,5 +1,6 @@
 import aiohttp
 import base64
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import (
@@ -573,3 +574,22 @@ async def get_users_liked_by(
     return GetUsersFromResponseSchema(
         items=[UserDetailSchema.from_entity(user) for user in users],
     )
+
+
+@router.post(
+    "/{user_id}/ping",
+    status_code=status.HTTP_200_OK,
+    description="Update last_seen timestamp for a user (called when Mini App is open).",
+)
+async def ping_user(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    """Обновляет last_seen пользователя — вызывается с фронта каждые 60 секунд."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    now = datetime.now(timezone.utc)
+    await service.update_user_info_after_reg(
+        telegram_id=user_id,
+        data={"last_seen": now},
+    )
+    return {"ok": True}

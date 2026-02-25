@@ -15,6 +15,18 @@ interface TargetUser {
     photos: string[];
     gender?: string;
     looking_for?: string;
+    last_seen?: string;
+}
+
+function getOnlineStatus(lastSeen?: string): { label: string; color: string; dot: string } {
+    if (!lastSeen) return { label: "Не в сети", color: "rgba(255,255,255,0.4)", dot: "#6b7280" };
+    const diff = Date.now() - new Date(lastSeen).getTime();
+    const minutes = diff / 60000;
+    if (minutes < 5) return { label: "Онлайн", color: "#86efac", dot: "#22c55e" };
+    if (minutes < 60) return { label: `Был(а) ${Math.floor(minutes)} мин назад`, color: "#fcd34d", dot: "#f59e0b" };
+    const hours = minutes / 60;
+    if (hours < 24) return { label: `Был(а) ${Math.floor(hours)} ч назад`, color: "rgba(255,255,255,0.45)", dot: "#94a3b8" };
+    return { label: "Был(а) давно", color: "rgba(255,255,255,0.3)", dot: "#6b7280" };
 }
 
 interface PhotoLikeState {
@@ -55,6 +67,15 @@ export default function ViewProfilePage() {
             .catch(() => setUser(null))
             .finally(() => setLoading(false));
     }, [targetId]);
+
+    // Пинг: обновляем last_seen текущего пользователя
+    useEffect(() => {
+        if (!userId) return;
+        const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${userId}/ping`, { method: "POST" }).catch(() => {});
+        ping();
+        const interval = setInterval(ping, 60_000);
+        return () => clearInterval(interval);
+    }, [userId]);
 
     // Проверяем лайк и матч
     useEffect(() => {
@@ -175,8 +196,34 @@ export default function ViewProfilePage() {
 
     if (!user) {
         return (
-            <div className="min-h-screen flex items-center justify-center" style={{ background: "#0f0f1a" }}>
-                <p className="text-white/60">Профиль не найден</p>
+            <div className="min-h-screen flex flex-col" style={{ background: "#0f0f1a" }}>
+                <div
+                    className="sticky top-0 z-30 flex items-center gap-3 px-4 py-3"
+                    style={{ background: "rgba(15,15,26,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+                >
+                    <button
+                        onClick={() => router.back()}
+                        className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
+                        style={{ background: "rgba(255,255,255,0.1)" }}
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M19 12H5M12 5l-7 7 7 7"/>
+                        </svg>
+                    </button>
+                    <p className="font-semibold text-white/80">Профиль</p>
+                </div>
+                <div className="flex flex-col items-center justify-center flex-1 gap-4 px-8 text-center">
+                    <div className="text-5xl">😕</div>
+                    <p className="text-white font-semibold text-lg">Профиль недоступен</p>
+                    <p className="text-white/40 text-sm">Пользователь удалил аккаунт или скрыл профиль</p>
+                    <button
+                        onClick={() => router.back()}
+                        className="mt-2 px-6 py-3 rounded-2xl font-semibold text-sm text-white transition-all active:scale-95"
+                        style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)" }}
+                    >
+                        ← Назад
+                    </button>
+                </div>
             </div>
         );
     }
@@ -199,7 +246,15 @@ export default function ViewProfilePage() {
                 </button>
                 <div>
                     <p className="font-bold text-base leading-tight">{user.name}{user.age ? `, ${user.age}` : ""}</p>
-                    {user.city && <p className="text-xs text-white/50">📍 {user.city}</p>}
+                    {(() => {
+                        const s = getOnlineStatus(user.last_seen);
+                        return (
+                            <div className="flex items-center gap-1 mt-0.5">
+                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.dot }} />
+                                <span className="text-xs font-medium" style={{ color: s.color }}>{s.label}</span>
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
 

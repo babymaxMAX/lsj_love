@@ -14,6 +14,19 @@ interface MatchUser {
     media_types?: string[];
     username?: string;
     about?: string;
+    last_seen?: string;
+}
+
+/** Возвращает { label, color } для статуса онлайн */
+function getOnlineStatus(lastSeen?: string): { label: string; color: string } {
+    if (!lastSeen) return { label: "Не в сети", color: "#6b7280" };
+    const diff = Date.now() - new Date(lastSeen).getTime();
+    const minutes = diff / 60000;
+    if (minutes < 5) return { label: "Онлайн", color: "#22c55e" };
+    if (minutes < 60) return { label: `Был(а) ${Math.floor(minutes)} мин назад`, color: "#f59e0b" };
+    const hours = minutes / 60;
+    if (hours < 24) return { label: `Был(а) ${Math.floor(hours)} ч назад`, color: "#94a3b8" };
+    return { label: "Был(а) давно", color: "#6b7280" };
 }
 
 export default function MatchesPage({ params }: { params: { users: string } }) {
@@ -35,6 +48,14 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
             }
         };
         fetchMatches();
+    }, [userId]);
+
+    // Пинг: обновляем last_seen
+    useEffect(() => {
+        const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${userId}/ping`, { method: "POST" }).catch(() => {});
+        ping();
+        const interval = setInterval(ping, 60_000);
+        return () => clearInterval(interval);
     }, [userId]);
 
     const getPhotoUrl = (user: MatchUser) => {
@@ -94,22 +115,28 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                 className="flex-shrink-0"
                                 onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
                             >
-                                <div className="relative">
-                                    <img
-                                        src={getPhotoUrl(user)}
-                                        alt={user.name}
-                                        className="w-12 h-12 rounded-full object-cover"
-                                        style={{ border: "2px solid rgba(236,72,153,0.5)" }}
-                                        onError={(e) => {
-                                            const el = e.target as HTMLImageElement;
-                                            if (!el.src.endsWith("/placeholder.svg")) el.src = "/placeholder.svg";
-                                        }}
-                                    />
-                                    <div
-                                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full"
-                                        style={{ background: "#22c55e", border: "2px solid #0f0f1a" }}
-                                    />
-                                </div>
+                                {(() => {
+                                    const status = getOnlineStatus(user.last_seen);
+                                    const isOnline = status.color === "#22c55e";
+                                    return (
+                                        <div className="relative">
+                                            <img
+                                                src={getPhotoUrl(user)}
+                                                alt={user.name}
+                                                className="w-12 h-12 rounded-full object-cover"
+                                                style={{ border: `2px solid ${isOnline ? "#22c55e" : "rgba(236,72,153,0.5)"}` }}
+                                                onError={(e) => {
+                                                    const el = e.target as HTMLImageElement;
+                                                    if (!el.src.endsWith("/placeholder.svg")) el.src = "/placeholder.svg";
+                                                }}
+                                            />
+                                            <div
+                                                className="absolute bottom-0 right-0 w-3 h-3 rounded-full"
+                                                style={{ background: status.color, border: "2px solid #0f0f1a" }}
+                                            />
+                                        </div>
+                                    );
+                                })()}
                             </button>
 
                             {/* Info */}
@@ -120,12 +147,12 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                 <p className="font-semibold text-sm truncate leading-tight">
                                     {user.name}{user.age ? `, ${user.age}` : ""}
                                 </p>
-                                <p className="text-xs truncate leading-tight" style={{ color: "rgba(255,255,255,0.45)" }}>
-                                    📍 {user.city}
+                                <p className="text-xs truncate leading-tight" style={{ color: getOnlineStatus(user.last_seen).color }}>
+                                    {getOnlineStatus(user.last_seen).label}
                                 </p>
-                                {user.about && (
-                                    <p className="text-xs truncate leading-tight" style={{ color: "rgba(255,255,255,0.3)" }}>
-                                        {user.about}
+                                {user.city && (
+                                    <p className="text-xs truncate leading-tight" style={{ color: "rgba(255,255,255,0.35)" }}>
+                                        📍 {user.city}
                                     </p>
                                 )}
                             </button>

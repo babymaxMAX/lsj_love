@@ -12,6 +12,18 @@ interface User {
     photos?: string[];
     about?: string;
     username?: string;
+    last_seen?: string;
+}
+
+function getOnlineStatus(lastSeen?: string): { label: string; color: string; dot: string } {
+    if (!lastSeen) return { label: "Не в сети", color: "rgba(255,255,255,0.35)", dot: "#6b7280" };
+    const diff = Date.now() - new Date(lastSeen).getTime();
+    const minutes = diff / 60000;
+    if (minutes < 5) return { label: "Онлайн", color: "#86efac", dot: "#22c55e" };
+    if (minutes < 60) return { label: `${Math.floor(minutes)} мин назад`, color: "#fcd34d", dot: "#f59e0b" };
+    const hours = minutes / 60;
+    if (hours < 24) return { label: `${Math.floor(hours)} ч назад`, color: "rgba(255,255,255,0.4)", dot: "#94a3b8" };
+    return { label: "Давно", color: "rgba(255,255,255,0.25)", dot: "#6b7280" };
 }
 
 interface SwipeCardProps {
@@ -486,6 +498,16 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                     <div>
                                         <h2 className="text-2xl font-bold">{user.name}, {user.age}</h2>
                                         <p className="text-sm opacity-80">📍 {user.city}</p>
+                                        {/* Онлайн-статус */}
+                                        {(() => {
+                                            const s = getOnlineStatus(user.last_seen);
+                                            return (
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.dot }} />
+                                                    <span className="text-xs font-medium" style={{ color: s.color }}>{s.label}</span>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     {user.about && (
                                         <button

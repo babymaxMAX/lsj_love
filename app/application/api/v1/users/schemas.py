@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ class UserDetailSchema(BaseModel):
     media_types: list[str] = []  # "image" | "video" for each item in photos
     is_active: bool
     referral_balance: float = 0.0
+    last_seen: Optional[str] = None   # ISO-строка UTC
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -62,6 +64,7 @@ class UserDetailSchema(BaseModel):
             media_types=media_types,
             is_active=user.is_active,
             referral_balance=float(getattr(user, "referral_balance", 0) or 0),
+            last_seen=user.last_seen.isoformat() if user.last_seen else None,
         )
 
 

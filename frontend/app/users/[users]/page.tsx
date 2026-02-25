@@ -55,6 +55,14 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         loadUsers();
     }, [loadUsers]);
 
+    // Пинг: обновляем last_seen при открытии и каждые 60 секунд
+    useEffect(() => {
+        const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${params.users}/ping`, { method: "POST" }).catch(() => {});
+        ping();
+        const interval = setInterval(ping, 60_000);
+        return () => clearInterval(interval);
+    }, [params.users]);
+
     const handleLike = async (targetId: number) => {
         seenIds.add(targetId);
         try {

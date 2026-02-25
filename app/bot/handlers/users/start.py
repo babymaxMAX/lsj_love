@@ -1,5 +1,6 @@
 import logging
 import urllib.parse
+from datetime import datetime, timezone
 
 from aiogram import Router
 from aiogram.filters import CommandStart
@@ -74,6 +75,11 @@ async def start(message: Message, state: FSMContext, container: Container = init
         user = await service.get_user(telegram_id=message.from_user.id)
 
         if user.is_active:
+            # Обновляем last_seen
+            await service.update_user_info_after_reg(
+                telegram_id=message.from_user.id,
+                data={"last_seen": datetime.now(timezone.utc)},
+            )
             await message.answer(
                 text=f"С возвращением, <b>{message.from_user.first_name}</b>! 💫",
                 parse_mode="HTML",

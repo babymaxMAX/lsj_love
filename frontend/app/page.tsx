@@ -29,7 +29,8 @@ export default function RootPage() {
                 const res = await fetch(`${BackEnd_URL}/api/v1/users/${userId}`);
                 if (res.ok) {
                     const user = await res.json();
-                    if (user.is_active) {
+                    // Перенаправляем если пользователь найден в БД (is_active может быть false у старых аккаунтов)
+                    if (user && user.telegram_id) {
                         router.replace(`/users/${userId}`);
                         return;
                     }

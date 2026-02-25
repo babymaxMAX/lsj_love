@@ -40,6 +40,8 @@ class UserEntity(BaseEntity):
     # Реферальная система
     referred_by: Optional[int] = None       # telegram_id кто пригласил
     referral_balance: float = 0.0           # заработанный реферальный баланс (руб)
+    # Активность
+    last_seen: Optional[datetime] = None    # последний раз онлайн
 
     def __post_init__(self):
         if self.photos is None:
