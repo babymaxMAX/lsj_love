@@ -66,7 +66,8 @@ async def photo_edit(
 ):
     uploader: BaseS3Storage = container.resolve(BaseS3Storage)
     service: BaseUsersService = container.resolve(BaseUsersService)
-    await state.clear()
+    # Не сбрасываем state до проверки модерации — иначе при отклонении
+    # пользователь потеряет возможность отправить следующее фото
 
     # Получаем file_id из Telegram (надёжнее чем S3 URL)
     photo_file_id = message.photo[-1].file_id
@@ -81,16 +82,20 @@ async def photo_edit(
         config: Config = container.resolve(Config)
         is_safe, reason = await check_image_safe(photo_file_bytes, config.openai_api_key)
         if not is_safe:
+            # state НЕ сбрасываем — пользователь остаётся в режиме загрузки фото
             await message.answer(
                 f"🚫 <b>Фото отклонено модерацией</b>\n\n"
                 f"{reason}\n\n"
-                f"Загрузи обычное фото — портрет или фото в полный рост.",
+                f"Отправь другое фото — портрет или фото в полный рост.",
                 parse_mode="HTML",
             )
             return
     except Exception as e:
         import logging as _log
         _log.getLogger(__name__).warning(f"Bot moderation check failed: {e}")
+
+    # Фото прошло проверку — теперь сбрасываем состояние
+    await state.clear()
 
     # Загружаем в S3 (для веб-приложения, ошибки не критичны)
     try:
