@@ -73,9 +73,14 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             .then((r) => r.json())
             .then((data: UserProfile) => {
                 setUser(data);
-                const urls = (data.photos ?? []).map((p) =>
-                    p.startsWith("http") ? p : `${BackEnd_URL}${p}`
-                );
+                const t = Date.now();
+                const urls = (data.photos ?? []).map((p) => {
+                    const base = p.startsWith("http") ? p : `${BackEnd_URL}${p}`;
+                    // cache-bust только для изображений
+                    if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(base)) return base;
+                    const sep = base.includes("?") ? "&" : "?";
+                    return `${base}${sep}t=${t}`;
+                });
                 const types = data.media_types ?? urls.map(() => "image");
                 setMediaUrls(urls);
                 setMediaTypes(types);
@@ -154,6 +159,17 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
         }
     };
 
+    /** Добавляет cache-bust параметр к URL чтобы браузер не кешировал старое фото */
+    const bustCache = (urls: string[]): string[] => {
+        const t = Date.now();
+        return urls.map((u) => {
+            // Для видео не добавляем — может сломать стриминг
+            if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u)) return u;
+            const sep = u.includes("?") ? "&" : "?";
+            return `${u}${sep}t=${t}`;
+        });
+    };
+
     /** Загрузка видео через multipart FormData — без base64 overhead, до 60 МБ */
     const uploadMediaMultipart = async (file: File) => {
         const slot = pendingSlot;
@@ -172,7 +188,6 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             const res = await fetch(`${BackEnd_URL}/api/v1/users/${userId}/photos/upload`, {
                 method: "POST",
                 body: formData,
-                // НЕ устанавливаем Content-Type — браузер сам добавит boundary для multipart
             });
             const data = await res.json();
             if (!res.ok) {
@@ -180,9 +195,10 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
                 return;
             }
-            const newUrls = (data.photos as string[]).map((p) =>
+            const rawUrls = (data.photos as string[]).map((p) =>
                 p.startsWith("http") ? p : `${BackEnd_URL}${p}`
             );
+            const newUrls = bustCache(rawUrls);
             setMediaUrls(newUrls);
             setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
             setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
@@ -219,9 +235,10 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
                 return;
             }
-            const newUrls = (data.photos as string[]).map((p) =>
+            const rawUrls = (data.photos as string[]).map((p) =>
                 p.startsWith("http") ? p : `${BackEnd_URL}${p}`
             );
+            const newUrls = bustCache(rawUrls);
             setMediaUrls(newUrls);
             setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
             setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
@@ -244,9 +261,10 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(data?.error || "Ошибка удаления");
                 return;
             }
-            const newUrls = (data.photos as string[]).map((p) =>
+            const rawUrls = (data.photos as string[]).map((p) =>
                 p.startsWith("http") ? p : `${BackEnd_URL}${p}`
             );
+            const newUrls = bustCache(rawUrls);
             setMediaUrls(newUrls);
             setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
             if (sliderIdx >= newUrls.length) setSliderIdx(Math.max(0, newUrls.length - 1));
