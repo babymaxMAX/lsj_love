@@ -731,6 +731,13 @@ class MongoDBPhotoLikesRepository(BaseMongoDBRepository):
         ))
         return {"count": count, "liked_by_me": liked_by_me}
 
+    async def delete_likes_for_photo(self, owner_id: int, photo_index: int) -> int:
+        """Удаляет все лайки к конкретному фото. Вызывается при замене/удалении фото."""
+        result = await self._collection.delete_many(
+            {"owner_id": owner_id, "photo_index": photo_index}
+        )
+        return result.deleted_count
+
 
 @dataclass
 class MongoDBPhotoCommentsRepository(BaseMongoDBRepository):

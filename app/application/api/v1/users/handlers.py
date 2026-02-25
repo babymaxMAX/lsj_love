@@ -281,6 +281,17 @@ async def add_user_photo(
         )
 
     if is_replace:
+        # Удаляем лайки старого фото перед заменой
+        try:
+            from app.infra.repositories.mongo import MongoDBPhotoLikesRepository
+            likes_repo: MongoDBPhotoLikesRepository = container.resolve(MongoDBPhotoLikesRepository)
+            deleted = await likes_repo.delete_likes_for_photo(owner_id=user_id, photo_index=idx)
+            if deleted:
+                import logging as _log
+                _log.getLogger(__name__).info(f"Cleared {deleted} likes for photo {user_id}[{idx}] on replace")
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"Failed to clear photo likes on replace: {e}")
         photos = await service.replace_photo(telegram_id=user_id, index=idx, s3_key=s3_key)
     else:
         photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
@@ -372,6 +383,14 @@ async def upload_user_media_multipart(
         )
 
     if is_replace:
+        # Удаляем лайки старого фото перед заменой
+        try:
+            from app.infra.repositories.mongo import MongoDBPhotoLikesRepository
+            likes_repo: MongoDBPhotoLikesRepository = container.resolve(MongoDBPhotoLikesRepository)
+            await likes_repo.delete_likes_for_photo(owner_id=user_id, photo_index=idx)
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"Failed to clear photo likes on multipart replace: {e}")
         photos = await service.replace_photo(telegram_id=user_id, index=idx, s3_key=s3_key)
     else:
         photos = await service.add_photo(telegram_id=user_id, s3_key=s3_key)
@@ -401,6 +420,15 @@ async def delete_user_photo(
         await service.get_user(telegram_id=user_id)
     except ApplicationException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Удаляем лайки удаляемого фото
+    try:
+        from app.infra.repositories.mongo import MongoDBPhotoLikesRepository
+        likes_repo: MongoDBPhotoLikesRepository = container.resolve(MongoDBPhotoLikesRepository)
+        await likes_repo.delete_likes_for_photo(owner_id=user_id, photo_index=index)
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f"Failed to clear photo likes on delete: {e}")
 
     photos = await service.remove_photo(telegram_id=user_id, index=index)
     photos_urls = [f"/api/v1/users/{user_id}/photo/{i}" for i in range(len(photos))]

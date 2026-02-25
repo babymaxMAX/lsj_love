@@ -116,6 +116,13 @@ async def photo_edit(
 
         if s3_ok:
             if photos:
+                # Чистим лайки старого фото[0] перед заменой
+                try:
+                    from app.infra.repositories.mongo import MongoDBPhotoLikesRepository
+                    likes_repo: MongoDBPhotoLikesRepository = container.resolve(MongoDBPhotoLikesRepository)
+                    await likes_repo.delete_likes_for_photo(owner_id=uid, photo_index=0)
+                except Exception:
+                    pass
                 # Заменяем первый слот (photos[0])
                 await service.replace_photo(telegram_id=uid, index=0, s3_key=s3_key)
             else:
