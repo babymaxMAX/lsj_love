@@ -110,9 +110,12 @@ async def _activate_superlike(container: Container, telegram_id: int):
     )
 
 
+REFERRAL_PERCENT = 0.50  # 50% с каждой покупки реферала
+
+
 async def _pay_referral_bonus(container: Container, telegram_id: int, amount: float):
     """
-    Если пользователь пришёл по реферальной ссылке — начисляет 10% реферреру.
+    Если пользователь пришёл по реферальной ссылке — начисляет 50% реферреру.
     Также отправляет реферреру уведомление в Telegram.
     """
     try:
@@ -122,30 +125,33 @@ async def _pay_referral_bonus(container: Container, telegram_id: int, amount: fl
         if not referred_by:
             return
 
-        bonus = round(amount * 0.10, 2)
+        bonus = round(amount * REFERRAL_PERCENT, 2)
         if bonus <= 0:
             return
 
         col = _get_users_collection(container)
-        await col.update_one(
+        result = await col.update_one(
             {"telegram_id": referred_by},
             {"$inc": {"referral_balance": bonus}},
         )
-        logger.info(f"Referral bonus +{bonus}₽ → user {referred_by} (invited {telegram_id})")
+        if result.modified_count == 0:
+            logger.warning(f"Referral: referrer {referred_by} not found in DB")
+            return
+
+        logger.info(f"Referral bonus +{bonus}₽ (50%) → user {referred_by} (invited {telegram_id})")
 
         # Уведомляем реферера
         try:
-            from app.logic.init import init_container as _ic
             from aiogram import Bot
-            _container = _ic()
-            from app.settings.config import Config as _Cfg
-            _cfg = _container.resolve(_Cfg)
+            _container = init_container()
+            _cfg: Config = _container.resolve(Config)
             _bot = Bot(token=_cfg.token)
             await _bot.send_message(
                 chat_id=referred_by,
                 text=(
                     f"💰 <b>+{bonus:.2f} ₽</b> на реферальный баланс!\n"
-                    f"Приглашённый тобой пользователь совершил покупку."
+                    f"Приглашённый тобой пользователь совершил покупку.\n\n"
+                    f"<i>Открой профиль → 🔗 Реферальная программа, чтобы проверить баланс.</i>"
                 ),
                 parse_mode="HTML",
             )

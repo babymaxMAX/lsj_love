@@ -520,7 +520,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                         <p className="text-sm font-semibold text-white">Реферальная программа</p>
                     </div>
                     <p className="text-xs text-white/50 leading-relaxed">
-                        Приглашай друзей — получай <b className="text-purple-300">10%</b> с каждой их покупки
+                        Приглашай друзей — получай <b className="text-purple-300">50%</b> с каждой их покупки
                     </p>
 
                     {(user.referral_balance ?? 0) > 0 && (
