@@ -138,17 +138,6 @@ function ProfileCard({
                 >
                     ❤️ Лайк
                 </button>
-                {profile.username && (
-                    <a
-                        href={`https://t.me/${profile.username}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 flex items-center"
-                        style={{ background: "rgba(37,99,235,0.2)", color: "#93c5fd", border: "1px solid rgba(37,99,235,0.3)" }}
-                    >
-                        ✉️
-                    </a>
-                )}
             </div>
         </div>
     );
