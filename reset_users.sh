@@ -1,26 +1,10 @@
 #!/bin/bash
-# ============================================================
 # LSJLove — Полный сброс всех пользователей (для тестов)
 # Запуск: bash reset_users.sh
-# ============================================================
 
-API_URL="https://lsjlove.duckdns.org/api/v1/users/admin/reset-all"
-SECRET="lsjlove_reset_2026"
+API_URL="https://lsjlove.duckdns.org/api/v1/users/admin/reset-all?secret=lsjlove_reset_2026"
 
-echo "⚠️  ВНИМАНИЕ: Это удалит ВСЕХ пользователей и все данные!"
-echo "Продолжить? (yes/no)"
-read CONFIRM
-
-if [ "$CONFIRM" != "yes" ]; then
-    echo "Отменено."
-    exit 0
-fi
-
-echo "🗑️  Очищаем базу данных..."
-RESPONSE=$(curl -s -X DELETE "${API_URL}?secret=${SECRET}")
-
-echo "✅ Ответ сервера:"
-echo "$RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE"
-
-echo ""
-echo "✅ Готово! Все пользователи удалены. Можно тестировать заново."
+echo "Очищаем базу данных..."
+RESPONSE=$(curl -s -X DELETE "$API_URL")
+echo "$RESPONSE"
+echo "Готово!"
