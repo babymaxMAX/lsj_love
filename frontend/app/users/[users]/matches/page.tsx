@@ -71,15 +71,16 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
         fetchMatches();
     }, [fetchMatches]);
 
-    // Перезагрузка при возврате на страницу (visibilitychange)
+    // Перезагрузка при возврате через history.back() (popstate) или pageshow
     useEffect(() => {
-        const handleVisibility = () => {
-            if (document.visibilityState === "visible") {
-                fetchMatches();
-            }
+        const onPop = () => fetchMatches();
+        const onShow = (e: PageTransitionEvent) => { if (e.persisted) fetchMatches(); };
+        window.addEventListener("popstate", onPop);
+        window.addEventListener("pageshow", onShow as EventListener);
+        return () => {
+            window.removeEventListener("popstate", onPop);
+            window.removeEventListener("pageshow", onShow as EventListener);
         };
-        document.addEventListener("visibilitychange", handleVisibility);
-        return () => document.removeEventListener("visibilitychange", handleVisibility);
     }, [fetchMatches]);
 
     // Пинг: обновляем last_seen

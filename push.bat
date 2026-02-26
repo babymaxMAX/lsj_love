@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "fix: matches page refetch on back navigation, fix avatar photo errors, fix online dot indicator"
+git commit -m "fix: nginx rate limit, view-profile error handling with retry, matches popstate refetch"
 git push
 pause
 

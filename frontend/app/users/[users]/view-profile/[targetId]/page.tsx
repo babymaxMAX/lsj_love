@@ -44,6 +44,7 @@ export default function ViewProfilePage() {
 
     const [user, setUser] = useState<TargetUser | null>(null);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(false);
     const [currentPhoto, setCurrentPhoto] = useState(0);
     const [photoLikes, setPhotoLikes] = useState<Record<number, PhotoLikeState>>({});
     const [likeLoading, setLikeLoading] = useState(false);
@@ -62,13 +63,25 @@ export default function ViewProfilePage() {
             : ["/placeholder.svg"];
 
     // Загружаем профиль
-    useEffect(() => {
-        fetch(`${BackEnd_URL}/api/v1/users/${targetId}`)
-            .then((r) => r.json())
-            .then(setUser)
-            .catch(() => setUser(null))
-            .finally(() => setLoading(false));
+    const loadUser = useCallback(async () => {
+        setLoading(true);
+        setFetchError(false);
+        try {
+            const r = await fetch(`${BackEnd_URL}/api/v1/users/${targetId}`);
+            if (!r.ok) { setUser(null); setFetchError(true); return; }
+            const data = await r.json();
+            // Проверяем что это реальный пользователь, а не объект ошибки
+            if (!data?.telegram_id) { setUser(null); setFetchError(true); return; }
+            setUser(data);
+        } catch {
+            setUser(null);
+            setFetchError(true);
+        } finally {
+            setLoading(false);
+        }
     }, [targetId]);
+
+    useEffect(() => { loadUser(); }, [loadUser]);
 
     // Пинг: обновляем last_seen текущего пользователя
     useEffect(() => {
@@ -215,16 +228,33 @@ export default function ViewProfilePage() {
                     <p className="font-semibold text-white/80">Профиль</p>
                 </div>
                 <div className="flex flex-col items-center justify-center flex-1 gap-4 px-8 text-center">
-                    <div className="text-5xl">😕</div>
-                    <p className="text-white font-semibold text-lg">Профиль недоступен</p>
-                    <p className="text-white/40 text-sm">Пользователь удалил аккаунт или скрыл профиль</p>
-                    <button
-                        onClick={() => router.back()}
-                        className="mt-2 px-6 py-3 rounded-2xl font-semibold text-sm text-white transition-all active:scale-95"
-                        style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)" }}
-                    >
-                        ← Назад
-                    </button>
+                    <div className="text-5xl">{fetchError ? "⚠️" : "😕"}</div>
+                    <p className="text-white font-semibold text-lg">
+                        {fetchError ? "Ошибка загрузки" : "Профиль недоступен"}
+                    </p>
+                    <p className="text-white/40 text-sm">
+                        {fetchError
+                            ? "Не удалось загрузить профиль. Попробуй ещё раз."
+                            : "Пользователь удалил аккаунт или скрыл профиль"}
+                    </p>
+                    <div className="flex gap-3 mt-2">
+                        {fetchError && (
+                            <button
+                                onClick={loadUser}
+                                className="px-5 py-3 rounded-2xl font-semibold text-sm text-white transition-all active:scale-95"
+                                style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+                            >
+                                🔄 Попробовать снова
+                            </button>
+                        )}
+                        <button
+                            onClick={() => router.back()}
+                            className="px-5 py-3 rounded-2xl font-semibold text-sm text-white transition-all active:scale-95"
+                            style={{ background: "rgba(255,255,255,0.1)" }}
+                        >
+                            ← Назад
+                        </button>
+                    </div>
                 </div>
             </div>
         );
