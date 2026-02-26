@@ -814,11 +814,15 @@ async def _matchmaking_vision_rank(
     shown_note = f" Не повторяй ID: {shown_ids}." if shown_ids else ""
 
     system = (
-        "Ты — живой помощник-сваха в приложении знакомств. Общайся неформально, по-дружески, коротко.\n"
-        "Анализируй фотографии и описания анкет, выбери 2-3 анкеты которые лучше всего подходят пользователю.\n"
-        "ВАЖНО: описывай ТОЛЬКО то что реально видишь на фото или в описании. НЕ придумывай внешность.\n"
-        "Напиши 1-2 предложения почему выбрал этих людей (без перечисления всех деталей).\n"
-        f"Затем на новой строке ТОЛЬКО: {{\"matches\": [id1, id2]}}{shown_note}"
+        "Ты — помощник-сваха в приложении знакомств. Общайся неформально, коротко.\n"
+        "Смотри на фотографии и описания, выбери анкеты которые РЕАЛЬНО подходят под критерии пользователя.\n"
+        "ВАЖНО:\n"
+        "- Описывай ТОЛЬКО то что реально видно на фото или написано в описании\n"
+        "- Если критерии визуальные (цвет волос, татуировки, телосложение) — смотри на ФОТО\n"
+        "- Если ни одна анкета НЕ подходит — честно скажи и верни пустой список\n"
+        "- НЕ показывай неподходящие анкеты только чтобы что-то показать\n"
+        "Напиши 1-2 коротких предложения объяснения.\n"
+        f"Затем на новой строке ТОЛЬКО: {{\"matches\": [id1, id2]}} (или [] если нет подходящих){shown_note}"
     )
 
     messages: list[dict] = [{"role": "system", "content": system}]
@@ -938,36 +942,52 @@ async def ai_matchmaking(
             matches=[],
         )
 
-    # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────────
-    profiles_lines = []
-    for u in candidates:
-        name = str(getattr(u, "name", "") or "")
-        age = str(getattr(u, "age", "") or "")
-        city = str(getattr(u, "city", "") or "")
-        about = str(getattr(u, "about", "") or "")[:120]
-        uid = u.telegram_id
-        profiles_lines.append(f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}")
-
-    candidates_text = "\n".join(profiles_lines)
-
-    try:
-        selected_ids = await _matchmaking_text_screen(
-            candidates_text=candidates_text,
-            user_criteria=data.message,
-            conversation=data.conversation,
-            shown_ids=shown_ids,
-            api_key=config.openai_api_key,
-        )
-    except Exception as e:
-        logger.error(f"matchmaking text screen error: {e}")
-        selected_ids = [u.telegram_id for u in candidates[:8]]
-
-    # Фильтруем кандидатов по отобранным ID
     id_to_user = {u.telegram_id: u for u in candidates_raw}
-    top_candidates = [id_to_user[i] for i in selected_ids if i in id_to_user][:10]
 
-    if not top_candidates:
-        top_candidates = candidates[:5]
+    # ── Определяем: есть ли визуальные критерии ────────────────────────────
+    # Если пользователь описывает внешность (цвет волос, татуировки и т.д.)
+    # — пропускаем текстовый скрининг и сразу отдаём всех на vision-анализ
+    VISUAL_KEYWORDS = [
+        "рыж", "блонд", "брюнет", "волос", "татуир", "пирсинг",
+        "строй", "пухл", "толст", "высок", "низк", "спортивн",
+        "глаз", "карие", "голуб", "зелён", "кожа", "темнокож",
+    ]
+    msg_lower = data.message.lower()
+    has_visual = any(kw in msg_lower for kw in VISUAL_KEYWORDS)
+
+    top_candidates: list
+    if has_visual:
+        # Визуальные критерии — берём всех кандидатов сразу на vision
+        top_candidates = candidates[:12]
+    else:
+        # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────
+        profiles_lines = []
+        for u in candidates:
+            name = str(getattr(u, "name", "") or "")
+            age = str(getattr(u, "age", "") or "")
+            city = str(getattr(u, "city", "") or "")
+            about = str(getattr(u, "about", "") or "")[:120]
+            uid = u.telegram_id
+            profiles_lines.append(f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}")
+
+        candidates_text = "\n".join(profiles_lines)
+
+        try:
+            selected_ids = await _matchmaking_text_screen(
+                candidates_text=candidates_text,
+                user_criteria=data.message,
+                conversation=data.conversation,
+                shown_ids=shown_ids,
+                api_key=config.openai_api_key,
+            )
+        except Exception as e:
+            logger.error(f"matchmaking text screen error: {e}")
+            selected_ids = [u.telegram_id for u in candidates[:8]]
+
+        top_candidates = [id_to_user[i] for i in selected_ids if i in id_to_user][:10]
+        if not top_candidates:
+            # Текстовый скрининг не нашёл — отдаём всех на vision
+            top_candidates = candidates[:10]
 
     # ── Шаг 2: Vision-ранжирование ─────────────────────────────────────────
     import base64 as _b64
@@ -1004,13 +1024,14 @@ async def ai_matchmaking(
         )
     except Exception as e:
         logger.error(f"matchmaking vision rank error: {e}")
-        final_ids = [u.telegram_id for u in top_candidates[:3]]
-        reply_text = "Нашёл кое-кого интересного для тебя 💫"
+        final_ids = []
+        reply_text = "Произошла ошибка анализа. Попробуй ещё раз."
 
-    # Собираем финальных пользователей в правильном порядке
+    # Если AI нашёл совпадения — показываем их
     final_users = [id_to_user[i] for i in final_ids if i in id_to_user]
-    if not final_users:
-        final_users = top_candidates[:3]
+
+    # Если AI явно сказал "нет совпадений" — НЕ показываем левые анкеты
+    # (не используем fallback чтобы не вводить пользователя в заблуждение)
 
     from app.application.api.v1.users.schemas import UserDetailSchema as _UDS
     matches_dicts = [_UDS.from_entity(u).model_dump() for u in final_users]
