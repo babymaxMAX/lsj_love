@@ -65,6 +65,15 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         return () => clearInterval(interval);
     }, [params.users]);
 
+    // Перезагружаем анкеты когда возвращаемся на страницу
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === "visible") loadUsers();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+    }, [loadUsers]);
+
     const handleLike = async (targetId: number) => {
         seenIds.add(targetId);
         try {

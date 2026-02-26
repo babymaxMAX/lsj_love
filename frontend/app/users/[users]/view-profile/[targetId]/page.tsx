@@ -92,20 +92,21 @@ export default function ViewProfilePage() {
         return () => clearInterval(interval);
     }, [userId]);
 
-    // Проверяем лайк и матч
+    // Проверяем лайк: я → цель и цель → я (два лёгких запроса вместо загрузки всех матчей)
     useEffect(() => {
         if (!userId || !targetId) return;
-        fetch(`${BackEnd_URL}/api/v1/likes/${userId}/${targetId}`)
-            .then((r) => r.json())
-            .then((data) => { if (data.status === true) setProfileLiked(true); })
-            .catch(() => {});
-        fetch(`${BackEnd_URL}/api/v1/likes/matches/${userId}`)
-            .then((r) => r.json())
-            .then((data) => {
-                const ids: number[] = (data.items ?? []).map((u: any) => u.telegram_id);
-                if (ids.includes(parseInt(targetId))) setIsMatch(true);
-            })
-            .catch(() => {});
+        let cancelled = false;
+        Promise.all([
+            fetch(`${BackEnd_URL}/api/v1/likes/${userId}/${targetId}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`${BackEnd_URL}/api/v1/likes/${targetId}/${userId}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([myLike, theirLike]) => {
+            if (cancelled) return;
+            const iLiked = myLike?.status === true;
+            const theyLiked = theirLike?.status === true;
+            if (iLiked) setProfileLiked(true);
+            if (iLiked && theyLiked) setIsMatch(true);
+        });
+        return () => { cancelled = true; };
     }, [userId, targetId]);
 
     // Загружаем лайки для текущего фото

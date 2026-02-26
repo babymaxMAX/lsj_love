@@ -9,4 +9,25 @@
 
 body {
   font-family: var(--font-sans);
+  /* Убираем 300мс задержку на касание во всём приложении */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Все кнопки и ссылки реагируют мгновенно */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+
+/* Запрещаем выделение текста при случайном долгом касании */
+button, [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Скроллинг с инерцией на iOS */
+[data-scroll], .overflow-y-auto, .overflow-auto {
+  -webkit-overflow-scrolling: touch;
 }

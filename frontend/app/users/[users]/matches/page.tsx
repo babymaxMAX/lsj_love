@@ -35,61 +35,75 @@ function getPhotoUrl(user: MatchUser): string {
         const p = user.photos[0];
         return p.startsWith("http") ? p : `${BackEnd_URL}${p}`;
     }
-    if (user.photo) {
-        return `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`;
-    }
+    if (user.photo) return `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`;
     return "/placeholder.svg";
 }
 
+// @ts-ignore
 export default function MatchesPage({ params }: { params: { users: string } }) {
     const [matches, setMatches] = useState<MatchUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [imgErrors, setImgErrors] = useState<Record<number, boolean>>({});
+    const [navigating, setNavigating] = useState<number | null>(null);
     const router = useRouter();
     const userId = params.users;
-    const fetchingRef = useRef(false);
+
+    // AbortController — отменяем предыдущий запрос при новом
+    const abortRef = useRef<AbortController | null>(null);
 
     const fetchMatches = useCallback(async () => {
-        if (fetchingRef.current) return;
-        fetchingRef.current = true;
+        // Отменяем предыдущий запрос если ещё идёт
+        if (abortRef.current) abortRef.current.abort();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+
         setLoading(true);
         try {
-            const res = await fetch(`${BackEnd_URL}/api/v1/likes/matches/${userId}`, { cache: "no-store" });
-            const data = res.ok ? await res.json() : { items: [] };
+            const res = await fetch(`${BackEnd_URL}/api/v1/likes/matches/${userId}`, {
+                cache: "no-store",
+                signal: ctrl.signal,
+            });
+            if (!res.ok) { setMatches([]); return; }
+            const data = await res.json();
             setMatches(data.items ?? []);
             setImgErrors({});
-        } catch {
-            setMatches([]);
+        } catch (e: any) {
+            if (e?.name !== "AbortError") setMatches([]);
         } finally {
-            setLoading(false);
-            fetchingRef.current = false;
+            if (!ctrl.signal.aborted) setLoading(false);
         }
     }, [userId]);
 
     // Первая загрузка
     useEffect(() => {
         fetchMatches();
+        return () => { abortRef.current?.abort(); };
     }, [fetchMatches]);
 
-    // Перезагрузка при возврате через history.back() (popstate) или pageshow
+    // Перезагрузка когда вкладка снова видима (возврат из просмотра профиля)
     useEffect(() => {
-        const onPop = () => fetchMatches();
-        const onShow = (e: PageTransitionEvent) => { if (e.persisted) fetchMatches(); };
-        window.addEventListener("popstate", onPop);
-        window.addEventListener("pageshow", onShow as EventListener);
-        return () => {
-            window.removeEventListener("popstate", onPop);
-            window.removeEventListener("pageshow", onShow as EventListener);
+        const onVisible = () => {
+            if (document.visibilityState === "visible") fetchMatches();
         };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
     }, [fetchMatches]);
 
     // Пинг: обновляем last_seen
     useEffect(() => {
         const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${userId}/ping`, { method: "POST" }).catch(() => {});
         ping();
-        const interval = setInterval(ping, 60_000);
-        return () => clearInterval(interval);
+        const iv = setInterval(ping, 60_000);
+        return () => clearInterval(iv);
     }, [userId]);
+
+    const goToProfile = useCallback((targetId: number) => {
+        if (navigating !== null) return;
+        setNavigating(targetId);
+        router.push(`/users/${userId}/view-profile/${targetId}`);
+        // Сбрасываем через 2 сек на случай если навигация не произошла
+        setTimeout(() => setNavigating(null), 2000);
+    }, [navigating, router, userId]);
 
     if (loading) {
         return (
@@ -149,6 +163,7 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                     {matches.map((user) => {
                         const st = getOnlineStatus(user.last_seen);
                         const photoUrl = imgErrors[user.telegram_id] ? "/placeholder.svg" : getPhotoUrl(user);
+                        const isNavigating = navigating === user.telegram_id;
 
                         return (
                             <div
@@ -156,32 +171,26 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                 className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
                                 style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
                             >
-                                {/* Avatar */}
-                                <button
-                                    className="flex-shrink-0"
-                                    onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
-                                >
-                                    <div className="relative">
-                                        <img
-                                            src={photoUrl}
-                                            alt={user.name}
-                                            className="w-12 h-12 rounded-full object-cover"
-                                            style={{ border: `2px solid ${st.isOnline ? "#22c55e" : "rgba(236,72,153,0.5)"}` }}
-                                            onError={() => {
-                                                setImgErrors(prev => ({ ...prev, [user.telegram_id]: true }));
-                                            }}
-                                        />
-                                        <div
-                                            className="absolute bottom-0 right-0 w-3 h-3 rounded-full"
-                                            style={{ background: st.dot, border: "2px solid #0f0f1a" }}
-                                        />
-                                    </div>
-                                </button>
+                                {/* Avatar — одна кнопка без вложенности */}
+                                <div className="flex-shrink-0 relative">
+                                    <img
+                                        src={photoUrl}
+                                        alt={user.name}
+                                        className="w-12 h-12 rounded-full object-cover cursor-pointer"
+                                        style={{ border: `2px solid ${st.isOnline ? "#22c55e" : "rgba(236,72,153,0.5)"}` }}
+                                        onClick={() => goToProfile(user.telegram_id)}
+                                        onError={() => setImgErrors(prev => ({ ...prev, [user.telegram_id]: true }))}
+                                    />
+                                    <div
+                                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full pointer-events-none"
+                                        style={{ background: st.dot, border: "2px solid #0f0f1a" }}
+                                    />
+                                </div>
 
                                 {/* Info */}
-                                <button
-                                    className="flex-1 min-w-0 text-left"
-                                    onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
+                                <div
+                                    className="flex-1 min-w-0 cursor-pointer"
+                                    onClick={() => goToProfile(user.telegram_id)}
                                 >
                                     <p className="font-semibold text-sm truncate leading-tight">
                                         {user.name}{user.age ? `, ${user.age}` : ""}
@@ -194,16 +203,17 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                             📍 {user.city}
                                         </p>
                                     )}
-                                </button>
+                                </div>
 
                                 {/* Action buttons */}
                                 <div className="flex flex-col gap-1.5 flex-shrink-0">
                                     <button
-                                        onClick={() => router.push(`/users/${userId}/view-profile/${user.telegram_id}`)}
-                                        className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 whitespace-nowrap"
+                                        onClick={() => goToProfile(user.telegram_id)}
+                                        disabled={isNavigating}
+                                        className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 whitespace-nowrap disabled:opacity-50"
                                         style={{ background: "rgba(139,92,246,0.25)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }}
                                     >
-                                        👤 Профиль
+                                        {isNavigating ? "..." : "👤 Профиль"}
                                     </button>
                                     {user.username ? (
                                         <a
