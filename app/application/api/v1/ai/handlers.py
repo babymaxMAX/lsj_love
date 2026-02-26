@@ -490,6 +490,7 @@ class AdvisorStatusResponse(BaseModel):
     trial_active: bool
     trial_hours_left: float | None = None
     trial_expired: bool
+    vip_expired: bool = False   # True когда был VIP, но истёк
 
 
 async def _generate_advisor_reply(
@@ -586,6 +587,17 @@ async def get_advisor_status(
             trial_expired=False,
         )
 
+    # Если пользователь когда-либо был VIP, но подписка истекла — не даём trial
+    had_vip = getattr(user, "premium_type", None) == "vip"
+    if had_vip:
+        return AdvisorStatusResponse(
+            is_vip=False,
+            trial_active=False,
+            trial_hours_left=None,
+            trial_expired=True,
+            vip_expired=True,
+        )
+
     trial_start = await service.get_advisor_trial_start(telegram_id=user_id)
     trial_active, hours_left = _get_trial_info(trial_start)
 
@@ -594,6 +606,7 @@ async def get_advisor_status(
         trial_active=trial_active,
         trial_hours_left=hours_left if trial_active else None,
         trial_expired=not trial_active,
+        vip_expired=False,
     )
 
 
@@ -622,6 +635,14 @@ async def dialog_advisor(
     is_vip = _is_premium_active(user, "vip")
 
     if not is_vip:
+        # Если пользователь был VIP, но подписка истекла — не даём trial, требуем продлить
+        had_vip = getattr(user, "premium_type", None) == "vip"
+        if had_vip:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "Подписка VIP истекла. Обнови VIP для доступа к AI Советнику диалога."},
+            )
+
         trial_start = await service.get_advisor_trial_start(telegram_id=data.user_id)
         if trial_start is None:
             await service.set_advisor_trial_start(telegram_id=data.user_id)

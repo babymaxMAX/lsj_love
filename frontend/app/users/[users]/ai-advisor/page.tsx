@@ -18,6 +18,7 @@ interface AdvisorStatus {
     trial_active: boolean;
     trial_hours_left: number | null;
     trial_expired: boolean;
+    vip_expired?: boolean;
 }
 
 const WELCOME_MSG: Message = {
@@ -302,9 +303,14 @@ export default function AiAdvisorPage() {
                         🔒
                     </div>
                     <div>
-                        <h2 className="text-white text-2xl font-bold mb-2">Пробный период истёк</h2>
+                        <h2 className="text-white text-2xl font-bold mb-2">
+                            {status?.vip_expired ? "Подписка VIP истекла" : "Пробный период истёк"}
+                        </h2>
                         <p className="text-white/60 text-sm leading-relaxed">
-                            AI Советник диалога доступен только пользователям с подпиской <span className="text-purple-400 font-semibold">VIP</span>
+                            {status?.vip_expired
+                                ? "Твой VIP закончился. Обнови подписку — и AI Советник снова будет с тобой 💫"
+                                : <>AI Советник диалога доступен только пользователям с подпиской <span className="text-purple-400 font-semibold">VIP</span></>
+                            }
                         </p>
                     </div>
                     <div className="w-full rounded-2xl p-4 space-y-2" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)" }}>
@@ -319,7 +325,7 @@ export default function AiAdvisorPage() {
                         onClick={() => router.push(`/users/${userId}/premium`)}
                         className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-transform active:scale-95"
                         style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}>
-                        Получить VIP →
+                        {status?.vip_expired ? "Обновить VIP →" : "Получить VIP →"}
                     </button>
                 </div>
             </div>
@@ -349,7 +355,7 @@ export default function AiAdvisorPage() {
     ) : status?.is_vip ? (
         <div className="px-4 py-1.5 text-center text-xs text-purple-400/70"
              style={{ background: "rgba(139,92,246,0.06)", borderBottom: "1px solid rgba(139,92,246,0.1)" }}>
-            ⭐ VIP — безлимитный доступ
+            💎 VIP активен — безлимитный доступ (до окончания подписки)
         </div>
     ) : null;
 
