@@ -269,6 +269,8 @@ export default function AiMatchmakingPage() {
     const router = useRouter();
     const userId = params.users as string;
 
+    const [shownIds, setShownIds] = useState<number[]>([]);
+
     const [messages, setMessages] = useState<ChatMessage[]>([
         {
             id: "welcome",
@@ -324,6 +326,7 @@ export default function AiMatchmakingPage() {
                     user_id: parseInt(userId),
                     message: userText,
                     conversation: conversation,
+                    shown_ids: shownIds,
                 }),
             });
 
@@ -346,6 +349,14 @@ export default function AiMatchmakingPage() {
 
             const cards: MatchCard[] = matches.map((p) => ({ profile: p, state: "idle" as CardState }));
 
+            // Трекаем показанные ID — чтобы при следующем запросе AI показал других
+            if (matches.length > 0) {
+                setShownIds((prev) => {
+                    const newIds = matches.map((p: ProfileMatch) => p.telegram_id);
+                    return [...new Set([...prev, ...newIds])];
+                });
+            }
+
             const assistantMsg: ChatMessage = {
                 id: loadingMsgId,
                 role: "assistant",
@@ -358,10 +369,10 @@ export default function AiMatchmakingPage() {
                 prev.map((m) => (m.id === loadingMsgId ? assistantMsg : m))
             );
 
-            // Обновляем историю разговора
+            // Обновляем историю разговора (без служебных пометок для AI)
             setConversation([
                 ...newConversation,
-                { role: "assistant", content: reply + (matches.length ? ` [Показано ${matches.length} анкет]` : "") },
+                { role: "assistant", content: reply },
             ]);
         } catch {
             setMessages((prev) =>
