@@ -15,11 +15,13 @@ from app.bot.keyboards.reply import (
     remove_keyboard,
     user_name_keyboard,
 )
+from app.bot.utils.moderation import check_image_safe
 from app.bot.utils.states import UserForm
 from app.domain.exceptions.base import ApplicationException
 from app.infra.s3.base import BaseS3Storage
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
+from app.settings.config import Config
 
 
 registration_router = Router(
@@ -141,8 +143,7 @@ async def user_reg(
 ):
     uploader: BaseS3Storage = container.resolve(BaseS3Storage)
     service: BaseUsersService = container.resolve(BaseUsersService)
-    data = await state.get_data()
-    await state.clear()
+    config: Config = container.resolve(Config)
 
     # Получаем файл из Telegram
     photo_file_id = message.photo[-1].file_id
@@ -151,12 +152,35 @@ async def user_reg(
     photo_file_stream = await bot.download_file(file_path)
     photo_file_bytes = photo_file_stream.read()
 
+    # Модерация: проверяем фото на 18+ ПЕРЕД сохранением состояния
+    try:
+        is_safe, reason = await check_image_safe(photo_file_bytes, config.openai_api_key)
+        if not is_safe:
+            # state НЕ сбрасываем — пользователь остаётся на шаге загрузки фото
+            await message.answer(
+                f"🚫 <b>Фото отклонено модерацией</b>\n\n"
+                f"{reason}\n\n"
+                f"Отправь другое фото — портрет или фото в полный рост.",
+                parse_mode="HTML",
+            )
+            return
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f"Registration moderation check failed: {e}")
+
+    # Фото прошло проверку — сохраняем данные
+    data = await state.get_data()
+    await state.clear()
+
     # Загружаем в S3 (для веб-приложения)
+    s3_key = f"{message.from_user.id}_0.png"
     try:
         await uploader.upload_file(
             file=photo_file_bytes,
-            file_name=f"{message.from_user.id}.png",
+            file_name=s3_key,
         )
+        # Сохраняем S3-ключ в массиве photos[] для Mini App
+        data["photos"] = [s3_key]
     except Exception:
         pass  # S3 upload failure is non-critical
 
