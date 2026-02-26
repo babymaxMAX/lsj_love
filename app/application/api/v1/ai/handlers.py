@@ -1012,11 +1012,19 @@ async def ai_matchmaking(
         photos_list = getattr(u, "photos", []) or []
         photo_b64: str | None = None
 
+        # Пытаемся загрузить фото из S3
         if photos_list:
-            s3_key = photos_list[0]
-            raw_bytes = await _s3_download_bytes(s3_key, config)
+            raw_bytes = await _s3_download_bytes(photos_list[0], config)
             if raw_bytes:
                 photo_b64 = _b64.b64encode(raw_bytes).decode()
+
+        # Fallback: если photos[] пуст — пробуем стандартные ключи
+        if not photo_b64:
+            for fallback_key in [f"{uid}_0.png", f"{uid}_0.jpg", f"{uid}.png", f"{uid}.jpg"]:
+                raw_bytes = await _s3_download_bytes(fallback_key, config)
+                if raw_bytes:
+                    photo_b64 = _b64.b64encode(raw_bytes).decode()
+                    break
 
         name = str(getattr(u, "name", "") or "")
         age = str(getattr(u, "age", "") or "")
