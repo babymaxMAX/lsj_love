@@ -101,36 +101,39 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
+            <div className="flex items-center justify-center min-h-screen" style={{ background: "#0f0f1a" }}>
                 <div className="text-center">
                     <div className="text-4xl mb-4">💕</div>
-                    <p className="text-default-500">Ищем людей рядом...</p>
+                    <p style={{ color: "rgba(255,255,255,0.5)" }}>Ищем людей рядом...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col min-h-screen pb-20">
-            {/* Заголовок */}
-            <div className="relative flex items-center justify-center px-4 py-3 border-b border-divider">
+        <div className="flex flex-col min-h-screen pb-20" style={{ background: "#0f0f1a", color: "#fff" }}>
+            {/* Заголовок — всегда видимый */}
+            <div
+                className="relative flex items-center justify-center px-4 py-3 flex-shrink-0"
+                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+            >
                 {/* Левая кнопка — AI Подбор */}
                 <button
                     onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
-                    className="absolute left-4 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
-                    style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff" }}
+                    className="absolute left-3 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+                    style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff", zIndex: 10 }}
                 >
-                    🤖 <span>AI Подбор</span>
+                    🤖 AI Подбор
                 </button>
 
                 {/* Центр — логотип */}
-                <h1 className="text-xl font-bold text-primary">LSJLove 💕</h1>
+                <h1 className="text-base font-bold" style={{ color: "#fff" }}>LSJLove 💕</h1>
 
                 {/* Правая кнопка — Вопрос дня */}
                 <button
                     onClick={() => setShowQuestion(!showQuestion)}
-                    className="absolute right-4 text-xl transition-colors"
-                    title="Вопрос дня"
+                    className="absolute right-4 text-xl"
+                    style={{ zIndex: 10 }}
                 >
                     💬
                 </button>
@@ -157,16 +160,23 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                 ) : (
                     <div className="text-center px-8">
                         <div className="text-6xl mb-6">😔</div>
-                        <h2 className="text-xl font-semibold mb-2">Анкеты закончились</h2>
-                        <p className="text-default-500 text-sm mb-6">
+                        <h2 className="text-xl font-semibold mb-2" style={{ color: "#fff" }}>Анкеты закончились</h2>
+                        <p className="text-sm mb-4" style={{ color: "rgba(255,255,255,0.5)" }}>
                             Ты просмотрел все профили. Возвращайся позже — появятся новые!
                         </p>
                         <button
                             onClick={loadUsers}
-                            className="px-6 py-3 rounded-2xl text-white font-semibold text-sm transition-all active:scale-95"
+                            className="px-6 py-3 rounded-2xl text-white font-semibold text-sm transition-all active:scale-95 mb-3 block w-full"
                             style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)" }}
                         >
-                            🔄 Обновить
+                            🔄 Обновить анкеты
+                        </button>
+                        <button
+                            onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
+                            className="px-6 py-3 rounded-2xl text-white font-semibold text-sm transition-all active:scale-95 block w-full"
+                            style={{ background: "rgba(124,58,237,0.3)", border: "1px solid rgba(124,58,237,0.5)" }}
+                        >
+                            🤖 AI Подбор партнёра
                         </button>
                     </div>
                 )}
