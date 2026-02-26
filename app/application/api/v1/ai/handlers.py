@@ -905,6 +905,13 @@ async def ai_matchmaking(
     # shown_ids — анкеты уже показанные пользователю в этой сессии
     shown_ids: list[int] = list(set(data.shown_ids or []))
 
+    # Определяем: просит ли пользователь другую/следующую (из уже найденных)
+    # или делает новый поиск с другими критериями
+    NEXT_KEYWORDS = ["следующ", "другу", "другой", "ещё", "еще", "покажи ещё",
+                     "покажи еще", "следующую", "следующего", "дальше", "next"]
+    msg_lower_next = data.message.lower()
+    is_next_request = any(kw in msg_lower_next for kw in NEXT_KEYWORDS)
+
     # Получаем список тех, кого пользователь уже лайкнул
     from app.logic.services.base import BaseLikesService as _BaseLikesService
     likes_service: _BaseLikesService = container.resolve(_BaseLikesService)
@@ -913,14 +920,11 @@ async def ai_matchmaking(
     except Exception:
         liked_ids = []
 
-    # Исключаем лайкнутых И показанных (если просят другие)
-    exclude_ids = list(set(liked_ids + shown_ids))
-
-    # Загружаем кандидатов через сервис (до 60 человек чтобы было из чего выбирать)
+    # Загружаем кандидатов (только лайкнутых исключаем всегда)
     try:
         candidates_iter = await service.get_best_result_for_user(
             telegram_id=data.user_id,
-            exclude_ids=liked_ids,  # базовое исключение только лайкнутых
+            exclude_ids=liked_ids,
         )
         candidates_raw = list(candidates_iter)[:60]
     except Exception as e:
@@ -930,10 +934,21 @@ async def ai_matchmaking(
             detail={"error": "Не удалось загрузить анкеты. Попробуй позже."},
         )
 
-    # Фильтруем показанных отдельно (чтобы при "покажи ещё" были новые)
-    candidates = [u for u in candidates_raw if u.telegram_id not in shown_ids]
-    if not candidates:
-        # Если новых нет — пробуем без фильтра shown_ids
+    if not candidates_raw:
+        return MatchmakingResponse(
+            reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
+            matches=[],
+        )
+
+    # shown_ids фильтруем ТОЛЬКО при запросе "следующую/другую"
+    # При новом поиске — ищем по всем доступным
+    if is_next_request and shown_ids:
+        candidates = [u for u in candidates_raw if u.telegram_id not in shown_ids]
+        if not candidates:
+            # Все показаны — начинаем сначала
+            candidates = candidates_raw
+            shown_ids = []  # сбрасываем чтобы AI видел всех
+    else:
         candidates = candidates_raw
 
     if not candidates:
