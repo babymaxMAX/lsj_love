@@ -104,23 +104,27 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     return (
         <div className="flex flex-col min-h-screen pb-20">
             {/* Заголовок */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-divider">
+            <div className="relative flex items-center justify-center px-4 py-3 border-b border-divider">
+                {/* Левая кнопка — AI Подбор */}
+                <button
+                    onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
+                    className="absolute left-4 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                    style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff" }}
+                >
+                    🤖 <span>AI Подбор</span>
+                </button>
+
+                {/* Центр — логотип */}
                 <h1 className="text-xl font-bold text-primary">LSJLove 💕</h1>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
-                        style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff" }}
-                    >
-                        🤖 AI Подбор
-                    </button>
-                    <button
-                        onClick={() => setShowQuestion(!showQuestion)}
-                        className="text-sm text-default-500 hover:text-primary transition-colors"
-                    >
-                        💬
-                    </button>
-                </div>
+
+                {/* Правая кнопка — Вопрос дня */}
+                <button
+                    onClick={() => setShowQuestion(!showQuestion)}
+                    className="absolute right-4 text-xl transition-colors"
+                    title="Вопрос дня"
+                >
+                    💬
+                </button>
             </div>
 
             {/* Вопрос дня */}
