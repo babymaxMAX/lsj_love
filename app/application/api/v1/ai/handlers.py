@@ -674,3 +674,295 @@ async def dialog_advisor(
         trial_active=not is_vip,
         trial_hours_left=hours_left,
     )
+
+
+# ─── AI Подбор (Matchmaking) ──────────────────────────────────────────────────
+
+class MatchmakingRequest(BaseModel):
+    user_id: int
+    message: str
+    conversation: list[dict] = []   # [{"role": "user"|"assistant", "content": str}]
+
+
+class MatchmakingResponse(BaseModel):
+    reply: str
+    matches: list   # List of UserDetailSchema dicts
+
+
+async def _s3_download_bytes(key: str, config: Config) -> bytes | None:
+    """Загружает файл из S3 по ключу и возвращает bytes."""
+    try:
+        from aiobotocore.session import get_session
+        session = get_session()
+        async with session.create_client(
+            "s3",
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            region_name=config.region_name,
+            endpoint_url=config.s3_endpoint_url,
+        ) as client:
+            resp = await client.get_object(Bucket=config.bucket_name, Key=key)
+            data = await resp["Body"].read()
+            return data
+    except Exception as e:
+        logger.warning(f"S3 download failed for key={key}: {e}")
+        return None
+
+
+async def _matchmaking_text_screen(
+    candidates_text: str,
+    user_criteria: str,
+    conversation: list[dict],
+    api_key: str,
+) -> list[int]:
+    """
+    Шаг 1: Текстовый скрининг — GPT-4o-mini выбирает топ-10 ID по критериям пользователя.
+    Возвращает список telegram_id.
+    """
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    system = (
+        "Ты — умный алгоритм подбора партнёров для приложения знакомств. "
+        "Пользователь описывает, кого ищет. Тебе дан список анкет с ID, именем, возрастом, городом и описанием. "
+        "Выбери до 10 анкет, которые наилучшим образом соответствуют критериям пользователя. "
+        "Ответь ТОЛЬКО JSON-объектом без пояснений: {\"selected\": [id1, id2, ...]}"
+    )
+
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for h in conversation[-6:]:
+        if h.get("content", "").strip():
+            messages.append({"role": h["role"], "content": h["content"]})
+
+    user_msg = (
+        f"Критерии пользователя: {user_criteria}\n\n"
+        f"Доступные анкеты:\n{candidates_text}\n\n"
+        "Верни JSON с отобранными ID."
+    )
+    messages.append({"role": "user", "content": user_msg})
+
+    resp = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        max_tokens=300,
+        temperature=0.3,
+    )
+    raw = resp.choices[0].message.content.strip()
+
+    # Парсим JSON из ответа
+    try:
+        # Ищем JSON даже если модель добавила лишний текст
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(raw[start:end])
+            return [int(i) for i in data.get("selected", [])]
+    except Exception:
+        pass
+    return []
+
+
+async def _matchmaking_vision_rank(
+    candidates_info: list[dict],   # [{"id": int, "text": str, "photo_b64": str|None}]
+    user_criteria: str,
+    conversation: list[dict],
+    api_key: str,
+) -> tuple[list[int], str]:
+    """
+    Шаг 2: Vision-ранжирование — GPT-4o смотрит на фото + описания, выбирает топ-5.
+    Возвращает (список ID, текст-объяснение для пользователя).
+    """
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    system = (
+        "Ты — AI-свахa приложения знакомств. Анализируй фотографии и описания анкет. "
+        "Выбери 3-5 анкет, которые максимально подходят пользователю по его критериям. "
+        "Учитывай внешность на фото, описание, возраст и город. "
+        "Ответь дружелюбно на русском: сначала объясни почему именно эти анкеты подходят (2-4 предложения), "
+        "затем на отдельной строке JSON: {\"matches\": [id1, id2, ...]}"
+    )
+
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for h in conversation[-6:]:
+        if h.get("content", "").strip():
+            messages.append({"role": h["role"], "content": h["content"]})
+
+    # Строим содержимое: текст с критериями + по одному блоку на каждую анкету
+    content: list[dict] = [
+        {"type": "text", "text": f"Критерии пользователя: {user_criteria}\n\nАнкеты для анализа:"}
+    ]
+
+    for idx, c in enumerate(candidates_info, 1):
+        content.append({"type": "text", "text": f"\n--- Анкета #{idx} (ID: {c['id']}) ---\n{c['text']}"})
+        if c.get("photo_b64"):
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{c['photo_b64']}",
+                    "detail": "low",
+                }
+            })
+
+    content.append({"type": "text", "text": "\nВыбери лучшие анкеты и объясни почему. Заверши JSON с matches."})
+    messages.append({"role": "user", "content": content})
+
+    resp = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        max_tokens=800,
+        temperature=0.5,
+    )
+    raw = resp.choices[0].message.content.strip()
+
+    # Отделяем текст от JSON
+    matched_ids: list[int] = []
+    reply_text = raw
+    try:
+        json_start = raw.rfind("{")
+        json_end = raw.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            data = json.loads(raw[json_start:json_end])
+            matched_ids = [int(i) for i in data.get("matches", [])]
+            reply_text = raw[:json_start].strip()
+    except Exception:
+        pass
+
+    if not reply_text:
+        reply_text = "Вот анкеты, которые подходят тебе больше всего! 💫"
+
+    return matched_ids, reply_text
+
+
+@router.post(
+    "/matchmaking",
+    status_code=status.HTTP_200_OK,
+    description="AI Подбор: анализирует критерии пользователя и возвращает подходящие анкеты.",
+)
+async def ai_matchmaking(
+    data: MatchmakingRequest,
+    container: Container = Depends(init_container),
+) -> MatchmakingResponse:
+    config: Config = container.resolve(Config)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
+    if not config.openai_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "OpenAI не настроен на сервере"},
+        )
+
+    # Загружаем текущего пользователя
+    try:
+        current_user = await service.get_user(telegram_id=data.user_id)
+    except ApplicationException as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+
+    # Получаем список тех, кого пользователь уже лайкнул
+    from app.logic.services.base import BaseLikesService as _BaseLikesService
+    likes_service: _BaseLikesService = container.resolve(_BaseLikesService)
+    try:
+        liked_ids = list(set(await likes_service.get_telegram_id_liked_from(user_id=data.user_id)))
+    except Exception:
+        liked_ids = []
+
+    # Загружаем кандидатов через сервис (до 40 человек)
+    try:
+        candidates_iter = await service.get_best_result_for_user(
+            telegram_id=data.user_id,
+            exclude_ids=liked_ids,
+        )
+        candidates = list(candidates_iter)[:40]
+    except Exception as e:
+        logger.error(f"matchmaking: failed to get candidates: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Не удалось загрузить анкеты. Попробуй позже."},
+        )
+
+    if not candidates:
+        return MatchmakingResponse(
+            reply="😔 Похоже, подходящих анкет пока нет. Попробуй расширить критерии или вернись позже!",
+            matches=[],
+        )
+
+    # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────────
+    profiles_lines = []
+    for u in candidates:
+        name = str(getattr(u, "name", "") or "")
+        age = str(getattr(u, "age", "") or "")
+        city = str(getattr(u, "city", "") or "")
+        about = str(getattr(u, "about", "") or "")[:120]
+        uid = u.telegram_id
+        profiles_lines.append(f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}")
+
+    candidates_text = "\n".join(profiles_lines)
+
+    try:
+        selected_ids = await _matchmaking_text_screen(
+            candidates_text=candidates_text,
+            user_criteria=data.message,
+            conversation=data.conversation,
+            api_key=config.openai_api_key,
+        )
+    except Exception as e:
+        logger.error(f"matchmaking text screen error: {e}")
+        # Fallback: берём первые 8 кандидатов
+        selected_ids = [u.telegram_id for u in candidates[:8]]
+
+    # Фильтруем кандидатов по отобранным ID
+    id_to_user = {u.telegram_id: u for u in candidates}
+    top_candidates = [id_to_user[i] for i in selected_ids if i in id_to_user][:10]
+
+    if not top_candidates:
+        top_candidates = candidates[:5]
+
+    # ── Шаг 2: Vision-ранжирование ─────────────────────────────────────────
+    candidates_with_photos: list[dict] = []
+    for u in top_candidates:
+        uid = u.telegram_id
+        photos_list = getattr(u, "photos", []) or []
+        photo_b64: str | None = None
+
+        if photos_list:
+            s3_key = photos_list[0]
+            raw_bytes = await _s3_download_bytes(s3_key, config)
+            if raw_bytes:
+                # OpenAI с detail="low" сам ресайзит — просто кодируем в base64
+                import base64 as _b64
+                photo_b64 = _b64.b64encode(raw_bytes).decode()
+
+        name = str(getattr(u, "name", "") or "")
+        age = str(getattr(u, "age", "") or "")
+        city = str(getattr(u, "city", "") or "")
+        about = str(getattr(u, "about", "") or "")[:200]
+
+        candidates_with_photos.append({
+            "id": uid,
+            "text": f"{name}, {age} лет, {city}. {about}",
+            "photo_b64": photo_b64,
+        })
+
+    try:
+        final_ids, reply_text = await _matchmaking_vision_rank(
+            candidates_info=candidates_with_photos,
+            user_criteria=data.message,
+            conversation=data.conversation,
+            api_key=config.openai_api_key,
+        )
+    except Exception as e:
+        logger.error(f"matchmaking vision rank error: {e}")
+        # Fallback: берём всех top_candidates
+        final_ids = [u.telegram_id for u in top_candidates[:5]]
+        reply_text = "Нашёл несколько подходящих анкет специально для тебя! 💫"
+
+    # Собираем финальных пользователей в правильном порядке
+    final_users = [id_to_user[i] for i in final_ids if i in id_to_user]
+    # Если AI вернул пустой список — отдаём первых 3 из top_candidates
+    if not final_users:
+        final_users = top_candidates[:3]
+
+    from app.application.api.v1.users.schemas import UserDetailSchema as _UDS
+    matches_dicts = [_UDS.from_entity(u).model_dump() for u in final_users]
+
+    return MatchmakingResponse(reply=reply_text, matches=matches_dicts)

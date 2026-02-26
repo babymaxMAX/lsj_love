@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
@@ -29,6 +30,7 @@ async function getDailyQuestion() {
 
 // @ts-ignore
 export default function UsersPage({ params }: { params: { users: string } }) {
+    const router = useRouter();
     const [users, setUsers] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [dailyQuestion, setDailyQuestion] = useState<any>(null);
@@ -104,12 +106,21 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             {/* Заголовок */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-divider">
                 <h1 className="text-xl font-bold text-primary">LSJLove 💕</h1>
-                <button
-                    onClick={() => setShowQuestion(!showQuestion)}
-                    className="text-sm text-default-500 hover:text-primary transition-colors"
-                >
-                    💬 Вопрос дня
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                        style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff" }}
+                    >
+                        🤖 AI Подбор
+                    </button>
+                    <button
+                        onClick={() => setShowQuestion(!showQuestion)}
+                        className="text-sm text-default-500 hover:text-primary transition-colors"
+                    >
+                        💬
+                    </button>
+                </div>
             </div>
 
             {/* Вопрос дня */}
