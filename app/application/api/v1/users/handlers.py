@@ -593,3 +593,45 @@ async def ping_user(
         data={"last_seen": now},
     )
     return {"ok": True}
+
+
+@router.delete(
+    "/admin/reset-all",
+    status_code=status.HTTP_200_OK,
+    description="[ADMIN] Delete ALL users and related data. Use only for testing.",
+)
+async def reset_all_users(
+    secret: str,
+    container: Container = Depends(init_container),
+):
+    """Полная очистка базы данных — только для тестов."""
+    if secret != "lsjlove_reset_2026":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "Forbidden"})
+
+    config: Config = container.resolve(Config)
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+
+    collections_to_clear = [
+        config.mongodb_users_collection,
+        config.mongodb_likes_collection,
+        "photo_likes",
+        "photo_comments",
+        "transactions",
+        "referrals",
+        "daily_question_answers",
+    ]
+
+    results = {}
+    for col_name in collections_to_clear:
+        try:
+            col = db[col_name]
+            res = await col.delete_many({})
+            results[col_name] = res.deleted_count
+        except Exception as e:
+            results[col_name] = f"error: {e}"
+
+    client.close()
+    return {"ok": True, "deleted": results}
