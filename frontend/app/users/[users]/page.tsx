@@ -112,10 +112,10 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     return (
         <div className="flex flex-col min-h-screen pb-20" style={{ background: "#0f0f1a", color: "#fff" }}>
-            {/* Заголовок — всегда видимый */}
+            {/* Заголовок — всегда видимый, прилипает к верху */}
             <div
                 className="relative flex items-center justify-center px-4 py-3 flex-shrink-0"
-                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50 }}
             >
                 {/* Левая кнопка — AI Подбор */}
                 <button
