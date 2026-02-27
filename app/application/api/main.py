@@ -11,10 +11,38 @@ from app.application.api.lifespan import (
 from app.application.api.v1.urls import router as v1_router
 
 
+async def _ensure_indexes():
+    """Создаёт индексы MongoDB при старте."""
+    import logging
+    try:
+        from app.logic.init import init_container
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from app.settings.config import Config
+        container = init_container()
+        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        config: Config = container.resolve(Config)
+        db = client[config.mongodb_dating_database]
+        users = db[config.mongodb_users_collection]
+        likes = db[config.mongodb_likes_collection]
+        await users.create_index("telegram_id", unique=True)
+        await users.create_index("gender")
+        await users.create_index("city")
+        await users.create_index("is_active")
+        await users.create_index("premium_type")
+        await likes.create_index([("from_user", 1), ("to_user", 1)], unique=True)
+        await likes.create_index("from_user")
+        await likes.create_index("to_user")
+        await likes.create_index("created_at")
+        logging.getLogger(__name__).info("MongoDB indexes ensured")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Index creation failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_logger()
     await set_bot_webhook()
+    await _ensure_indexes()
 
     yield
     await delete_bot_webhook()
