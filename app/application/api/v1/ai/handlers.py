@@ -969,10 +969,52 @@ async def _matchmaking_vision_rank(
     return matched_ids, reply_text
 
 
+MATCHMAKING_TRIAL_SECONDS = 86400  # 24 часа
+
+
+@router.get(
+    "/matchmaking/status/{user_id}",
+    status_code=status.HTTP_200_OK,
+    description="Проверяет доступ пользователя к AI-подбору (VIP или пробный 24ч).",
+)
+async def matchmaking_status(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+
+    is_vip = _is_premium_active(user, "vip")
+    if is_vip:
+        return {"access": True, "is_vip": True, "trial_active": False, "trial_hours_left": None, "trial_expired": False}
+
+    from motor.motor_asyncio import AsyncIOMotorClient
+    config: Config = container.resolve(Config)
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    col = client[config.mongodb_dating_database][config.mongodb_users_collection]
+    doc = await col.find_one({"telegram_id": user_id}, {"matchmaking_trial_start": 1})
+    trial_start = (doc or {}).get("matchmaking_trial_start")
+
+    if trial_start is None:
+        return {"access": True, "is_vip": False, "trial_active": True, "trial_hours_left": 24.0, "trial_expired": False}
+
+    if hasattr(trial_start, "tzinfo") and trial_start.tzinfo is None:
+        trial_start = trial_start.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - trial_start).total_seconds()
+    if elapsed >= MATCHMAKING_TRIAL_SECONDS:
+        return {"access": False, "is_vip": False, "trial_active": False, "trial_hours_left": 0, "trial_expired": True}
+
+    hours_left = round((MATCHMAKING_TRIAL_SECONDS - elapsed) / 3600, 1)
+    return {"access": True, "is_vip": False, "trial_active": True, "trial_hours_left": hours_left, "trial_expired": False}
+
+
 @router.post(
     "/matchmaking",
     status_code=status.HTTP_200_OK,
-    description="AI Подбор: анализирует критерии пользователя и возвращает подходящие анкеты.",
+    description="AI Подбор: анализирует критерии пользователя и возвращает подходящие анкеты. Доступ: VIP или 24ч пробный.",
 )
 async def ai_matchmaking(
     data: MatchmakingRequest,
@@ -992,6 +1034,33 @@ async def ai_matchmaking(
         current_user = await service.get_user(telegram_id=data.user_id)
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+
+    # ── Проверка доступа: VIP или 24ч пробный период ──
+    is_vip = _is_premium_active(current_user, "vip")
+    if not is_vip:
+        from motor.motor_asyncio import AsyncIOMotorClient as _AMC
+        _mc: _AMC = container.resolve(_AMC)
+        _uc = _mc[config.mongodb_dating_database][config.mongodb_users_collection]
+        _udoc = await _uc.find_one({"telegram_id": data.user_id}, {"matchmaking_trial_start": 1})
+        trial_start = (_udoc or {}).get("matchmaking_trial_start")
+        if trial_start is None:
+            await _uc.update_one(
+                {"telegram_id": data.user_id},
+                {"$set": {"matchmaking_trial_start": datetime.now(timezone.utc)}},
+            )
+            trial_start = datetime.now(timezone.utc)
+        else:
+            if hasattr(trial_start, "tzinfo") and trial_start.tzinfo is None:
+                trial_start = trial_start.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - trial_start).total_seconds()
+            if elapsed >= 86400:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "trial_expired",
+                        "message": "Пробный период AI-подбора истёк. Оформи VIP для безлимитного доступа.",
+                    },
+                )
 
     # shown_ids — анкеты уже показанные пользователю в этой сессии
     shown_ids: list[int] = list(set(data.shown_ids or []))

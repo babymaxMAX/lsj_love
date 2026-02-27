@@ -310,17 +310,12 @@ export default function AiMatchmakingPage() {
     const userId = params.users as string;
 
     const [shownIds, setShownIds] = useState<number[]>([]);
+    const [accessStatus, setAccessStatus] = useState<{
+        access: boolean; is_vip: boolean; trial_active: boolean;
+        trial_hours_left: number | null; trial_expired: boolean;
+    } | null>(null);
 
-    const [messages, setMessages] = useState<ChatMessage[]>([
-        {
-            id: "welcome",
-            role: "assistant",
-            content:
-                "Привет! 🤖 Я AI-подбор.\n\n" +
-                "Расскажи, кого ищешь — возраст, характер, внешность, интересы. " +
-                "Я проанализирую анкеты и фотографии и подберу лучших кандидатов специально для тебя! 💫",
-        },
-    ]);
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [conversation, setConversation] = useState<{ role: string; content: string }[]>([]);
@@ -328,12 +323,29 @@ export default function AiMatchmakingPage() {
     const bottomRef = useRef<HTMLDivElement>(null);
     const textRef = useRef<HTMLTextAreaElement>(null);
 
-    // Scroll to bottom on new message
+    useEffect(() => {
+        fetch(`${BackEnd_URL}/api/v1/ai/matchmaking/status/${userId}`)
+            .then((r) => r.json())
+            .then((d) => {
+                setAccessStatus(d);
+                if (d.access) {
+                    const trialNote = d.trial_active && !d.is_vip
+                        ? `\n\n⏳ Пробный период: осталось ${d.trial_hours_left}ч. После — доступно с VIP.`
+                        : "";
+                    setMessages([{
+                        id: "welcome", role: "assistant",
+                        content: "Привет! 🤖 Я AI-подбор.\n\nРасскажи, кого ищешь — возраст, характер, внешность, интересы. " +
+                            "Я проанализирую анкеты и фотографии и подберу лучших кандидатов специально для тебя! 💫" + trialNote,
+                    }]);
+                }
+            })
+            .catch(() => setAccessStatus({ access: true, is_vip: false, trial_active: true, trial_hours_left: 24, trial_expired: false }));
+    }, [userId]);
+
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Ping
     useEffect(() => {
         const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${userId}/ping`, { method: "POST" }).catch(() => {});
         ping();
@@ -372,7 +384,12 @@ export default function AiMatchmakingPage() {
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: { error: "Ошибка сервера" } }));
-                const errText = err?.detail?.error ?? "Что-то пошло не так. Попробуй ещё раз.";
+                const errCode = err?.detail?.error;
+                if (errCode === "trial_expired") {
+                    setAccessStatus({ access: false, is_vip: false, trial_active: false, trial_hours_left: 0, trial_expired: true });
+                    return;
+                }
+                const errText = err?.detail?.message || err?.detail?.error || "Что-то пошло не так. Попробуй ещё раз.";
                 setMessages((prev) =>
                     prev.map((m) =>
                         m.id === loadingMsgId
@@ -479,7 +496,49 @@ export default function AiMatchmakingPage() {
         sendMessage(s);
     };
 
-    const showSuggestions = messages.length === 1; // только при первом открытии
+    const showSuggestions = messages.length === 1;
+
+    if (accessStatus === null) {
+        return (
+            <div className="flex items-center justify-center h-screen" style={{ background: "#0f0f1a" }}>
+                <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
+
+    if (!accessStatus.access) {
+        return (
+            <div className="flex flex-col h-screen items-center justify-center gap-6 px-8" style={{ background: "#0f0f1a", color: "#fff" }}>
+                <div style={{ fontSize: 64 }}>🔒</div>
+                <div style={{ fontSize: 22, fontWeight: 800, textAlign: "center" }}>AI-подбор</div>
+                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.6)", textAlign: "center", lineHeight: 1.6 }}>
+                    Пробный период (24 часа) истёк.<br />
+                    Оформи <b style={{ color: "#a78bfa" }}>VIP</b> для безлимитного доступа к AI-подбору.
+                </div>
+                <button
+                    onClick={() => router.push(`/users/${userId}/premium`)}
+                    style={{
+                        padding: "14px 32px", borderRadius: 20,
+                        background: "linear-gradient(135deg, #7c3aed, #db2777)",
+                        color: "#fff", fontWeight: 800, fontSize: 16, border: "none", cursor: "pointer",
+                        boxShadow: "0 8px 24px rgba(124,58,237,0.4)",
+                    }}
+                >
+                    💎 Получить VIP
+                </button>
+                <button
+                    onClick={() => router.back()}
+                    style={{
+                        padding: "12px 24px", borderRadius: 16,
+                        background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.6)",
+                        fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer",
+                    }}
+                >
+                    ← Назад
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-screen" style={{ background: "#0f0f1a", color: "#fff" }}>
