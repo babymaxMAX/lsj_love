@@ -69,8 +69,21 @@ function ProfileCard({
 }) {
     const { profile, state } = card;
     const [imgError, setImgError] = useState(false);
-    const photoUrl = imgError ? "/placeholder.svg" : getPhotoUrl(profile);
+    const [photoIndex, setPhotoIndex] = useState(0);
     const dot = getOnlineDot(profile.last_seen);
+
+    const photoUrls: string[] = [];
+    if (profile.photos?.length) {
+        profile.photos.forEach((p) => {
+            photoUrls.push(p.startsWith("http") ? p : `${BackEnd_URL}${p}`);
+        });
+    } else if (profile.photo) {
+        photoUrls.push(`${BackEnd_URL}/api/v1/users/${profile.telegram_id}/photo`);
+    } else {
+        photoUrls.push("/placeholder.svg");
+    }
+    const safeIdx = Math.min(photoIndex, photoUrls.length - 1);
+    const currentPhoto = imgError ? "/placeholder.svg" : photoUrls[safeIdx];
 
     if (state === "skipped") return null;
 
@@ -90,14 +103,43 @@ function ProfileCard({
             className="rounded-2xl overflow-hidden"
             style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
         >
-            {/* Photo */}
-            <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "260px" }}>
+            {/* Photo with gallery */}
+            <div className="relative w-full" style={{ height: "320px" }}>
                 <img
-                    src={photoUrl}
+                    src={currentPhoto}
                     alt={profile.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full"
+                    style={{ objectFit: "cover", objectPosition: "top center" }}
                     onError={() => setImgError(true)}
                 />
+                {/* Photo navigation arrows */}
+                {photoUrls.length > 1 && (
+                    <div style={{ position: "absolute", top: "50%", width: "100%", display: "flex", justifyContent: "space-between", padding: "0 8px", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setPhotoIndex(i => Math.max(0, i - 1)); }}
+                            style={{ background: "rgba(0,0,0,0.4)", border: "none", color: "#fff", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", fontSize: 18, pointerEvents: "auto", opacity: safeIdx > 0 ? 1 : 0.3 }}
+                        >
+                            ‹
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setPhotoIndex(i => Math.min(photoUrls.length - 1, i + 1)); }}
+                            style={{ background: "rgba(0,0,0,0.4)", border: "none", color: "#fff", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", fontSize: 18, pointerEvents: "auto", opacity: safeIdx < photoUrls.length - 1 ? 1 : 0.3 }}
+                        >
+                            ›
+                        </button>
+                    </div>
+                )}
+                {/* Dot indicators */}
+                {photoUrls.length > 1 && (
+                    <div style={{ position: "absolute", bottom: 28, width: "100%", display: "flex", justifyContent: "center", gap: 4 }}>
+                        {photoUrls.map((_, i) => (
+                            <div key={i} style={{
+                                width: 6, height: 6, borderRadius: "50%",
+                                background: i === safeIdx ? "#fff" : "rgba(255,255,255,0.4)"
+                            }} />
+                        ))}
+                    </div>
+                )}
                 {/* Online dot */}
                 <div
                     className="absolute top-2 right-2 w-3 h-3 rounded-full"
@@ -439,6 +481,7 @@ export default function AiMatchmakingPage() {
                     background: "rgba(15,15,26,0.95)",
                     backdropFilter: "blur(12px)",
                     borderBottom: "1px solid rgba(255,255,255,0.07)",
+                    paddingTop: "max(env(safe-area-inset-top), 14px)",
                 }}
             >
                 <button
