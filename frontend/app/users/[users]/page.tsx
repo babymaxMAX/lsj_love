@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
-import { DailyQuestion } from "@/components/daily-question";
 import { QuestionCard } from "@/components/question-card";
 
 async function fetchUsers(user_id: string) {
@@ -19,22 +18,11 @@ async function fetchUsers(user_id: string) {
     } catch { return []; }
 }
 
-async function getDailyQuestion() {
-    try {
-        const res = await fetch(`${BackEnd_URL}/api/v1/gamification/daily-question`, {
-            cache: "no-store",
-        });
-        if (!res.ok) return null;
-        return res.json();
-    } catch { return null; }
-}
-
 // @ts-ignore
 export default function UsersPage({ params }: { params: { users: string } }) {
     const router = useRouter();
     const [users, setUsers] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [dailyQuestion, setDailyQuestion] = useState<any>(null);
     const [showQuestion, setShowQuestion] = useState(false);
     const [loading, setLoading] = useState(true);
     // IDs пролайканных в этой сессии — чтобы не показывать снова если бэк вернул их
@@ -45,15 +33,10 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     const loadUsers = useCallback(async () => {
         setLoading(true);
-        const [items, question] = await Promise.all([
-            fetchUsers(params.users),
-            getDailyQuestion(),
-        ]);
-        // Фильтруем только тех кого лайкнули/дизлайкнули В ЭТОЙ сессии
+        const items = await fetchUsers(params.users);
         const fresh = items.filter((u: any) => !seenIds.has(u.telegram_id));
         setUsers(fresh);
         setCurrentIndex(0);
-        setDailyQuestion(question);
         setLoading(false);
     }, [params.users, seenIds]);
 
@@ -149,7 +132,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             {/* Заголовок — всегда видимый, прилипает к верху */}
             <div
                 className="relative flex items-center justify-center px-4 py-3 flex-shrink-0"
-                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50, paddingTop: "max(env(safe-area-inset-top), 14px)" }}
+                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50, paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
             >
                 {/* Левая кнопка — AI Подбор */}
                 <button
@@ -163,32 +146,40 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                 {/* Центр — логотип */}
                 <h1 className="text-base font-bold" style={{ color: "#fff" }}>LSJLove 💕</h1>
 
-                {/* Правая кнопка — Вопрос дня */}
+                {/* Правая кнопка — Вопрос профиля */}
                 <button
-                    onClick={() => setShowQuestion(!showQuestion)}
+                    onClick={async () => {
+                        if (!showQuestion && !nextQuestion) {
+                            try {
+                                const res = await fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`);
+                                const d = await res.json();
+                                if (d.question && !d.done) {
+                                    setNextQuestion(d.question);
+                                    setShowQuestion(true);
+                                }
+                            } catch {}
+                        } else {
+                            setShowQuestion(!showQuestion);
+                        }
+                    }}
                     className="absolute right-4 text-xl"
                     style={{ zIndex: 10 }}
+                    title="Вопросы для профиля"
                 >
-                    💬
+                    {nextQuestion ? "❓" : "✅"}
                 </button>
             </div>
 
-            {/* Вопрос дня */}
-            {showQuestion && dailyQuestion && (
-                <DailyQuestion
-                    question={dailyQuestion.question}
-                    userId={params.users}
-                    onClose={() => setShowQuestion(false)}
-                />
-            )}
-
             {/* Свайп карточки */}
             <div className="flex-1 flex items-center justify-center px-4 py-6">
-                {showProfileQuestion && nextQuestion ? (
+                {(showProfileQuestion || showQuestion) && nextQuestion ? (
                     <QuestionCard
                         question={nextQuestion}
                         userId={params.users}
-                        onDone={handleQuestionDone}
+                        onDone={() => {
+                            setShowQuestion(false);
+                            handleQuestionDone();
+                        }}
                     />
                 ) : currentUser ? (
                     <SwipeCard
