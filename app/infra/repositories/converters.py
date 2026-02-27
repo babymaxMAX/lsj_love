@@ -38,8 +38,8 @@ def convert_user_entity_to_document(user: UserEntity) -> dict:
 def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEntity:
     return UserEntity(
         telegram_id=int(user_document["telegram_id"]),
-        username=user_document["username"],
-        name=user_document["name"] if user_document["name"] else None,
+        username=user_document.get("username"),
+        name=user_document.get("name") if user_document.get("name") else None,
         gender=user_document["gender"] if user_document["gender"] else None,
         age=user_document["age"] if user_document["age"] else None,
         city=user_document["city"] if user_document["city"] else None,
