@@ -239,6 +239,10 @@ async def create_payment_via_backend(
 @premium_router.message(Command("premium"))
 async def premium_command(message: Message, container: Container = init_container()):
     config: Config = container.resolve(Config)
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await message.answer(
         text=premium_info_message(),
         parse_mode="HTML",
@@ -299,6 +303,10 @@ async def choose_premium(callback: CallbackQuery, container: Container = init_co
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
@@ -327,6 +335,10 @@ async def choose_vip(callback: CallbackQuery, container: Container = init_contai
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
