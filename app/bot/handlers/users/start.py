@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from punq import Container
 
 from app.bot.handlers.users.profile import profile
@@ -83,7 +83,11 @@ async def start(message: Message, state: FSMContext, container: Container = init
             )
             app_url = f"{config.front_end_url}/users/{message.from_user.id}"
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💘 Открыть LSJLove", url=app_url)],
+                [InlineKeyboardButton(
+                    text="📱 Открыть как приложение",
+                    web_app=WebAppInfo(url=app_url),
+                )],
+                [InlineKeyboardButton(text="🌐 Открыть как сайт", url=app_url)],
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
                 [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
             ])

@@ -114,14 +114,21 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         }
     };
 
-    const handleQuestionDone = () => {
+    const handleQuestionDone = async () => {
         setShowProfileQuestion(false);
         setNextQuestion(null);
         setCurrentIndex((prev) => prev + 1);
-        fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`)
-            .then((r) => r.json())
-            .then((d) => setNextQuestion(d.question || null))
-            .catch(() => {});
+        try {
+            const res = await fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`);
+            const d = await res.json();
+            if (d.done || !d.question) {
+                setNextQuestion(null);
+            } else {
+                setNextQuestion(d.question);
+            }
+        } catch {
+            setNextQuestion(null);
+        }
     };
 
     const currentUser = users[currentIndex];
@@ -142,7 +149,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             {/* Заголовок — всегда видимый, прилипает к верху */}
             <div
                 className="relative flex items-center justify-center px-4 py-3 flex-shrink-0"
-                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50 }}
+                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50, paddingTop: "max(env(safe-area-inset-top), 14px)" }}
             >
                 {/* Левая кнопка — AI Подбор */}
                 <button
