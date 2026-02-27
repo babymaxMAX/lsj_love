@@ -3,9 +3,8 @@ Profile Questions — система вопросов для заполнени�
 20+ вопросов по категориям: образ жизни, личность, ценности, хобби.
 """
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel
 from punq import Container
