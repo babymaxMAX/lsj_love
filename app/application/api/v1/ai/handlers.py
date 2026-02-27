@@ -7,6 +7,7 @@ import json
 import logging
 import random
 from datetime import date, datetime, timezone
+from math import radians, sin, cos, sqrt, atan2
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +23,44 @@ from app.settings.config import Config
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI"])
+
+
+# ─── Геолокация ──────────────────────────────────────────────────────────────
+
+async def get_city_coordinates(city: str) -> tuple[float, float] | None:
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": city, "format": "json", "limit": 1}
+    headers = {"User-Agent": "LSJLove/1.0"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                data = await resp.json()
+                if data:
+                    return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception:
+        pass
+    return None
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+
+async def get_cached_coordinates(city: str, db) -> tuple[float, float] | None:
+    if not city:
+        return None
+    cached = await db.city_coordinates.find_one({"city": city})
+    if cached:
+        return cached["lat"], cached["lon"]
+    coords = await get_city_coordinates(city)
+    if coords:
+        await db.city_coordinates.insert_one({"city": city, "lat": coords[0], "lon": coords[1]})
+    return coords
+
 
 # ─── Темы ────────────────────────────────────────────────────────────────────
 
@@ -944,88 +983,109 @@ async def ai_matchmaking(
     # shown_ids — анкеты уже показанные пользователю в этой сессии
     shown_ids: list[int] = list(set(data.shown_ids or []))
 
-    # Определяем: просит ли пользователь другую/следующую (из уже найденных)
-    # или делает новый поиск с другими критериями
-    NEXT_KEYWORDS = ["следующ", "другу", "другой", "ещё", "еще", "покажи ещё",
-                     "покажи еще", "следующую", "следующего", "дальше", "next"]
-    msg_lower_next = data.message.lower()
-    is_next_request = any(kw in msg_lower_next for kw in NEXT_KEYWORDS)
-
-    # Получаем список тех, кого пользователь уже лайкнул
-    from app.logic.services.base import BaseLikesService as _BaseLikesService
-    likes_service: _BaseLikesService = container.resolve(_BaseLikesService)
-    try:
-        liked_ids = list(set(await likes_service.get_telegram_id_liked_from(user_id=data.user_id)))
-    except Exception:
-        liked_ids = []
-
-    # Загружаем кандидатов (только лайкнутых исключаем всегда)
-    try:
-        candidates_iter = await service.get_best_result_for_user(
-            telegram_id=data.user_id,
-            exclude_ids=liked_ids,
-        )
-        candidates_raw = list(candidates_iter)[:60]
-    except Exception as e:
-        logger.error(f"matchmaking: failed to get candidates: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Не удалось загрузить анкеты. Попробуй позже."},
-        )
-
-    if not candidates_raw:
-        return MatchmakingResponse(
-            reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
-            matches=[],
-        )
-
-    # shown_ids фильтруем ТОЛЬКО при запросе "следующую/другую"
-    # При новом поиске — ищем по всем доступным
-    if is_next_request and shown_ids:
-        candidates = [u for u in candidates_raw if u.telegram_id not in shown_ids]
-        if not candidates:
-            # Все показаны — начинаем сначала
-            candidates = candidates_raw
-            shown_ids = []  # сбрасываем чтобы AI видел всех
-    else:
-        candidates = candidates_raw
-
-    if not candidates:
-        return MatchmakingResponse(
-            reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
-            matches=[],
-        )
-
-    id_to_user = {u.telegram_id: u for u in candidates_raw}
-
-    # ── Загружаем profile_answers для кандидатов и текущего пользователя ───
+    # ── Загружаем ВСЕ активные анкеты напрямую из MongoDB (без фильтров по городу/полу) ──
     from motor.motor_asyncio import AsyncIOMotorClient
     mongo_client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    users_col = mongo_client[config.mongodb_dating_database][config.mongodb_users_collection]
+    db = mongo_client[config.mongodb_dating_database]
+    users_col = db[config.mongodb_users_collection]
 
-    all_ids = [u.telegram_id for u in candidates_raw] + [data.user_id]
-    answers_cursor = users_col.find(
-        {"telegram_id": {"$in": all_ids}},
-        {"telegram_id": 1, "profile_answers": 1},
+    all_users_cursor = users_col.find(
+        {"is_active": True, "telegram_id": {"$ne": data.user_id}},
     )
+    all_user_docs: list[dict] = []
+    async for doc in all_users_cursor:
+        if doc.get("profile_hidden"):
+            continue
+        all_user_docs.append(doc)
+
+    # Исключаем shown_ids
+    candidates_docs = [d for d in all_user_docs if d["telegram_id"] not in shown_ids]
+
+    if not candidates_docs:
+        if all_user_docs:
+            candidates_docs = all_user_docs
+        else:
+            return MatchmakingResponse(
+                reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
+                matches=[],
+            )
+
+    # ── Геосортировка: вычисляем расстояние от пользователя ──
+    user_city = str(getattr(current_user, "city", "") or "")
+    user_coords = await get_cached_coordinates(user_city, db) if user_city else None
+
+    id_to_dist: dict[int, float | None] = {}
+    for doc in candidates_docs:
+        cand_city = str(doc.get("city", "") or "")
+        if user_coords and cand_city:
+            cand_coords = await get_cached_coordinates(cand_city, db)
+            if cand_coords:
+                id_to_dist[doc["telegram_id"]] = round(haversine_km(user_coords[0], user_coords[1], cand_coords[0], cand_coords[1]))
+            else:
+                id_to_dist[doc["telegram_id"]] = None
+        else:
+            id_to_dist[doc["telegram_id"]] = None
+
+    candidates_docs.sort(key=lambda d: id_to_dist.get(d["telegram_id"]) or 99999)
+
+    # ── Собираем profile_answers ──
     id_to_answers: dict[int, dict] = {}
-    async for doc in answers_cursor:
+    for doc in all_user_docs:
         id_to_answers[doc["telegram_id"]] = doc.get("profile_answers", {})
 
-    current_user_answers = id_to_answers.get(data.user_id, {})
+    current_user_doc = await users_col.find_one({"telegram_id": data.user_id}, {"profile_answers": 1})
+    current_user_answers = (current_user_doc or {}).get("profile_answers", {})
+    id_to_answers[data.user_id] = current_user_answers
+
+    # Формируем info о текущем пользователе для AI
+    from app.application.api.v1.profile_questions.handlers import PROFILE_QUESTIONS
+    questions_map = {q["question_id"]: q for q in PROFILE_QUESTIONS}
+
     user_info_parts = [
-        f"Имя: {current_user.name}, Возраст: {current_user.age}, Город: {current_user.city}"
+        f"Имя: {current_user.name}, Возраст: {current_user.age}, Город: {user_city}"
     ]
     if getattr(current_user, "about", None):
         user_info_parts.append(f"О себе: {current_user.about}")
     if current_user_answers:
-        answers_str = ", ".join(f"{k}: {v}" for k, v in list(current_user_answers.items())[:10])
-        user_info_parts.append(f"Ответы: {answers_str}")
+        ans_list = []
+        for qid, ans in list(current_user_answers.items())[:10]:
+            q = questions_map.get(qid)
+            label = q["text"] if q else qid
+            val = ", ".join(ans) if isinstance(ans, list) else ans
+            ans_list.append(f"{label}: {val}")
+        user_info_parts.append(f"Ответы на вопросы: {'; '.join(ans_list)}")
     user_info_str = " | ".join(user_info_parts)
 
-    # ── Определяем: есть ли визуальные критерии ────────────────────────────
-    # Если пользователь описывает внешность (цвет волос, татуировки и т.д.)
-    # — пропускаем текстовый скрининг и сразу отдаём всех на vision-анализ
+    # ── Формируем текст анкет с расстоянием и ответами ──
+    profiles_lines = []
+    for doc in candidates_docs[:80]:
+        uid = doc["telegram_id"]
+        name = str(doc.get("name", "") or "")
+        age = str(doc.get("age", "") or "")
+        city = str(doc.get("city", "") or "")
+        gender = str(doc.get("gender", "") or "")
+        about = str(doc.get("about", "") or "")[:120]
+        photos = doc.get("photos", []) or []
+        dist = id_to_dist.get(uid)
+        dist_str = f" (~{int(dist)}км)" if dist is not None else ""
+
+        line = f"ID:{uid} | {name}, {age}л | {city}{dist_str} | Пол:{gender} | О себе: {about} | Фото: {len(photos)}шт"
+
+        cand_answers = id_to_answers.get(uid, {})
+        if cand_answers:
+            ans_parts = []
+            for qid, ans in list(cand_answers.items())[:6]:
+                q = questions_map.get(qid)
+                label = q["text"] if q else qid
+                val = ", ".join(ans) if isinstance(ans, list) else ans
+                ans_parts.append(f"{label}: {val}")
+            line += f" | Ответы: {'; '.join(ans_parts)}"
+
+        profiles_lines.append(line)
+
+    candidates_text = "\n".join(profiles_lines)
+
+    # ── Определяем: есть ли визуальные критерии ──
     VISUAL_KEYWORDS = [
         "рыж", "блонд", "брюнет", "волос", "татуир", "пирсинг",
         "строй", "пухл", "толст", "высок", "низк", "спортивн",
@@ -1034,31 +1094,14 @@ async def ai_matchmaking(
     msg_lower = data.message.lower()
     has_visual = any(kw in msg_lower for kw in VISUAL_KEYWORDS)
 
-    top_candidates: list
+    # Маппинг telegram_id → doc для выбора после AI-скрининга
+    id_to_doc = {d["telegram_id"]: d for d in candidates_docs}
+
+    top_candidate_ids: list[int]
     if has_visual:
-        # Визуальные критерии — берём всех кандидатов сразу на vision
-        top_candidates = candidates[:12]
+        top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:12]]
     else:
-        # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────
-        profiles_lines = []
-        for u in candidates:
-            name = str(getattr(u, "name", "") or "")
-            age = str(getattr(u, "age", "") or "")
-            city = str(getattr(u, "city", "") or "")
-            about = str(getattr(u, "about", "") or "")[:120]
-            pt = getattr(u, "premium_type", "") or ""
-            uid = u.telegram_id
-            line = f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}"
-            if pt:
-                line += f" | Подписка: {pt}"
-            cand_answers = id_to_answers.get(uid, {})
-            if cand_answers:
-                ans_str = ", ".join(f"{k}: {v}" for k, v in list(cand_answers.items())[:8])
-                line += f" | Ответы: {ans_str}"
-            profiles_lines.append(line)
-
-        candidates_text = "\n".join(profiles_lines)
-
+        # ── Шаг 1: Текстовый скрининг ──
         try:
             selected_ids = await _matchmaking_text_screen(
                 candidates_text=candidates_text,
@@ -1070,29 +1113,26 @@ async def ai_matchmaking(
             )
         except Exception as e:
             logger.error(f"matchmaking text screen error: {e}")
-            selected_ids = [u.telegram_id for u in candidates[:8]]
+            selected_ids = [d["telegram_id"] for d in candidates_docs[:8]]
 
-        top_candidates = [id_to_user[i] for i in selected_ids if i in id_to_user][:10]
-        if not top_candidates:
-            # Текстовый скрининг не нашёл — отдаём всех на vision
-            top_candidates = candidates[:10]
+        top_candidate_ids = [i for i in selected_ids if i in id_to_doc][:10]
+        if not top_candidate_ids:
+            top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:10]]
 
     # ── Шаг 2: Vision-ранжирование ─────────────────────────────────────────
     import base64 as _b64
     candidates_with_photos: list[dict] = []
-    for u in top_candidates:
-        uid = u.telegram_id
-        photos_list = getattr(u, "photos", []) or []
+    for uid in top_candidate_ids:
+        doc = id_to_doc.get(uid, {})
+        photos_list = doc.get("photos", []) or []
         photo_b64: str | None = None
         photo_url: str | None = None
 
-        # Пытаемся загрузить фото из S3 по ключу
         if photos_list:
             raw_bytes = await _s3_download_bytes(photos_list[0], config)
             if raw_bytes:
                 photo_b64 = _b64.b64encode(raw_bytes).decode()
 
-        # Fallback: если photos[] пуст — пробуем стандартные ключи
         if not photo_b64:
             for fallback_key in [f"{uid}_0.png", f"{uid}_0.jpg", f"{uid}.png", f"{uid}.jpg"]:
                 raw_bytes = await _s3_download_bytes(fallback_key, config)
@@ -1100,21 +1140,21 @@ async def ai_matchmaking(
                     photo_b64 = _b64.b64encode(raw_bytes).decode()
                     break
 
-        # Последний fallback: публичный URL через наш API (OpenAI сам скачает)
         if not photo_b64:
-            photo_url = f"[REDACTED]/api/v1/users/{uid}/photo"
+            photo_url = f"{config.url_webhook}/api/v1/users/{uid}/photo"
 
-        name = str(getattr(u, "name", "") or "")
-        age = str(getattr(u, "age", "") or "")
-        city = str(getattr(u, "city", "") or "")
-        about = str(getattr(u, "about", "") or "")[:200]
+        name = str(doc.get("name", "") or "")
+        age = str(doc.get("age", "") or "")
+        city = str(doc.get("city", "") or "")
+        about = str(doc.get("about", "") or "")[:200]
+        dist = id_to_dist.get(uid)
+        dist_str = f" (~{int(dist)}км)" if dist is not None else ""
 
-        # Если фото недоступно — сообщаем AI чтобы он опирался на описание
         photo_note = "" if (photo_b64 or photo_url) else " [фото недоступно — анализируй по описанию]"
 
         candidates_with_photos.append({
             "id": uid,
-            "text": f"{name}, {age} лет, {city}. {about}{photo_note}",
+            "text": f"{name}, {age}л, {city}{dist_str}. {about}{photo_note}",
             "photo_b64": photo_b64,
             "photo_url": photo_url,
         })
@@ -1132,23 +1172,32 @@ async def ai_matchmaking(
         final_ids = []
         reply_text = "Произошла ошибка анализа. Попробуй ещё раз."
 
-    # Если AI нашёл совпадения — показываем их
-    final_users = [id_to_user[i] for i in final_ids if i in id_to_user]
+    # Если AI нашёл совпадения — загружаем полные entity через сервис
+    final_users = []
+    for fid in final_ids:
+        if fid in id_to_doc:
+            try:
+                u = await service.get_user(telegram_id=fid)
+                final_users.append(u)
+            except Exception:
+                pass
 
-    # Текстовый fallback для визуальных критериев:
-    # если vision вернул пустой список — ищем по описаниям кандидатов
+    # Текстовый fallback для визуальных критериев
     if not final_users and has_visual:
-        # Берём слова запроса (3+ символов) и ищем их в описаниях
         query_words = [w for w in msg_lower.split() if len(w) >= 3]
-        text_found = []
-        for u in candidates:
-            about_lower = str(getattr(u, "about", "") or "").lower()
-            name_lower = str(getattr(u, "name", "") or "").lower()
+        for doc in candidates_docs:
+            about_lower = str(doc.get("about", "") or "").lower()
+            name_lower = str(doc.get("name", "") or "").lower()
             combined = about_lower + " " + name_lower
             if any(w in combined for w in query_words):
-                text_found.append(u)
-        if text_found:
-            final_users = text_found[:3]
+                try:
+                    u = await service.get_user(telegram_id=doc["telegram_id"])
+                    final_users.append(u)
+                except Exception:
+                    pass
+            if len(final_users) >= 3:
+                break
+        if final_users:
             reply_text = "Нашёл по описанию анкеты 🔍"
 
     from app.application.api.v1.users.schemas import UserDetailSchema as _UDS

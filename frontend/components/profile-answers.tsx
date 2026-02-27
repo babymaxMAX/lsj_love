@@ -36,7 +36,7 @@ export function ProfileAnswers({ userId }: { userId: string }) {
 
     return (
         <div className="rounded-2xl p-4 space-y-3" style={{ background: "rgba(255,255,255,0.06)" }}>
-            <p className="text-xs text-white/40 font-semibold uppercase tracking-wider">Ответы на вопросы</p>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4, color: "#fff" }}>Обо мне</div>
             {Object.entries(grouped).map(([cat, items]) => (
                 <div key={cat}>
                     <p className="text-xs text-white/30 mb-1.5">{CATEGORY_LABELS[cat] || cat}</p>
