@@ -42,6 +42,8 @@ class UserEntity(BaseEntity):
     referral_balance: float = 0.0           # заработанный реферальный баланс (руб)
     # Активность
     last_seen: Optional[datetime] = None    # последний раз онлайн
+    # Ответы на вопросы профиля
+    profile_answers: Optional[dict] = None
 
     def __post_init__(self):
         if self.photos is None:

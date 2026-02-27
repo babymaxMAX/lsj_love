@@ -39,6 +39,7 @@ class UserDetailSchema(BaseModel):
     is_active: bool
     referral_balance: float = 0.0
     last_seen: Optional[str] = None   # ISO-строка UTC
+    profile_answers: Optional[dict] = None
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -74,6 +75,7 @@ class UserDetailSchema(BaseModel):
             is_active=user.is_active,
             referral_balance=float(getattr(user, "referral_balance", 0) or 0),
             last_seen=_to_utc_iso(user.last_seen),
+            profile_answers=getattr(user, "profile_answers", None),
         )
 
 

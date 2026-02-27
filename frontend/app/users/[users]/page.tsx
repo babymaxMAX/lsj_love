@@ -97,23 +97,6 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         }
     };
 
-    const handleQuestionDone = async () => {
-        setShowProfileQuestion(false);
-        setNextQuestion(null);
-        setCurrentIndex((prev) => prev + 1);
-        try {
-            const res = await fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`);
-            const d = await res.json();
-            if (d.done || !d.question) {
-                setNextQuestion(null);
-            } else {
-                setNextQuestion(d.question);
-            }
-        } catch {
-            setNextQuestion(null);
-        }
-    };
-
     const currentUser = users[currentIndex];
 
     if (loading) {
@@ -176,9 +159,25 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                     <QuestionCard
                         question={nextQuestion}
                         userId={params.users}
-                        onDone={() => {
+                        onDone={async () => {
+                            const wasManual = showQuestion && !showProfileQuestion;
                             setShowQuestion(false);
-                            handleQuestionDone();
+                            setShowProfileQuestion(false);
+                            setNextQuestion(null);
+                            if (!wasManual) {
+                                setCurrentIndex((prev) => prev + 1);
+                            }
+                            try {
+                                const res = await fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`);
+                                const d = await res.json();
+                                if (d.question && !d.done) {
+                                    setNextQuestion(d.question);
+                                } else {
+                                    setNextQuestion(null);
+                                }
+                            } catch {
+                                setNextQuestion(null);
+                            }
                         }}
                     />
                 ) : currentUser ? (

@@ -535,7 +535,7 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                             );
                                         })()}
                                     </div>
-                                    {user.about && (
+                                    {(user.about || (user.profile_answers && Object.keys(user.profile_answers).length > 0)) && (
                                         <button
                                             onClick={() => setShowAbout(!showAbout)}
                                             className="text-2xl hover:scale-110 transition-transform"
@@ -549,10 +549,27 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                     );
                 })()}
 
-                {/* О себе */}
-                {showAbout && user.about && (
+                {/* О себе + ответы на вопросы */}
+                {showAbout && (
                     <div className="px-4 py-3 bg-content2">
-                        <p className="text-sm text-default-600">{user.about}</p>
+                        {user.about && <p className="text-sm text-default-600 mb-2">{user.about}</p>}
+                        {user.profile_answers && Object.keys(user.profile_answers).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                                {Object.values(user.profile_answers).map((ans: any, i: number) => (
+                                    <span
+                                        key={i}
+                                        className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
+                                        style={{
+                                            background: "rgba(124,58,237,0.15)",
+                                            border: "1px solid rgba(124,58,237,0.25)",
+                                            color: "rgba(255,255,255,0.8)",
+                                        }}
+                                    >
+                                        {Array.isArray(ans) ? ans.join(", ") : ans}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
