@@ -152,8 +152,6 @@ function ProfileCard({
                         ownerId={profile.telegram_id}
                         photoIndex={safeIdx}
                         viewerId={parseInt(userId)}
-                        initialLikes={0}
-                        initialLiked={false}
                     />
                 </div>
                 {/* Gradient overlay */}
@@ -504,7 +502,7 @@ export default function AiMatchmakingPage() {
                         <path d="M19 12H5M12 5l-7 7 7 7" />
                     </svg>
                 </button>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1">
                     <div
                         className="w-8 h-8 rounded-full flex items-center justify-center text-base"
                         style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)" }}
@@ -518,6 +516,17 @@ export default function AiMatchmakingPage() {
                         </p>
                     </div>
                 </div>
+                <button
+                    onClick={() => {
+                        const tg = (window as any).Telegram?.WebApp;
+                        if (tg?.close) tg.close();
+                        else router.back();
+                    }}
+                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(255,255,255,0.1)" }}
+                >
+                    ✕
+                </button>
             </div>
 
             {/* Messages */}

@@ -1,25 +1,46 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BackEnd_URL } from "@/config/url";
 
 interface PhotoLikeButtonProps {
     ownerId: number;
     photoIndex: number;
     viewerId: number;
-    initialLikes: number;
-    initialLiked: boolean;
+    initialLikes?: number;
+    initialLiked?: boolean;
 }
 
 export function PhotoLikeButton({ ownerId, photoIndex, viewerId, initialLikes, initialLiked }: PhotoLikeButtonProps) {
-    const [liked, setLiked] = useState(initialLiked);
-    const [count, setCount] = useState(initialLikes);
+    const [liked, setLiked] = useState(initialLiked ?? false);
+    const [count, setCount] = useState(initialLikes ?? 0);
     const [loading, setLoading] = useState(false);
+    const [fetched, setFetched] = useState(initialLikes !== undefined);
+
+    useEffect(() => {
+        if (fetched) return;
+        fetch(`${BackEnd_URL}/api/v1/photo-interactions/likes/${ownerId}/${photoIndex}?viewer_id=${viewerId}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => {
+                if (d) {
+                    setCount(d.count ?? 0);
+                    setLiked(d.liked_by_me ?? false);
+                }
+                setFetched(true);
+            })
+            .catch(() => setFetched(true));
+    }, [ownerId, photoIndex, viewerId, fetched]);
+
+    useEffect(() => {
+        setFetched(false);
+    }, [photoIndex]);
 
     const toggle = async () => {
         if (loading || viewerId === ownerId) return;
         setLoading(true);
-        setLiked((l) => !l);
-        setCount((c) => (liked ? c - 1 : c + 1));
+        const prevLiked = liked;
+        const prevCount = count;
+        setLiked(!prevLiked);
+        setCount(prevLiked ? prevCount - 1 : prevCount + 1);
         try {
             const res = await fetch(`${BackEnd_URL}/api/v1/photo-interactions/likes`, {
                 method: "POST",
@@ -32,8 +53,8 @@ export function PhotoLikeButton({ ownerId, photoIndex, viewerId, initialLikes, i
                 setCount(data.count);
             }
         } catch {
-            setLiked((l) => !l);
-            setCount((c) => (liked ? c + 1 : c - 1));
+            setLiked(prevLiked);
+            setCount(prevCount);
         }
         setLoading(false);
     };

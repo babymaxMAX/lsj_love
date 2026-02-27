@@ -15,7 +15,7 @@ export default function RootLayout({
 			<head>
 				<title>LSJLove — Знакомства в Telegram</title>
 				<meta name="description" content="Знакомься, общайся и находи свою половинку прямо в Telegram" />
-				<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+				<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 				<Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
 			</head>
 			<body

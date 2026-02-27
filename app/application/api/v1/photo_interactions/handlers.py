@@ -219,7 +219,7 @@ async def get_my_likes(
         count = await col.count_documents({"owner_id": user_id, "photo_index": idx})
         total_all += count
 
-        photo_url = f"/api/v1/users/{user_id}/photos/{idx}"
+        photo_url = f"/api/v1/users/{user_id}/photo/{idx}"
         entry = {"photo_index": idx, "photo_url": photo_url, "total_likes": count, "recent_likers": []}
 
         if is_premium and count > 0:
