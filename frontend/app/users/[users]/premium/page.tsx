@@ -22,9 +22,9 @@ const PLANS = [
         id: "premium" as Product,
         name: "Premium",
         emoji: "⭐",
-        stars: 500,
-        rub: 299,
-        period: "в месяц",
+        stars: 150,
+        rub: 350,
+        period: "в неделю",
         badge: "Популярный",
         gradient: "linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)",
         features: [
@@ -38,9 +38,9 @@ const PLANS = [
         id: "vip" as Product,
         name: "VIP",
         emoji: "💎",
-        stars: 1500,
-        rub: 799,
-        period: "в месяц",
+        stars: 400,
+        rub: 720,
+        period: "в неделю",
         badge: "Максимум",
         gradient: "linear-gradient(135deg, #7c3aed 0%, #db2777 100%)",
         features: [
@@ -103,7 +103,7 @@ function SuccessScreen({ product, onClose }: { product: string; onClose: () => v
             <div style={{ fontSize: 72, marginBottom: 24 }}>🎉</div>
             <h2 style={{ fontSize: 26, fontWeight: 900, marginBottom: 10, color: "var(--tg-theme-text-color, #fff)" }}>Оплата прошла!</h2>
             <p style={{ color: "var(--tg-theme-hint-color, #999)", marginBottom: 32, fontSize: 16 }}>
-                {p ? `${p.emoji} ${p.name}` : product} активирован{product === "superlike" ? "" : " на 30 дней"}
+                {p ? `${p.emoji} ${p.name}` : product} активирован{product === "superlike" || product === "icebreaker_pack" ? "" : " на 7 дней"}
             </p>
             <button onClick={onClose} style={{ padding: "14px 40px", borderRadius: 20, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 700, fontSize: 16, border: "none", cursor: "pointer" }}>
                 Отлично ✓
