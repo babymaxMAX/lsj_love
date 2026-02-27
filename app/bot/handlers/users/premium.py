@@ -3,7 +3,7 @@ Premium handler: Telegram Stars + Platega (СБП, Крипто).
 """
 import logging
 import aiohttp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -88,7 +88,13 @@ async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub
     except Exception as e:
         logger.warning(f"Stars referral bonus error: {e}")
 
-BACKEND_URL = "[REDACTED]"
+def _get_backend_url() -> str:
+    container = init_container()
+    config: Config = container.resolve(Config)
+    return config.url_webhook
+
+
+BACKEND_URL = None  # lazy init
 
 
 def payment_method_keyboard(
@@ -168,10 +174,11 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
 
 async def get_usdt_rate() -> float | None:
     """Получает курс USDT из нашего backend. Возвращает USDT за 1 RUB."""
+    backend = _get_backend_url()
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{BACKEND_URL}/api/v1/payments/platega/usdt-rate",
+                f"{backend}/api/v1/payments/platega/usdt-rate",
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 data = await resp.json()
@@ -197,7 +204,8 @@ async def create_payment_via_backend(
     Создаёт платёж через наш Backend API.
     Возвращает (redirect_url, usdt_amount, rub_per_usdt, error_message).
     """
-    url = f"{BACKEND_URL}/api/v1/payments/platega/create"
+    backend = _get_backend_url()
+    url = f"{backend}/api/v1/payments/platega/create"
     body = {
         "telegram_id": telegram_id,
         "product": product,
@@ -591,7 +599,7 @@ async def successful_payment(message: Message, container: Container = init_conta
         try:
             service: BaseUsersService = container.resolve(BaseUsersService)
             user = await service.get_user(telegram_id=user_id)
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             current_until = getattr(user, "premium_until", None) or now
             if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
                 current_until = current_until.replace(tzinfo=None)

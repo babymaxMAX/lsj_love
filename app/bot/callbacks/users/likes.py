@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
@@ -8,6 +10,8 @@ from app.bot.keyboards.inline import like_dislike_keyboard, match_keyboard
 from app.bot.utils.constants import match_text_message, profile_text_message
 from app.domain.entities.users import UserEntity
 from app.logic.init import init_container
+
+logger = logging.getLogger(__name__)
 from app.logic.services.base import BaseLikesService, BaseUsersService
 
 
@@ -90,7 +94,7 @@ async def handle_icebreaker_reply(
         )
         if username:
             text += f"\n\n👉 <a href='https://t.me/{username}'>Написать {sender_name}</a>"
-        await callback.message.answer(text)
+        await callback.message.answer(text, parse_mode="HTML")
 
 
 @callback_like_router.callback_query(

@@ -52,15 +52,6 @@ async def _notify_referrer_registration(bot, referrer_id: int, new_user: Message
         logger.warning(f"Referral registration notify failed: {e}")
 
 
-async def _delete_recent_bot_messages(bot, chat_id: int, count: int = 5):
-    """Удаляет последние сообщения бота в чате чтобы не копился мусор."""
-    for offset in range(1, count + 1):
-        try:
-            pass
-        except Exception:
-            break
-
-
 @user_router.message(CommandStart())
 async def start(message: Message, state: FSMContext, container: Container = init_container()):
     await state.clear()

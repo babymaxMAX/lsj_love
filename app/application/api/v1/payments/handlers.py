@@ -16,7 +16,7 @@ Callback payload (только CONFIRMED / CANCELED):
   НЕТ поля payload → используем коллекцию transactions для связки
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 import aiohttp
@@ -191,7 +191,7 @@ async def _activate_subscription(
     """
     service: BaseUsersService = container.resolve(BaseUsersService)
     user = await service.get_user(telegram_id=telegram_id)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     current_until = getattr(user, "premium_until", None) or now
     if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
         current_until = current_until.replace(tzinfo=None)
@@ -367,7 +367,7 @@ async def create_platega_payment(
         "method": body.method,
         "amount": amount,
         "status": "PENDING",
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
     })
 
     # ── USDT расчёт ───────────────────────────────────────────────────────────
@@ -483,7 +483,7 @@ async def get_payment_status(
             # Обновляем статус в БД
             await col.update_one(
                 {"transaction_id": transaction_id},
-                {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.utcnow()}},
+                {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.now(timezone.utc)}},
             )
 
     return PaymentStatusResponse(
@@ -577,7 +577,7 @@ async def platega_webhook(
 
     await col.update_one(
         {"transaction_id": transaction_id},
-        {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.utcnow()}},
+        {"$set": {"status": "CONFIRMED", "confirmed_at": datetime.now(timezone.utc)}},
     )
 
     return JSONResponse({"ok": True})
