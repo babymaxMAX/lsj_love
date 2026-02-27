@@ -68,7 +68,7 @@ export default function PhotoLikesPage() {
                     background: "rgba(15,15,26,0.97)",
                     backdropFilter: "blur(12px)",
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
-                    paddingTop: "max(env(safe-area-inset-top), 14px)",
+                    paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
                 }}
             >
                 <button
