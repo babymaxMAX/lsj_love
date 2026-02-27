@@ -5,6 +5,7 @@ import { BackEnd_URL } from "@/config/url";
 import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
 import { DailyQuestion } from "@/components/daily-question";
+import { QuestionCard } from "@/components/question-card";
 
 async function fetchUsers(user_id: string) {
     try {
@@ -38,6 +39,9 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     const [loading, setLoading] = useState(true);
     // IDs пролайканных в этой сессии — чтобы не показывать снова если бэк вернул их
     const [seenIds] = useState<Set<number>>(() => new Set());
+    const [swipeCount, setSwipeCount] = useState(0);
+    const [showProfileQuestion, setShowProfileQuestion] = useState(false);
+    const [nextQuestion, setNextQuestion] = useState<any>(null);
 
     const loadUsers = useCallback(async () => {
         setLoading(true);
@@ -56,6 +60,13 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     useEffect(() => {
         loadUsers();
     }, [loadUsers]);
+
+    useEffect(() => {
+        fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`)
+            .then((r) => r.json())
+            .then((d) => setNextQuestion(d.question || null))
+            .catch(() => {});
+    }, [params.users]);
 
     // Пинг: обновляем last_seen при открытии и каждые 60 секунд
     useEffect(() => {
@@ -94,7 +105,23 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     };
 
     const nextUser = () => {
+        const newCount = swipeCount + 1;
+        setSwipeCount(newCount);
+        if (newCount % 5 === 0 && nextQuestion) {
+            setShowProfileQuestion(true);
+        } else {
+            setCurrentIndex((prev) => prev + 1);
+        }
+    };
+
+    const handleQuestionDone = () => {
+        setShowProfileQuestion(false);
+        setNextQuestion(null);
         setCurrentIndex((prev) => prev + 1);
+        fetch(`${BackEnd_URL}/api/v1/profile/questions?telegram_id=${params.users}`)
+            .then((r) => r.json())
+            .then((d) => setNextQuestion(d.question || null))
+            .catch(() => {});
     };
 
     const currentUser = users[currentIndex];
@@ -150,7 +177,13 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
             {/* Свайп карточки */}
             <div className="flex-1 flex items-center justify-center px-4 py-6">
-                {currentUser ? (
+                {showProfileQuestion && nextQuestion ? (
+                    <QuestionCard
+                        question={nextQuestion}
+                        userId={params.users}
+                        onDone={handleQuestionDone}
+                    />
+                ) : currentUser ? (
                     <SwipeCard
                         user={currentUser}
                         userId={params.users}

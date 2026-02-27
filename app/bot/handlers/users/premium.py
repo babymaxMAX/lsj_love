@@ -88,7 +88,7 @@ async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub
     except Exception as e:
         logger.warning(f"Stars referral bonus error: {e}")
 
-BACKEND_URL = "https://lsjlove.duckdns.org"
+BACKEND_URL = "[REDACTED]"
 
 
 def payment_method_keyboard(
@@ -143,13 +143,13 @@ def premium_main_keyboard(config: Config) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"⭐ Premium — {int(config.platega_premium_price)} ₽ / мес",
+                    text=f"⭐ Premium — {int(config.platega_premium_price)} ₽ / нед",
                     callback_data="choose_premium",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text=f"💎 VIP — {int(config.platega_vip_price)} ₽ / мес",
+                    text=f"💎 VIP — {int(config.platega_vip_price)} ₽ / нед",
                     callback_data="choose_vip",
                 ),
             ],
@@ -283,7 +283,7 @@ async def choose_premium(callback: CallbackQuery, container: Container = init_co
     rub = int(config.platega_premium_price)
     usdt_str = rub_to_usdt(rub, usdt_rate)
     text = (
-        "⭐ <b>Premium — 1 месяц</b>\n\n"
+        "⭐ <b>Premium — 1 неделя</b>\n\n"
         f"📌 <b>Что входит:</b>\n"
         f"❤️ Безлимитные лайки\n"
         f"👁 Кто тебя лайкнул\n"
@@ -310,7 +310,7 @@ async def choose_vip(callback: CallbackQuery, container: Container = init_contai
     rub = int(config.platega_vip_price)
     usdt_str = rub_to_usdt(rub, usdt_rate)
     text = (
-        "💎 <b>VIP — 1 месяц</b>\n\n"
+        "💎 <b>VIP — 1 неделя</b>\n\n"
         f"📌 <b>Что входит:</b>\n"
         f"✅ Всё из Premium\n"
         f"🤖 AI Icebreaker ×10/день\n"
@@ -341,7 +341,7 @@ async def stars_premium(callback: CallbackQuery, container: Container = init_con
         description="Безлимитные лайки, просмотр кто лайкнул, откат свайпа, 1 суперлайк/день",
         payload="premium_monthly",
         currency="XTR",
-        prices=[LabeledPrice(label="Premium на месяц", amount=config.stars_premium_monthly)],
+        prices=[LabeledPrice(label="Premium на неделю", amount=config.stars_premium_monthly)],
     )
     await callback.answer()
 
@@ -354,7 +354,7 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
         description="AI Icebreaker ×10/день, буст профиля, приоритет в выдаче + всё из Premium",
         payload="vip_monthly",
         currency="XTR",
-        prices=[LabeledPrice(label="VIP на месяц", amount=config.stars_vip_monthly)],
+        prices=[LabeledPrice(label="VIP на неделю", amount=config.stars_vip_monthly)],
     )
     await callback.answer()
 
@@ -584,7 +584,7 @@ async def successful_payment(message: Message, container: Container = init_conta
             if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
                 current_until = current_until.replace(tzinfo=None)
             base = max(current_until, now)
-            until = base + timedelta(days=30)
+            until = base + timedelta(days=7)
             await service.update_user_info_after_reg(
                 telegram_id=user_id,
                 data={"premium_type": premium_type, "premium_until": until},

@@ -25,7 +25,7 @@
 
 1. В BotFather отправь `/mybots` → выбери бота
 2. `Bot Settings` → `Menu Button` → `Configure menu button`
-3. Введи URL: `https://lsjlove.duckdns.org/users/TELEGRAM_ID`
+3. Введи URL: `[REDACTED]/users/TELEGRAM_ID`
 4. Введи название: `💕 Открыть LSJLove`
 
 ### 3. Подготовь сервер
@@ -52,9 +52,9 @@ nano .env
 Заполни:
 ```env
 BOT_TOKEN=твой_токен_от_botfather
-WEBHOOK_URL=https://lsjlove.duckdns.org
-FRONT_END_URL=https://lsjlove.duckdns.org
-MONGO_DB_CONNECTION_URI=mongodb://mongodb:27017
+WEBHOOK_URL=[REDACTED]
+FRONT_END_URL=[REDACTED]
+MONGO_DB_CONNECTION_URI=[REDACTED]
 MONGO_DB_ADMIN_USERNAME=admin
 MONGO_DB_ADMIN_PASSWORD=придумай_пароль
 AWS_ACCESS_KEY_ID=твой_s3_ключ
@@ -102,7 +102,7 @@ docker compose ps
 docker compose logs -f api
 
 # Проверь API
-curl https://lsjlove.duckdns.org/api/docs
+curl [REDACTED]/api/docs
 ```
 
 ---
@@ -127,8 +127,8 @@ curl https://lsjlove.duckdns.org/api/docs
 | Telegram Stars | Оплата Premium/VIP прямо в боте |
 | Вопрос дня | Ежедневный вопрос для сравнения совместимости |
 | Рейтинг | Топ популярных профилей |
-| Premium | 500 Stars/мес — безлимитные лайки |
-| VIP | 1500 Stars/мес — все функции |
+| Premium | 150 Stars/нед — безлимитные лайки |
+| VIP | 400 Stars/нед — все функции |
 
 ## Команды бота
 

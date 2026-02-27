@@ -75,16 +75,31 @@ async def start(message: Message, state: FSMContext, container: Container = init
         user = await service.get_user(telegram_id=message.from_user.id)
 
         if user.is_active:
-            # Обновляем last_seen
+            from app.settings.config import Config
+            config: Config = container.resolve(Config)
             await service.update_user_info_after_reg(
                 telegram_id=message.from_user.id,
                 data={"last_seen": datetime.now(timezone.utc)},
             )
+            app_url = f"{config.front_end_url}/users/{message.from_user.id}"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💘 Открыть LSJLove", url=app_url)],
+                [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
+                [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
+            ])
             await message.answer(
-                text=f"С возвращением, <b>{message.from_user.first_name}</b>! 💫",
+                text=(
+                    f"С возвращением, <b>{message.from_user.first_name}</b>! 💫\n\n"
+                    f"Что нового:\n"
+                    f"• 🔥 Свайпай анкеты и находи людей рядом\n"
+                    f"• 🤖 AI поможет написать первое сообщение\n"
+                    f"• 💕 Проверяй матчи и общайся\n\n"
+                    f"Открой приложение и начни знакомиться! 👇"
+                ),
                 parse_mode="HTML",
+                reply_markup=kb,
             )
-            await profile(message)
+            return
         else:
             if not message.from_user.username:
                 await message.answer(
@@ -133,9 +148,13 @@ async def start(message: Message, state: FSMContext, container: Container = init
             )
         else:
             welcome = (
-                f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
-                f"Здесь ты найдёшь свою вторую половинку.\n"
-                f"Заполним анкету прямо сейчас — это займёт меньше минуты!"
+                "💕 Добро пожаловать в <b>LSJLove</b>!\n\n"
+                "Здесь ты найдёшь свою вторую половинку.\n\n"
+                "✨ <b>Что тебя ждёт:</b>\n"
+                "• Свайпай анкеты и находи людей рядом\n"
+                "• AI напишет первое сообщение за тебя\n"
+                "• Подбор пары по фото и интересам\n\n"
+                "Заполним анкету прямо сейчас — это займёт меньше минуты!"
             )
             if referral_from and referrer:
                 welcome += "\n\n🎁 Ты зарегистрировался по реферальной ссылке!"

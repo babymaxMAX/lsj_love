@@ -284,9 +284,24 @@ async def generate_icebreaker(
     premium_type = _get_active_premium_type(sender)
     is_premium = premium_type in ("premium", "vip")
 
-    # Получаем использованное количество
+    # Получаем использованное количество (с daily reset для подписчиков)
     used = await service.get_icebreaker_count(telegram_id=data.sender_id)
     limit = _get_limit(premium_type, config)
+
+    # Daily reset для premium/vip пользователей
+    if is_premium and used >= limit:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        col = client[config.mongodb_dating_database][config.mongodb_users_collection]
+        user_doc = await col.find_one({"telegram_id": data.sender_id}, {"icebreaker_reset_date": 1})
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        last_reset = (user_doc or {}).get("icebreaker_reset_date", "")
+        if last_reset != today_str:
+            await col.update_one(
+                {"telegram_id": data.sender_id},
+                {"$set": {"icebreaker_used": 0, "icebreaker_reset_date": today_str}},
+            )
+            used = 0
 
     if used >= limit:
         raise HTTPException(
@@ -748,6 +763,7 @@ async def _matchmaking_text_screen(
     conversation: list[dict],
     shown_ids: list[int],
     api_key: str,
+    user_info: str = "",
 ) -> list[int]:
     """
     Шаг 1: Текстовый скрининг — GPT-4o-mini выбирает топ-10 ID по критериям пользователя.
@@ -757,12 +773,19 @@ async def _matchmaking_text_screen(
     client = AsyncOpenAI(api_key=api_key)
 
     shown_note = f"\nУже показанные пользователю (не повторяй): {shown_ids}" if shown_ids else ""
+    user_context = f"\nИнформация о пользователе, который ищет: {user_info}" if user_info else ""
 
     system = (
-        "Ты — умный алгоритм подбора партнёров для приложения знакомств. "
-        "Пользователь описывает, кого ищет. Тебе дан список анкет с ID, именем, возрастом, городом и описанием. "
+        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств LSJLove. "
+        "Пользователь описывает, кого ищет. Тебе дан список анкет с ID, именем, возрастом, городом, описанием, "
+        "типом подписки и ответами на вопросы профиля.\n"
+        "Правила подбора:\n"
+        "- Совпадение города — большой плюс, приоритизируй кандидатов из того же города\n"
+        "- Учитывай возраст, описание (about), ответы на вопросы профиля для совместимости\n"
+        "- Понимай разговорный язык и неточные описания ('добрая', 'весёлая', 'серьёзная')\n"
+        "- Запрещено возвращать анкеты из списка shown_ids\n"
+        "- Если пользователь уточняет критерии — ищи заново с учётом новых предпочтений\n"
         "Выбери до 10 НОВЫХ анкет, которые наилучшим образом соответствуют критериям. "
-        "Не повторяй уже показанные ID. "
         "Ответь ТОЛЬКО JSON: {\"selected\": [id1, id2, ...]}"
     )
 
@@ -772,7 +795,7 @@ async def _matchmaking_text_screen(
             messages.append({"role": h["role"], "content": h["content"]})
 
     user_msg = (
-        f"Критерии: {user_criteria}{shown_note}\n\n"
+        f"Критерии: {user_criteria}{shown_note}{user_context}\n\n"
         f"Доступные анкеты:\n{candidates_text}\n\n"
         "Верни JSON с отобранными ID."
     )
@@ -814,16 +837,23 @@ async def _matchmaking_vision_rank(
     shown_note = f" Не повторяй ID: {shown_ids}." if shown_ids else ""
 
     system = (
-        "Ты — помощник-сваха в приложении знакомств. Общайся неформально, коротко.\n"
-        "Смотри на фотографии и описания, выбери анкеты которые подходят под критерии пользователя.\n"
-        "ВАЖНО:\n"
-        "- Если есть фото — смотри на него и описывай что РЕАЛЬНО видно\n"
-        "- Если у анкеты пометка [фото недоступно] — анализируй ТОЛЬКО по тексту описания\n"
-        "- Если описание явно упоминает визуальные черты (рыжие волосы, татуировки и т.д.) и это совпадает с запросом — включай анкету\n"
-        "- Если ни одна анкета НЕ подходит — честно скажи и верни пустой список\n"
+        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств LSJLove. "
+        "Общайся как живой человек-помощник, а не робот.\n\n"
+        "ЗАДАЧА: Смотри на фотографии и описания кандидатов, выбери 2-3 анкеты которые подходят под критерии пользователя.\n\n"
+        "VISION-АНАЛИЗ ФОТО (если есть):\n"
+        "- Описывай внешность ОБЪЕКТИВНО: цвет и длина волос, телосложение, татуировки, стиль одежды, "
+        "возраст на вид, общее впечатление\n"
+        "- НЕ считай всех одинаково красивыми — делай объективные выводы на основе того что видишь\n"
+        "- Если у анкеты пометка [фото недоступно] — анализируй ТОЛЬКО по тексту описания\n\n"
+        "ПРАВИЛА:\n"
+        "- Совпадение города — большой плюс\n"
+        "- Учитывай возраст, описание (about), ответы на вопросы профиля\n"
+        "- Если ни одна анкета НЕ подходит — честно скажи и предложи расширить критерии\n"
         "- НЕ показывай заведомо неподходящие анкеты\n"
-        "Напиши 1-2 коротких предложения объяснения.\n"
-        f"Затем на новой строке ТОЛЬКО: {{\"matches\": [id1, id2]}} (или [] если нет подходящих){shown_note}"
+        f"- Запрещено возвращать ID из списка: {shown_ids}\n\n"
+        "ФОРМАТ ОТВЕТА:\n"
+        "Напиши 1-2 коротких предложения объяснения (живым языком, с эмодзи).\n"
+        "Затем на новой строке ТОЛЬКО: {\"matches\": [id1, id2]} (или [] если нет подходящих)"
     )
 
     messages: list[dict] = [{"role": "system", "content": system}]
@@ -968,6 +998,31 @@ async def ai_matchmaking(
 
     id_to_user = {u.telegram_id: u for u in candidates_raw}
 
+    # ── Загружаем profile_answers для кандидатов и текущего пользователя ───
+    from motor.motor_asyncio import AsyncIOMotorClient
+    mongo_client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    users_col = mongo_client[config.mongodb_dating_database][config.mongodb_users_collection]
+
+    all_ids = [u.telegram_id for u in candidates_raw] + [data.user_id]
+    answers_cursor = users_col.find(
+        {"telegram_id": {"$in": all_ids}},
+        {"telegram_id": 1, "profile_answers": 1},
+    )
+    id_to_answers: dict[int, dict] = {}
+    async for doc in answers_cursor:
+        id_to_answers[doc["telegram_id"]] = doc.get("profile_answers", {})
+
+    current_user_answers = id_to_answers.get(data.user_id, {})
+    user_info_parts = [
+        f"Имя: {current_user.name}, Возраст: {current_user.age}, Город: {current_user.city}"
+    ]
+    if getattr(current_user, "about", None):
+        user_info_parts.append(f"О себе: {current_user.about}")
+    if current_user_answers:
+        answers_str = ", ".join(f"{k}: {v}" for k, v in list(current_user_answers.items())[:10])
+        user_info_parts.append(f"Ответы: {answers_str}")
+    user_info_str = " | ".join(user_info_parts)
+
     # ── Определяем: есть ли визуальные критерии ────────────────────────────
     # Если пользователь описывает внешность (цвет волос, татуировки и т.д.)
     # — пропускаем текстовый скрининг и сразу отдаём всех на vision-анализ
@@ -991,8 +1046,16 @@ async def ai_matchmaking(
             age = str(getattr(u, "age", "") or "")
             city = str(getattr(u, "city", "") or "")
             about = str(getattr(u, "about", "") or "")[:120]
+            pt = getattr(u, "premium_type", "") or ""
             uid = u.telegram_id
-            profiles_lines.append(f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}")
+            line = f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}"
+            if pt:
+                line += f" | Подписка: {pt}"
+            cand_answers = id_to_answers.get(uid, {})
+            if cand_answers:
+                ans_str = ", ".join(f"{k}: {v}" for k, v in list(cand_answers.items())[:8])
+                line += f" | Ответы: {ans_str}"
+            profiles_lines.append(line)
 
         candidates_text = "\n".join(profiles_lines)
 
@@ -1003,6 +1066,7 @@ async def ai_matchmaking(
                 conversation=data.conversation,
                 shown_ids=shown_ids,
                 api_key=config.openai_api_key,
+                user_info=user_info_str,
             )
         except Exception as e:
             logger.error(f"matchmaking text screen error: {e}")
@@ -1038,7 +1102,7 @@ async def ai_matchmaking(
 
         # Последний fallback: публичный URL через наш API (OpenAI сам скачает)
         if not photo_b64:
-            photo_url = f"https://lsjlove.duckdns.org/api/v1/users/{uid}/photo"
+            photo_url = f"[REDACTED]/api/v1/users/{uid}/photo"
 
         name = str(getattr(u, "name", "") or "")
         age = str(getattr(u, "age", "") or "")

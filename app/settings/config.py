@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Config(BaseSettings):
     token: str = Field(alias="BOT_TOKEN")
-    url_webhook: str = Field(alias="WEBHOOK_URL", default="https://lsjlove.duckdns.org")
+    url_webhook: str = Field(alias="WEBHOOK_URL", default="[REDACTED]")
 
     mongodb_connection_uri: str = Field(alias="MONGO_DB_CONNECTION_URI")
     mongodb_dating_database: str = Field(
@@ -34,24 +34,24 @@ class Config(BaseSettings):
         alias="S3_REGION_NAME",
     )
     s3_endpoint_url: str = Field(
-        default="https://s3.us-east-005.backblazeb2.com",
+        default="[REDACTED]",
         alias="S3_ENDPOINT_URL",
     )
 
     # Platega платёжная система
     platega_merchant_id: str = Field(default="", alias="PLATEGA_MERCHANT_ID")
     platega_secret: str = Field(default="", alias="PLATEGA_SECRET")
-    platega_premium_price: float = Field(default=299.0, alias="PLATEGA_PREMIUM_PRICE")
-    platega_vip_price: float = Field(default=799.0, alias="PLATEGA_VIP_PRICE")
+    platega_premium_price: float = Field(default=350.0, alias="PLATEGA_PREMIUM_PRICE")
+    platega_vip_price: float = Field(default=720.0, alias="PLATEGA_VIP_PRICE")
     platega_superlike_price: float = Field(default=49.0, alias="PLATEGA_SUPERLIKE_PRICE")
     platega_icebreaker_pack_price: float = Field(default=49.0, alias="PLATEGA_ICEBREAKER_PACK_PRICE")
 
     # OpenAI для AI-фич
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 
-    # Стоимость в Telegram Stars
-    stars_premium_monthly: int = Field(default=500, alias="STARS_PREMIUM_MONTHLY")
-    stars_vip_monthly: int = Field(default=1500, alias="STARS_VIP_MONTHLY")
+    # Стоимость в Telegram Stars (в неделю)
+    stars_premium_monthly: int = Field(default=150, alias="STARS_PREMIUM_WEEKLY")
+    stars_vip_monthly: int = Field(default=400, alias="STARS_VIP_WEEKLY")
     stars_superlike: int = Field(default=50, alias="STARS_SUPERLIKE")
     stars_boost: int = Field(default=150, alias="STARS_BOOST")
     stars_ai_pack: int = Field(default=200, alias="STARS_AI_PACK")
@@ -71,4 +71,4 @@ class Config(BaseSettings):
     def full_webhook_url(self) -> str:
         return f"{self.url_webhook}/api/v1/webhook"
 
-    front_end_url: str = Field(alias="FRONT_END_URL", default="https://lsjlove.duckdns.org")
+    front_end_url: str = Field(alias="FRONT_END_URL", default="[REDACTED]")

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackEnd_URL } from "@/config/url";
 import { BottomNav } from "@/components/bottom-nav";
+import { ProfileAnswers } from "@/components/profile-answers";
 
 const GENDER_RU: Record<string, string> = {
     Man: "Мужской",
@@ -524,6 +525,8 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                         </div>
                     )}
                 </div>
+
+                <ProfileAnswers userId={userId} />
 
                 <div className="rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.04)" }}>
                     <p className="text-sm text-white/40 text-center">

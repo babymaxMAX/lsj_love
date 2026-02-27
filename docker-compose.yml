@@ -26,6 +26,12 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     networks:
       - app-net
     expose:
@@ -38,7 +44,7 @@ services:
     container_name: lsjlove-frontend
     restart: always
     environment:
-      - BACKEND_URL=https://lsjlove.duckdns.org
+      - BACKEND_URL=[REDACTED]
     networks:
       - app-net
     expose:

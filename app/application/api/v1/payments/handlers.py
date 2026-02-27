@@ -43,10 +43,10 @@ PAYMENT_METHODS = {
 }
 
 PRODUCTS = {
-    "premium":         {"name": "Premium (1 месяц)", "days": 30, "premium_type": "premium"},
-    "vip":             {"name": "VIP (1 месяц)",     "days": 30, "premium_type": "vip"},
-    "superlike":       {"name": "Суперлайк",         "days": 0,  "premium_type": None},
-    "icebreaker_pack": {"name": "Пак Icebreaker ×5", "days": 0,  "premium_type": None},
+    "premium":         {"name": "Premium (1 неделя)", "days": 7, "premium_type": "premium"},
+    "vip":             {"name": "VIP (1 неделя)",     "days": 7, "premium_type": "vip"},
+    "superlike":       {"name": "Суперлайк",          "days": 0,  "premium_type": None},
+    "icebreaker_pack": {"name": "Пак Icebreaker ×5",  "days": 0,  "premium_type": None},
 }
 
 
@@ -323,8 +323,8 @@ async def create_platega_payment(
         "paymentMethod": PAYMENT_METHODS[body.method],
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": product_info["name"],
-        "return": f"https://lsjlove.duckdns.org/users/{body.telegram_id}/premium?status=success",
-        "failedUrl": f"https://lsjlove.duckdns.org/users/{body.telegram_id}/premium?status=failed",
+        "return": f"[REDACTED]/users/{body.telegram_id}/premium?status=success",
+        "failedUrl": f"[REDACTED]/users/{body.telegram_id}/premium?status=failed",
         "payload": f"{body.telegram_id}:{body.product}",
     }
 
@@ -500,7 +500,7 @@ async def platega_webhook(
 ):
     """
     Webhook от Platega при смене статуса транзакции.
-    Callback URL: https://lsjlove.duckdns.org/api/v1/payments/platega/webhook
+    Callback URL: [REDACTED]/api/v1/payments/platega/webhook
 
     CallbackPayload: { id, amount, currency, status, paymentMethod }
     """
