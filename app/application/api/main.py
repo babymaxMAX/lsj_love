@@ -33,6 +33,9 @@ async def _ensure_indexes():
         await likes.create_index("from_user")
         await likes.create_index("to_user")
         await likes.create_index("created_at")
+        photo_likes = db["photo_likes"]
+        await photo_likes.create_index([("owner_id", 1), ("photo_index", 1)])
+        await photo_likes.create_index([("from_user", 1), ("owner_id", 1), ("photo_index", 1)], unique=True)
         logging.getLogger(__name__).info("MongoDB indexes ensured")
     except Exception as e:
         logging.getLogger(__name__).warning(f"Index creation failed: {e}")

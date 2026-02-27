@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
+import { PhotoLikeButton } from "@/components/photo-like-button";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,16 @@ function ProfileCard({
                     className="absolute top-2 right-2 w-3 h-3 rounded-full"
                     style={{ background: dot, border: "2px solid #0f0f1a" }}
                 />
+                {/* Photo Like Button */}
+                <div style={{ position: "absolute", bottom: 56, right: 12, zIndex: 15 }}>
+                    <PhotoLikeButton
+                        ownerId={profile.telegram_id}
+                        photoIndex={safeIdx}
+                        viewerId={parseInt(userId)}
+                        initialLikes={0}
+                        initialLiked={false}
+                    />
+                </div>
                 {/* Gradient overlay */}
                 <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
                 <div className="absolute bottom-3 left-3 text-white">

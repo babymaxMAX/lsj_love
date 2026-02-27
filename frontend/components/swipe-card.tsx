@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { BackEnd_URL } from "@/config/url";
+import { PhotoLikeButton } from "@/components/photo-like-button";
 
 interface User {
     telegram_id: number;
@@ -57,6 +58,17 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
     const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
     const [usesLeft, setUsesLeft] = useState<number | null>(null);
     const [sending, setSending] = useState(false);
+
+    const [photoLikeData, setPhotoLikeData] = useState<Record<number, { count: number; liked: boolean }>>({});
+
+    useEffect(() => {
+        const idx = currentPhotoIdx;
+        if (photoLikeData[idx] !== undefined) return;
+        fetch(`${BackEnd_URL}/api/v1/photo-interactions/likes/${user.telegram_id}/${idx}?viewer_id=${userId}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => d && setPhotoLikeData((prev) => ({ ...prev, [idx]: { count: d.count, liked: d.liked_by_me } })))
+            .catch(() => {});
+    }, [user.telegram_id, userId, currentPhotoIdx, photoLikeData]);
 
     const x = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -495,6 +507,17 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                             )}
 
                             <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent" />
+
+                            {/* Photo Like Button */}
+                            <div style={{ position: "absolute", bottom: 80, left: 12, zIndex: 15 }}>
+                                <PhotoLikeButton
+                                    ownerId={user.telegram_id}
+                                    photoIndex={safeIdx}
+                                    viewerId={parseInt(userId)}
+                                    initialLikes={photoLikeData[safeIdx]?.count ?? 0}
+                                    initialLiked={photoLikeData[safeIdx]?.liked ?? false}
+                                />
+                            </div>
 
                             <div className="absolute bottom-4 left-4 right-4 text-white">
                                 <div className="flex items-end justify-between">
