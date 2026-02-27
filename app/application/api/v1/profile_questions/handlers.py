@@ -187,33 +187,34 @@ class ReformulateRequest(BaseModel):
     answer: str
 
 
-class ReformulateResponse(BaseModel):
-    formatted: str
-
-
 @router.post("/reformulate")
 async def reformulate_answer(
     data: ReformulateRequest,
     container: Container = Depends(init_container),
 ):
-    """AI красиво формулирует ответ пользователя для профиля."""
+    """AI генерирует 3 красивых варианта формулировки ответа для профиля."""
     config: Config = container.resolve(Config)
     if not config.openai_api_key:
-        return ReformulateResponse(formatted=data.answer)
+        return {"variants": [data.answer]}
 
     try:
+        import json as _json
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=config.openai_api_key)
 
         system = (
             "Ты помогаешь оформить ответ пользователя на вопрос анкеты знакомств.\n"
-            "Правила:\n"
+            "Сгенерируй ровно 3 РАЗНЫХ красивых варианта формулировки.\n"
+            "Правила для каждого варианта:\n"
             "- Формулируй от первого лица ('Люблю...', 'Занимаюсь...', 'Обожаю...')\n"
-            "- Максимум 5-7 слов — коротко и ёмко\n"
+            "- Максимум 5-8 слов — коротко и ёмко\n"
             "- Добавь 1 подходящий эмодзи в конце\n"
             "- Не используй слово 'я' в начале\n"
-            "- Пример: вопрос 'Увлекаетесь спортом?' + ответ 'да увлекаюсь' → 'Занимаюсь спортом регулярно 💪'\n"
-            "Верни только готовую фразу, без пояснений."
+            "- Каждый вариант ДОЛЖЕН ОТЛИЧАТЬСЯ стилем и словами\n"
+            "- Все варианты должны точно отражать СМЫСЛ ответа пользователя\n"
+            "- Пример: вопрос 'Спорт?' + ответ 'увлекаюсь' → "
+            "[\"Занимаюсь спортом регулярно 💪\", \"Спорт — часть моей жизни 🏃\", \"Обожаю тренировки 🔥\"]\n"
+            "Верни ТОЛЬКО JSON массив из 3 строк, без пояснений."
         )
         user_msg = f"Вопрос: {data.question}\nОтвет пользователя: {data.answer}"
 
@@ -223,11 +224,19 @@ async def reformulate_answer(
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_msg},
             ],
-            max_tokens=50,
-            temperature=0.8,
+            max_tokens=150,
+            temperature=1.0,
         )
-        formatted = resp.choices[0].message.content.strip().strip('"')
-        return ReformulateResponse(formatted=formatted)
+        raw = resp.choices[0].message.content.strip()
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        variants = _json.loads(raw)
+        if isinstance(variants, list) and len(variants) >= 1:
+            return {"variants": [str(v).strip().strip('"') for v in variants[:3]]}
+        return {"variants": [raw.strip('"')]}
     except Exception as e:
         logger.warning(f"Reformulate error: {e}")
-        return ReformulateResponse(formatted=data.answer)
+        return {"variants": [data.answer]}

@@ -91,6 +91,10 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
                 [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
             ])
+            try:
+                await message.delete()
+            except Exception:
+                pass
             await message.answer(
                 text=(
                     f"С возвращением, <b>{message.from_user.first_name}</b>! 💫\n\n"
