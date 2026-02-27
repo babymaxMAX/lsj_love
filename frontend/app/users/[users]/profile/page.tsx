@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { BottomNav } from "@/components/bottom-nav";
 import { ProfileAnswers } from "@/components/profile-answers";
@@ -44,6 +45,7 @@ function isVideoUrl(url: string, mediaType?: string) {
 
 export default function ProfilePage({ params }: { params: { users: string } }) {
     const userId = params.users;
+    const router = useRouter();
     const [user, setUser] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [mediaUrls, setMediaUrls] = useState<string[]>([]);
@@ -527,6 +529,23 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 </div>
 
                 <ProfileAnswers userId={userId} />
+
+                {/* Photo Likes Button */}
+                <button
+                    onClick={() => router.push(`/users/${userId}/photo-likes`)}
+                    className="w-full rounded-2xl p-4 flex items-center gap-3 transition-all active:scale-[0.98]"
+                    style={{
+                        background: "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(236,72,153,0.08))",
+                        border: "1px solid rgba(239,68,68,0.2)",
+                    }}
+                >
+                    <span className="text-2xl">❤️</span>
+                    <div className="flex-1 text-left">
+                        <div className="text-sm font-semibold text-white">Лайки на мои фото</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Узнай кому нравишься</div>
+                    </div>
+                    <span style={{ color: "rgba(255,255,255,0.3)" }}>›</span>
+                </button>
 
                 <div className="rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.04)" }}>
                     <p className="text-sm text-white/40 text-center">
