@@ -284,9 +284,24 @@ async def generate_icebreaker(
     premium_type = _get_active_premium_type(sender)
     is_premium = premium_type in ("premium", "vip")
 
-    # Получаем использованное количество
+    # Получаем использованное количество (с daily reset для подписчиков)
     used = await service.get_icebreaker_count(telegram_id=data.sender_id)
     limit = _get_limit(premium_type, config)
+
+    # Daily reset для premium/vip пользователей
+    if is_premium and used >= limit:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        col = client[config.mongodb_dating_database][config.mongodb_users_collection]
+        user_doc = await col.find_one({"telegram_id": data.sender_id}, {"icebreaker_reset_date": 1})
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        last_reset = (user_doc or {}).get("icebreaker_reset_date", "")
+        if last_reset != today_str:
+            await col.update_one(
+                {"telegram_id": data.sender_id},
+                {"$set": {"icebreaker_used": 0, "icebreaker_reset_date": today_str}},
+            )
+            used = 0
 
     if used >= limit:
         raise HTTPException(
@@ -1038,7 +1053,7 @@ async def ai_matchmaking(
 
         # Последний fallback: публичный URL через наш API (OpenAI сам скачает)
         if not photo_b64:
-            photo_url = f"https://lsjlove.duckdns.org/api/v1/users/{uid}/photo"
+            photo_url = f"[REDACTED]/api/v1/users/{uid}/photo"
 
         name = str(getattr(u, "name", "") or "")
         age = str(getattr(u, "age", "") or "")

@@ -38,4 +38,33 @@ def create_app():
     )
     app.include_router(v1_router, prefix="/api")
 
+    @app.get("/health", tags=["Health"])
+    async def health_check():
+        """Health check endpoint for Docker and monitoring."""
+        import logging
+        result = {"status": "ok", "mongodb": "unknown", "s3": "unknown"}
+        try:
+            from app.logic.init import init_container
+            from motor.motor_asyncio import AsyncIOMotorClient
+            container = init_container()
+            client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+            await client.admin.command("ping")
+            result["mongodb"] = "connected"
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Health: MongoDB check failed: {e}")
+            result["mongodb"] = "disconnected"
+        result["s3"] = "ok"
+        return result
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request, exc):
+        import logging
+        import traceback
+        from fastapi.responses import JSONResponse
+        logging.getLogger(__name__).error(f"Unhandled error: {exc}\n{traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": {"error": "Внутренняя ошибка сервера. Попробуйте позже."}},
+        )
+
     return app
