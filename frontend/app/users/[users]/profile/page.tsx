@@ -34,6 +34,7 @@ interface UserProfile {
     media_types: string[];
     is_active: boolean;
     referral_balance?: number;
+    premium_type?: string | null;
 }
 
 const MAX_MEDIA = 6;
@@ -312,6 +313,18 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     const slots = Array.from({ length: MAX_MEDIA });
     const hasMedia = mediaUrls.length > 0;
 
+    const pt = user.premium_type;
+    const headerGradient = pt === "vip"
+        ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(234,179,8,0.08))"
+        : pt === "premium"
+        ? "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(236,72,153,0.06))"
+        : "rgba(15,15,26,0.97)";
+    const headerBorder = pt === "vip" ? "1px solid rgba(245,158,11,0.3)"
+        : pt === "premium" ? "1px solid rgba(239,68,68,0.2)"
+        : "1px solid rgba(255,255,255,0.06)";
+    const mediaBorder = pt === "vip" ? "3px solid #f59e0b"
+        : pt === "premium" ? "3px solid #ef4444" : "none";
+
     return (
         <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
             <input
@@ -325,10 +338,18 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             {/* ── Header (sticky) ── */}
             <div
                 className="sticky top-0 z-30 flex items-center justify-between px-4 py-3"
-                style={{ background: "rgba(15,15,26,0.97)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+                style={{ background: headerGradient, backdropFilter: "blur(12px)", borderBottom: headerBorder }}
             >
                 <div>
-                    <h1 className="text-lg font-bold leading-tight">Мой профиль</h1>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <h1 className="text-lg font-bold leading-tight">Мой профиль</h1>
+                        {pt === "vip" && (
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 100, background: "linear-gradient(135deg, #f59e0b, #eab308)", color: "#000" }}>VIP</span>
+                        )}
+                        {pt === "premium" && (
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 100, background: "linear-gradient(135deg, #ef4444, #ec4899)", color: "#fff" }}>PRO</span>
+                        )}
+                    </div>
                     <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>До {MAX_MEDIA} фото и видео</p>
                 </div>
                 <button
@@ -347,7 +368,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             {/* ── Media Slider ── */}
             <div
                 className="relative mx-4 rounded-3xl overflow-hidden select-none"
-                style={{ aspectRatio: "4/5", background: "rgba(255,255,255,0.05)" }}
+                style={{ aspectRatio: "4/5", background: "rgba(255,255,255,0.05)", border: mediaBorder }}
                 ref={sliderRef}
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}

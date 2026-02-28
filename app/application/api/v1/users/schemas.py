@@ -40,6 +40,7 @@ class UserDetailSchema(BaseModel):
     referral_balance: float = 0.0
     last_seen: Optional[str] = None   # ISO-строка UTC
     profile_answers: Optional[dict] = None
+    premium_type: Optional[str] = None  # "premium" | "vip" | None
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -76,7 +77,19 @@ class UserDetailSchema(BaseModel):
             referral_balance=float(getattr(user, "referral_balance", 0) or 0),
             last_seen=_to_utc_iso(user.last_seen),
             profile_answers=getattr(user, "profile_answers", None),
+            premium_type=getattr(user, "premium_type", None) if _is_sub_active(user) else None,
         )
+
+
+def _is_sub_active(user) -> bool:
+    from datetime import datetime, timezone
+    pt = getattr(user, "premium_type", None)
+    until = getattr(user, "premium_until", None)
+    if not pt or not until:
+        return False
+    if hasattr(until, "tzinfo") and until.tzinfo is None:
+        until = until.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) < until
 
 
 class GetUsersResponseSchema(BaseQueryResponseSchema):

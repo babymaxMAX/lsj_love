@@ -95,6 +95,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 [InlineKeyboardButton(text="🌐 Открыть как сайт", url=app_url)],
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
                 [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
+                [InlineKeyboardButton(text="💬 Поддержка LSJLove", url="https://t.me/babymaxx")],
             ])
             await message.answer(
                 text=(

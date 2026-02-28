@@ -63,12 +63,13 @@ export default function PhotoLikesPage() {
         <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
             {/* Header */}
             <div
-                className="flex items-center gap-3 px-4 py-3"
+                className="sticky top-0 z-30 flex items-center gap-3 px-4"
                 style={{
                     background: "rgba(15,15,26,0.97)",
                     backdropFilter: "blur(12px)",
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
-                    paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+                    paddingTop: 16,
+                    paddingBottom: 12,
                 }}
             >
                 <button
@@ -78,13 +79,14 @@ export default function PhotoLikesPage() {
                         background: "rgba(255,255,255,0.08)",
                         border: "none", color: "#fff", fontSize: 18, cursor: "pointer",
                         display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0,
                     }}
                 >
                     ←
                 </button>
                 <div>
-                    <h1 className="text-lg font-bold">❤️ Лайки на фото</h1>
-                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    <h1 style={{ fontSize: 17, fontWeight: 700, color: "#fff", margin: 0 }}>❤️ Лайки на фото</h1>
+                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: 0 }}>
                         Всего: {totalAll} лайков
                     </p>
                 </div>
