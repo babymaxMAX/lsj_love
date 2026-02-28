@@ -99,10 +99,17 @@ function ProfileCard({
         );
     }
 
+    const tierBorder = profile.premium_type === "vip" ? "2px solid #f59e0b"
+        : profile.premium_type === "premium" ? "2px solid #ef4444"
+        : "1px solid rgba(255,255,255,0.1)";
+    const tierShadow = profile.premium_type === "vip" ? "0 0 16px rgba(245,158,11,0.25)"
+        : profile.premium_type === "premium" ? "0 0 16px rgba(239,68,68,0.15)"
+        : "none";
+
     return (
         <div
             className="rounded-2xl overflow-hidden"
-            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            style={{ background: "rgba(255,255,255,0.06)", border: tierBorder, boxShadow: tierShadow }}
         >
             {/* Photo with gallery */}
             <div className="relative w-full" style={{ height: "320px" }}>
@@ -544,18 +551,19 @@ export default function AiMatchmakingPage() {
         <div className="flex flex-col h-screen" style={{ background: "#0f0f1a", color: "#fff" }}>
             {/* Header */}
             <div
-                className="flex-shrink-0 flex items-center gap-3 px-4 py-3"
+                className="flex-shrink-0 flex items-center gap-3 px-4"
                 style={{
                     background: "rgba(15,15,26,0.95)",
                     backdropFilter: "blur(12px)",
                     borderBottom: "1px solid rgba(255,255,255,0.07)",
-                    paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+                    paddingTop: 16,
+                    paddingBottom: 12,
                 }}
             >
                 <button
                     onClick={() => router.back()}
-                    className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 flex-shrink-0"
-                    style={{ background: "rgba(255,255,255,0.1)" }}
+                    className="flex items-center justify-center transition-all active:scale-90 flex-shrink-0"
+                    style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer" }}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
                         <path d="M19 12H5M12 5l-7 7 7 7" />

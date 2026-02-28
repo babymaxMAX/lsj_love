@@ -409,7 +409,15 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
 
             {/* Карточка */}
             <motion.div
-                style={{ x, rotate }}
+                style={{
+                    x, rotate,
+                    border: user.premium_type === "vip" ? "3px solid #f59e0b"
+                        : user.premium_type === "premium" ? "3px solid #ef4444"
+                        : "3px solid rgba(255,255,255,0.15)",
+                    boxShadow: user.premium_type === "vip" ? "0 0 20px rgba(245,158,11,0.3)"
+                        : user.premium_type === "premium" ? "0 0 20px rgba(239,68,68,0.2)"
+                        : "none",
+                }}
                 drag={iceStep === "idle" ? "x" : false}
                 dragConstraints={{ left: 0, right: 0 }}
                 onDragEnd={handleDragEnd}

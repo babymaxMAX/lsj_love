@@ -60,7 +60,7 @@ class Config(BaseSettings):
     stars_icebreaker_pack: int = Field(default=100, alias="STARS_ICEBREAKER_PACK")
 
     # Лимиты (бесплатный тариф)
-    daily_likes_free: int = Field(default=10, alias="DAILY_LIKES_FREE")
+    daily_likes_free: int = Field(default=15, alias="DAILY_LIKES_FREE")
     # Всего бесплатных Icebreaker для новых пользователей (не в день, а всего)
     icebreaker_free_total: int = Field(default=5, alias="ICEBREAKER_FREE_TOTAL")
     # Дневные лимиты для подписчиков (VIP/Premium)
