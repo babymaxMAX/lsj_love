@@ -16,6 +16,8 @@ interface TargetUser {
     gender?: string;
     looking_for?: string;
     last_seen?: string;
+    profile_answers?: Record<string, string | string[]>;
+    premium_type?: string | null;
 }
 
 function getOnlineStatus(lastSeen?: string | null): { label: string; color: string; dot: string } {
@@ -443,6 +445,24 @@ export default function ViewProfilePage() {
                     >
                         <p className="text-xs text-white/40 font-semibold uppercase tracking-wider mb-2">О себе</p>
                         <p className="text-sm text-white/85 leading-relaxed">{user.about}</p>
+                    </div>
+                )}
+
+                {/* Ответы на вопросы профиля */}
+                {user.profile_answers && Object.keys(user.profile_answers).length > 0 && (
+                    <div className="rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.06)" }}>
+                        <p className="text-xs text-white/40 font-semibold uppercase tracking-wider mb-2">Обо мне</p>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {Object.values(user.profile_answers).map((ans: any, i: number) => (
+                                <span key={i} style={{
+                                    padding: "6px 12px", borderRadius: 100, fontSize: 13, fontWeight: 500,
+                                    background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)",
+                                    color: "rgba(255,255,255,0.8)",
+                                }}>
+                                    {Array.isArray(ans) ? ans.join(", ") : ans}
+                                </span>
+                            ))}
+                        </div>
                     </div>
                 )}
 

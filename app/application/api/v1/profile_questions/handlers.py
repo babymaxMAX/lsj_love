@@ -240,3 +240,140 @@ async def reformulate_answer(
     except Exception as e:
         logger.warning(f"Reformulate error: {e}")
         return {"variants": [data.answer]}
+
+
+AI_PROFILE_TRIAL_SECONDS = 86400
+
+
+class AiProfileChatRequest(BaseModel):
+    telegram_id: int
+    message: str
+    history: list[dict] = []
+
+
+@router.get("/ai-builder/status/{user_id}")
+async def ai_builder_status(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    """Check access to AI profile builder (Premium or 24h trial)."""
+    from app.logic.services.base import BaseUsersService
+    from datetime import datetime, timezone
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except Exception:
+        return {"access": False, "reason": "user_not_found"}
+
+    pt = getattr(user, "premium_type", None)
+    until = getattr(user, "premium_until", None)
+    is_premium = False
+    if pt and until:
+        if hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_premium = datetime.now(timezone.utc) < until
+
+    if is_premium:
+        return {"access": True, "is_premium": True, "trial_active": False}
+
+    col = _get_users_collection(container)
+    doc = await col.find_one({"telegram_id": user_id}, {"ai_builder_trial_start": 1})
+    trial_start = (doc or {}).get("ai_builder_trial_start")
+    if trial_start is None:
+        return {"access": True, "is_premium": False, "trial_active": True, "hours_left": 24.0}
+
+    if hasattr(trial_start, "tzinfo") and trial_start.tzinfo is None:
+        trial_start = trial_start.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - trial_start).total_seconds()
+    if elapsed >= AI_PROFILE_TRIAL_SECONDS:
+        return {"access": False, "is_premium": False, "trial_active": False, "trial_expired": True}
+    hours_left = round((AI_PROFILE_TRIAL_SECONDS - elapsed) / 3600, 1)
+    return {"access": True, "is_premium": False, "trial_active": True, "hours_left": hours_left}
+
+
+@router.post("/ai-builder/chat")
+async def ai_builder_chat(
+    data: AiProfileChatRequest,
+    container: Container = Depends(init_container),
+):
+    """AI profile builder chat — helps user create/edit their profile."""
+    from datetime import datetime, timezone
+    config: Config = container.resolve(Config)
+    if not config.openai_api_key:
+        return {"reply": "AI не настроен на сервере."}
+
+    col = _get_users_collection(container)
+    doc = await col.find_one({"telegram_id": data.telegram_id}, {"ai_builder_trial_start": 1, "premium_type": 1, "premium_until": 1})
+
+    pt = (doc or {}).get("premium_type")
+    until = (doc or {}).get("premium_until")
+    is_premium = False
+    if pt and until:
+        if hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_premium = datetime.now(timezone.utc) < until
+
+    if not is_premium:
+        trial_start = (doc or {}).get("ai_builder_trial_start")
+        if trial_start is None:
+            await col.update_one(
+                {"telegram_id": data.telegram_id},
+                {"$set": {"ai_builder_trial_start": datetime.now(timezone.utc)}},
+            )
+        elif hasattr(trial_start, "tzinfo") and trial_start.tzinfo is None:
+            trial_start = trial_start.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - trial_start).total_seconds() >= AI_PROFILE_TRIAL_SECONDS:
+                return {"reply": "⏰ Пробный период AI-настройки профиля истёк. Оформи Premium для доступа.", "blocked": True}
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=config.openai_api_key)
+
+        system = (
+            "Ты — AI-помощник для создания и редактирования анкеты знакомств в приложении LSJLove.\n\n"
+            "Твоя задача:\n"
+            "1. Спрашивай пользователя о нём: чем занимается, хобби, характер, что ищет в партнёре\n"
+            "2. На основе ответов формулируй красивое описание для анкеты (раздел 'О себе')\n"
+            "3. Советуй как лучше оформить анкету чтобы привлечь внимание\n"
+            "4. Предлагай варианты описания и СПРАШИВАЙ нравится ли пользователю\n"
+            "5. Если пользователь одобрил — ответь ТОЧНО в формате:\n"
+            "   SAVE_ABOUT: текст описания\n"
+            "   Это сигнал для сохранения в профиль.\n\n"
+            "Правила:\n"
+            "- Общайся дружелюбно, как помощник\n"
+            "- Описание должно быть 2-4 предложения, живое и привлекательное\n"
+            "- Не используй шаблоны и клише\n"
+            "- Добавляй эмодзи в описание\n"
+            "- Отвечай на русском"
+        )
+
+        messages = [{"role": "system", "content": system}]
+        for h in (data.history or [])[-12:]:
+            if h.get("content", "").strip():
+                messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": data.message})
+
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=500,
+            temperature=0.8,
+        )
+        reply = resp.choices[0].message.content.strip()
+
+        save_about = None
+        if "SAVE_ABOUT:" in reply:
+            parts = reply.split("SAVE_ABOUT:", 1)
+            save_about = parts[1].strip()
+            reply = parts[0].strip() or "✅ Описание сохранено в профиль!"
+            from app.logic.services.base import BaseUsersService
+            service: BaseUsersService = container.resolve(BaseUsersService)
+            await service.update_user_info_after_reg(
+                telegram_id=data.telegram_id,
+                data={"about": save_about},
+            )
+
+        return {"reply": reply, "saved_about": save_about}
+    except Exception as e:
+        logger.warning(f"AI builder error: {e}")
+        return {"reply": "Произошла ошибка. Попробуй ещё раз."}
