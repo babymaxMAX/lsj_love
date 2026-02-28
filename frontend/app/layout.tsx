@@ -24,6 +24,14 @@ export default function RootLayout({
 					fontSans.variable
 				)}
 			>
+				<script dangerouslySetInnerHTML={{ __html: `
+					document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+					document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+					document.addEventListener('gestureend', function(e) { e.preventDefault(); }, { passive: false });
+					document.addEventListener('touchstart', function(e) {
+						if (e.touches.length > 1) { e.preventDefault(); }
+					}, { passive: false });
+				`}} />
 				<Providers themeProps={{ attribute: "class", defaultTheme: "dark" }}>
 					<main className="max-w-lg mx-auto min-h-screen">
 						{children}

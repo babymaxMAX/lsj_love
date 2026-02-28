@@ -7,24 +7,42 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
-body {
-  font-family: var(--font-sans);
-  /* Убираем 300мс задержку на касание во всём приложении */
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
+/* ═══ Полная блокировка зума ═══ */
+html {
+  touch-action: pan-x pan-y;
+  -ms-touch-action: pan-x pan-y;
 }
 
-/* Все кнопки и ссылки реагируют мгновенно */
+body {
+  font-family: var(--font-sans);
+  touch-action: pan-x pan-y;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* Все элементы — без зума, только скролл */
+*, *::before, *::after {
+  touch-action: pan-x pan-y;
+}
+
+/* Кнопки — мгновенный отклик */
 button, a, [role="button"] {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   cursor: pointer;
 }
 
-/* Запрещаем выделение текста при случайном долгом касании */
 button, [role="button"] {
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Инпуты — размер шрифта 16px чтобы iOS не зумил при фокусе */
+input, textarea, select {
+  font-size: 16px !important;
+  touch-action: pan-x pan-y;
 }
 
 /* Скроллинг с инерцией на iOS */
