@@ -1053,7 +1053,7 @@ async def ai_matchmaking(
             if hasattr(trial_start, "tzinfo") and trial_start.tzinfo is None:
                 trial_start = trial_start.replace(tzinfo=timezone.utc)
             elapsed = (datetime.now(timezone.utc) - trial_start).total_seconds()
-            if elapsed >= 86400:
+            if elapsed >= MATCHMAKING_TRIAL_SECONDS:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail={
