@@ -196,10 +196,9 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                 }
                 return;
             }
-            // Суперлайк засчитан — переходим к следующей анкете
-            onLike();
+            onDislike();
         } catch {
-            onLike();
+            // ignore
         }
     };
 

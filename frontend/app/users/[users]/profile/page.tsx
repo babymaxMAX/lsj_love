@@ -361,7 +361,14 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                         <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
                         <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
-                    Изменить
+                    Фото
+                </button>
+                <button
+                    onClick={() => router.push(`/users/${userId}/settings`)}
+                    className="flex items-center gap-1.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                    style={{ background: "rgba(255,255,255,0.1)", padding: "8px 14px", flexShrink: 0 }}
+                >
+                    ⚙️
                 </button>
             </div>
 

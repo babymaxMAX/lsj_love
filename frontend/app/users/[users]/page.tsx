@@ -59,14 +59,16 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         return () => clearInterval(interval);
     }, [params.users]);
 
-    // Перезагружаем анкеты когда возвращаемся на страницу
+    // Перезагружаем только если анкеты закончились
     useEffect(() => {
         const onVisible = () => {
-            if (document.visibilityState === "visible") loadUsers();
+            if (document.visibilityState === "visible" && currentIndex >= users.length) {
+                loadUsers();
+            }
         };
         document.addEventListener("visibilitychange", onVisible);
         return () => document.removeEventListener("visibilitychange", onVisible);
-    }, [loadUsers]);
+    }, [loadUsers, currentIndex, users.length]);
 
     const handleLike = async (targetId: number) => {
         seenIds.add(targetId);

@@ -595,6 +595,39 @@ async def ping_user(
     return {"ok": True}
 
 
+class UpdateProfileRequest(BaseModel):
+    about: str | None = None
+    name: str | None = None
+    city: str | None = None
+
+
+@router.patch(
+    "/{user_id}/profile",
+    status_code=status.HTTP_200_OK,
+    description="Update user profile fields (about, name, city).",
+)
+async def update_user_profile(
+    user_id: int,
+    body: UpdateProfileRequest,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    data = {}
+    if body.about is not None:
+        data["about"] = body.about
+    if body.name is not None:
+        data["name"] = body.name
+    if body.city is not None:
+        data["city"] = body.city
+    if not data:
+        return {"ok": True}
+    try:
+        await service.update_user_info_after_reg(telegram_id=user_id, data=data)
+    except ApplicationException as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
+    return {"ok": True}
+
+
 @router.delete(
     "/admin/reset-all",
     status_code=status.HTTP_200_OK,
