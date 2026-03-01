@@ -116,7 +116,7 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
     return (
         <div className="flex flex-col min-h-screen pb-20" style={{ background: "#0f0f1a", color: "#fff" }}>
             {/* Header */}
-            <div className="px-4 pb-2 flex items-center justify-between" style={{ paddingTop: 20 }}>
+            <div className="px-4 pb-2 flex items-center justify-between" style={{ paddingTop: 4 }}>
                 <div>
                     <h1 className="text-lg font-bold">💌 Матчи</h1>
                     <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>

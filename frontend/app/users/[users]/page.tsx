@@ -117,7 +117,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             {/* Заголовок — всегда видимый, прилипает к верху */}
             <div
                 className="relative flex items-center justify-center px-4 py-3 flex-shrink-0"
-                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50, paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
+                style={{ background: "#18182a", borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, zIndex: 50 }}
             >
                 {/* Левая кнопка — AI Подбор */}
                 <button

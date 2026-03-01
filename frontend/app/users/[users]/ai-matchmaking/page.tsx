@@ -556,7 +556,7 @@ export default function AiMatchmakingPage() {
                     background: "rgba(15,15,26,0.95)",
                     backdropFilter: "blur(12px)",
                     borderBottom: "1px solid rgba(255,255,255,0.07)",
-                    paddingTop: 16,
+                    paddingTop: 4,
                     paddingBottom: 12,
                 }}
             >

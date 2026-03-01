@@ -94,7 +94,7 @@ export default function SettingsPage() {
 
     return (
         <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
-            <div className="sticky top-0 z-30 flex items-center gap-3 px-4" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingTop: 20, paddingBottom: 12 }}>
+            <div className="sticky top-0 z-30 flex items-center gap-3 px-4" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingTop: 4, paddingBottom: 12 }}>
                 <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
                 <h1 style={{ fontSize: 17, fontWeight: 700 }}>⚙️ Настройки профиля</h1>
             </div>

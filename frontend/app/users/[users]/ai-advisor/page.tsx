@@ -287,7 +287,7 @@ export default function AiAdvisorPage() {
         return (
             <div className="fixed inset-0 flex flex-col" style={{ background: "linear-gradient(135deg, #0f0f1a 0%, #1a0a2e 50%, #0a1628 100%)" }}>
                 {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10" style={{ paddingTop: 4 }}>
                     <button onClick={() => router.back()} className="text-white/60 hover:text-white transition-colors">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M19 12H5M12 5l-7 7 7 7" />
@@ -365,7 +365,7 @@ export default function AiAdvisorPage() {
              style={{ background: "linear-gradient(135deg, #0f0f1a 0%, #1a0a2e 50%, #0a1628 100%)" }}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
-                 style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
+                 style={{ paddingTop: 4 }}>
                 <div className="flex items-center gap-3">
                     <button onClick={() => router.back()} className="text-white/60 hover:text-white transition-colors">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
