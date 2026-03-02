@@ -831,6 +831,25 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     </div>
                 </div>
             )}
+
+            {/* Ссылки на документы */}
+            <div className="flex justify-center gap-4 mt-6 pb-8">
+                <button
+                    onClick={() => router.push("/privacy")}
+                    className="text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                    Политика конфиденциальности
+                </button>
+                <span style={{ color: "rgba(255,255,255,0.15)", fontSize: 12 }}>·</span>
+                <button
+                    onClick={() => router.push("/terms")}
+                    className="text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                    Пользовательское соглашение
+                </button>
+            </div>
         </div>
     );
 }
