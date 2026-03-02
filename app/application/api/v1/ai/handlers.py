@@ -1081,6 +1081,13 @@ async def ai_matchmaking(
     db = mongo_client[config.mongodb_dating_database]
     users_col = db[config.mongodb_users_collection]
 
+    # Загружаем IDs уже лайкнутых пользователем (не показывать в AI Matchmaking)
+    likes_col = db[config.mongodb_likes_collection]
+    liked_ids_cursor = likes_col.find({"from_user": data.user_id}, {"to_user": 1})
+    liked_ids: set[int] = set()
+    async for ldoc in liked_ids_cursor:
+        liked_ids.add(ldoc["to_user"])
+
     all_users_cursor = users_col.find(
         {"is_active": True, "telegram_id": {"$ne": data.user_id}},
     )
@@ -1090,8 +1097,9 @@ async def ai_matchmaking(
             continue
         all_user_docs.append(doc)
 
-    # Исключаем shown_ids
-    candidates_docs = [d for d in all_user_docs if d["telegram_id"] not in shown_ids]
+    # Исключаем shown_ids и уже лайкнутые/дизлайкнутые
+    excluded_in_matchmaking = shown_ids + list(liked_ids)
+    candidates_docs = [d for d in all_user_docs if d["telegram_id"] not in set(excluded_in_matchmaking)]
 
     if not candidates_docs:
         if all_user_docs:

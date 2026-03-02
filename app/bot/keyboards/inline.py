@@ -54,7 +54,7 @@ def profile_inline_kb(
         ),
     )
     # Тоггл для мужчин — девушки пишут первыми
-    if str(gender).lower() in ("male", "мужской"):
+    if str(gender).lower() in ("male", "man", "мужской"):
         icon = "✅" if allow_girls_write_first else "❌"
         builder.row(
             InlineKeyboardButton(

@@ -30,6 +30,8 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     const [swipeCount, setSwipeCount] = useState(0);
     const [showProfileQuestion, setShowProfileQuestion] = useState(false);
     const [nextQuestion, setNextQuestion] = useState<any>(null);
+    const [superlikeCredits, setSuperlikeCredits] = useState<number>(0);
+    const [iceCredits, setIceCredits] = useState<number>(0);
 
     const loadUsers = useCallback(async () => {
         setLoading(true);
@@ -57,6 +59,24 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         ping();
         const interval = setInterval(ping, 60_000);
         return () => clearInterval(interval);
+    }, [params.users]);
+
+    // Загружаем кредиты пользователя + ежедневные бонусы Premium/VIP
+    useEffect(() => {
+        const loadCredits = async () => {
+            try {
+                // Применяем ежедневные бонусы
+                await fetch(`${BackEnd_URL}/api/v1/users/${params.users}/daily-grants`, { method: "POST" }).catch(() => {});
+                // Загружаем актуальные данные
+                const r = await fetch(`${BackEnd_URL}/api/v1/users/${params.users}`);
+                if (r.ok) {
+                    const d = await r.json();
+                    setSuperlikeCredits(d.superlike_credits ?? 0);
+                    setIceCredits(d.icebreaker_credits ?? 0);
+                }
+            } catch {}
+        };
+        loadCredits();
     }, [params.users]);
 
     // Перезагружаем только если анкеты закончились
@@ -128,8 +148,20 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                     🤖 AI Подбор
                 </button>
 
-                {/* Центр — логотип */}
-                <h1 className="text-base font-bold" style={{ color: "#fff" }}>LSJLove 💕</h1>
+                {/* Центр — логотип + кредиты */}
+                <div className="flex flex-col items-center">
+                    <h1 className="text-base font-bold" style={{ color: "#fff" }}>LSJLove 💕</h1>
+                    {(superlikeCredits > 0 || iceCredits > 0) && (
+                        <div className="flex gap-2 mt-0.5">
+                            {superlikeCredits > 0 && (
+                                <span className="text-xs font-bold" style={{ color: "#f59e0b" }}>⭐ ×{superlikeCredits}</span>
+                            )}
+                            {iceCredits > 0 && (
+                                <span className="text-xs font-bold" style={{ color: "#a78bfa" }}>💌 ×{iceCredits}</span>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 {/* Правая кнопка — Вопрос профиля */}
                 <button
@@ -188,6 +220,8 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                         userId={params.users}
                         onLike={() => handleLike(currentUser.telegram_id)}
                         onDislike={() => handleDislike(currentUser.telegram_id)}
+                        superlikeCredits={superlikeCredits}
+                        onSuperlikeUsed={() => setSuperlikeCredits(prev => Math.max(0, prev - 1))}
                     />
                 ) : (
                     <div className="text-center px-8">

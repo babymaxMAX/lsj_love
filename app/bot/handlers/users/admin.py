@@ -89,6 +89,10 @@ def user_detail_kb(uid: int, is_banned: bool) -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(text="❌ Снять подписку", callback_data=f"adm:prem:{uid}:none:0")],
         [
+            InlineKeyboardButton(text="💫 +5 Суперлайков", callback_data=f"adm:give:superlike:{uid}:5"),
+            InlineKeyboardButton(text="💌 +5 Icebreakers", callback_data=f"adm:give:icebreaker:{uid}:5"),
+        ],
+        [
             InlineKeyboardButton(text=ban_text, callback_data=ban_cb),
             InlineKeyboardButton(text="🗑 Удалить", callback_data=f"adm:del:{uid}"),
         ],
@@ -515,6 +519,41 @@ async def cb_set_premium(cq: CallbackQuery):
                 f"🎉 Тебе выдана подписка <b>{label_map.get(ptype, ptype)}</b> на {days} дней!\n\nПриятного использования 💕",
                 parse_mode="HTML",
             )
+    except Exception:
+        pass
+
+
+# ─── Give credits (superlike / icebreaker) ───────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("adm:give:"))
+async def cb_give_credits(cq: CallbackQuery):
+    if not is_admin(cq.from_user.id):
+        await cq.answer("⛔")
+        return
+    # adm:give:superlike:{uid}:{amount}  or  adm:give:icebreaker:{uid}:{amount}
+    parts = cq.data.split(":")
+    credit_type = parts[2]   # "superlike" | "icebreaker"
+    uid = int(parts[3])
+    amount = int(parts[4])
+
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+
+    if credit_type == "superlike":
+        await col.update_one({"telegram_id": uid}, {"$inc": {"superlike_credits": amount}})
+        label = f"💫 +{amount} суперлайков"
+        notify = f"💫 Тебе выдано <b>{amount} суперлайков</b>!\n\nТы можешь использовать их при просмотре анкет. 💕"
+    elif credit_type == "icebreaker":
+        await col.update_one({"telegram_id": uid}, {"$inc": {"icebreaker_used": -amount}})
+        label = f"💌 +{amount} Icebreakers"
+        notify = f"💌 Тебе выдано <b>{amount} AI Icebreakers</b>!\n\nТы можешь написать первым — ИИ поможет составить сообщение. 💕"
+    else:
+        await cq.answer("❌ Неизвестный тип")
+        return
+
+    await cq.answer(f"✅ {label} выдан!", show_alert=True)
+    try:
+        await cq.bot.send_message(uid, notify, parse_mode="HTML")
     except Exception:
         pass
 

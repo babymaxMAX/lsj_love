@@ -33,6 +33,11 @@ class UserEntity(BaseEntity):
     premium_until: Optional[datetime] = None
     # Суперлайки
     superlike_credits: int = 0
+    # Icebreaker кредиты (счётчик: <0 = накопленные, 0-4 = ещё есть бесплатные, >=5 = все исчерпаны)
+    icebreaker_used: int = 0
+    # Дата последней выдачи ежедневных бонусов (для Premium/VIP)
+    last_superlike_grant: Optional[datetime] = None
+    last_icebreaker_grant: Optional[datetime] = None
     # Буст профиля
     boost_until: Optional[datetime] = None
     boosts_this_week: int = 0

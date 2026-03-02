@@ -675,6 +675,95 @@ async def ping_user(
     return {"ok": True}
 
 
+@router.post(
+    "/{user_id}/daily-grants",
+    status_code=status.HTTP_200_OK,
+    description="Начислить ежедневные бонусы Premium/VIP: 1 суперлайк и/или 10 icebreakers.",
+)
+async def apply_daily_grants(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    """
+    Вызывается при открытии свайп-страницы.
+    - Premium/VIP: начисляет 1 суперлайк, если ещё не начислялось сегодня.
+    - VIP: начисляет 10 icebreakers, если ещё не начислялось сегодня.
+    """
+    from motor.motor_asyncio import AsyncIOMotorClient
+    config: Config = container.resolve(Config)
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+    col = db[config.mongodb_users_collection]
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    doc = await col.find_one({"telegram_id": user_id})
+    client.close()
+    if not doc:
+        return {"ok": False, "reason": "user not found"}
+
+    premium_type = doc.get("premium_type")
+    premium_until = doc.get("premium_until")
+
+    # Проверяем активность подписки
+    if not premium_type or not premium_until:
+        return {"ok": True, "granted": []}
+    if hasattr(premium_until, "tzinfo") and premium_until.tzinfo is None:
+        premium_until = premium_until.replace(tzinfo=timezone.utc)
+    if now >= premium_until:
+        return {"ok": True, "granted": []}
+
+    # Переоткрываем клиент для обновлений
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+    col = db[config.mongodb_users_collection]
+
+    granted = []
+
+    # 1) Суперлайк 1/день для Premium и VIP
+    if premium_type in ("premium", "vip"):
+        last_sl = doc.get("last_superlike_grant")
+        if last_sl:
+            if hasattr(last_sl, "tzinfo") and last_sl.tzinfo is None:
+                last_sl = last_sl.replace(tzinfo=timezone.utc)
+            last_sl_date = last_sl.date()
+        else:
+            last_sl_date = None
+
+        if last_sl_date != today:
+            await col.update_one(
+                {"telegram_id": user_id},
+                {
+                    "$inc": {"superlike_credits": 1},
+                    "$set": {"last_superlike_grant": now},
+                },
+            )
+            granted.append("superlike")
+
+    # 2) 10 icebreakers/день только для VIP
+    if premium_type == "vip":
+        last_ice = doc.get("last_icebreaker_grant")
+        if last_ice:
+            if hasattr(last_ice, "tzinfo") and last_ice.tzinfo is None:
+                last_ice = last_ice.replace(tzinfo=timezone.utc)
+            last_ice_date = last_ice.date()
+        else:
+            last_ice_date = None
+
+        if last_ice_date != today:
+            await col.update_one(
+                {"telegram_id": user_id},
+                {
+                    "$inc": {"icebreaker_used": -10},  # -10 = +10 кредитов
+                    "$set": {"last_icebreaker_grant": now},
+                },
+            )
+            granted.append("icebreakers_10")
+
+    client.close()
+    return {"ok": True, "granted": granted}
+
+
 class UpdateProfileRequest(BaseModel):
     about: str | None = None
     name: str | None = None

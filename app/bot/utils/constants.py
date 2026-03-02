@@ -81,8 +81,27 @@ def user_profile_text_message(user: UserEntity) -> str:
 
     # Суперлайки
     sl_credits = getattr(user, "superlike_credits", 0) or 0
-    sl_str = f"  ·  ⭐ Суперлайки: {sl_credits}" if sl_credits > 0 else ""
+    sl_str = f"  ·  ⭐ ×{sl_credits}" if sl_credits > 0 else ""
     lines.append(f"{badge}{sl_str}")
+
+    # Icebreaker кредиты
+    ice_used = int(getattr(user, "icebreaker_used", 0) or 0)
+    if ice_used < 0:
+        ice_left = abs(ice_used)
+    elif ice_used < 5:
+        ice_left = 5 - ice_used
+    else:
+        ice_left = 0
+    if ice_left > 0:
+        lines.append(f"💌  AI Icebreaker: <b>{ice_left} шт.</b>")
+
+    # Функция "Девушки пишут первыми" — только для мужчин
+    gender_val = str(getattr(user, "gender", "") or "").lower()
+    is_man = gender_val in ("man", "male", "мужской")
+    allow_girls = bool(getattr(user, "allow_girls_write_first", False))
+    if is_man:
+        girls_status = "✅ Вкл" if allow_girls else "❌ Выкл"
+        lines.append(f"💬  Девушки пишут первыми: <b>{girls_status}</b>")
 
     # Реферальный баланс (только если > 0)
     ref_balance = float(getattr(user, "referral_balance", 0) or 0)

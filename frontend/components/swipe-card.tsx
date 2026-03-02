@@ -35,6 +35,8 @@ interface SwipeCardProps {
     userId: string;
     onLike: () => void;
     onDislike: () => void;
+    superlikeCredits?: number;
+    onSuperlikeUsed?: () => void;
 }
 
 const TOPICS = [
@@ -49,7 +51,7 @@ type IceStep = "idle" | "topic" | "loading" | "variants" | "sent" | "locked";
 
 const STORAGE_KEY = (userId: string) => `ice_uses_left_${userId}`;
 
-export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
+export function SwipeCard({ user, userId, onLike, onDislike, superlikeCredits = 0, onSuperlikeUsed }: SwipeCardProps) {
     const [showAbout, setShowAbout] = useState(false);
     const [currentPhotoIdx, setCurrentPhotoIdx] = useState(0);
     const [iceStep, setIceStep] = useState<IceStep>("idle");
@@ -196,6 +198,7 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                 }
                 return;
             }
+            onSuperlikeUsed?.();
             onDislike();
         } catch {
             // ignore
@@ -595,14 +598,19 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                 >
                     👎
                 </button>
-                <button
-                    onClick={handleSuperlike}
-                    title="Суперлайк"
-                    className="w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-110 transition-transform self-center"
-                    style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", boxShadow: "0 4px 15px rgba(245,158,11,0.4)" }}
-                >
-                    ⭐
-                </button>
+                <div className="flex flex-col items-center self-center">
+                    <button
+                        onClick={handleSuperlike}
+                        title="Суперлайк"
+                        className="w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xl hover:scale-110 transition-transform"
+                        style={{ background: "linear-gradient(135deg, #f59e0b, #f97316)", boxShadow: "0 4px 15px rgba(245,158,11,0.4)" }}
+                    >
+                        ⭐
+                    </button>
+                    {superlikeCredits > 0 && (
+                        <span className="text-xs font-bold mt-0.5" style={{ color: "#f59e0b" }}>×{superlikeCredits}</span>
+                    )}
+                </div>
                 <button
                     onClick={onLike}
                     className="w-16 h-16 rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-110 transition-transform"
