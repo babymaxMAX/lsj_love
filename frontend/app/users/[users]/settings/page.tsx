@@ -110,13 +110,12 @@ export default function SettingsPage() {
 
     return (
         <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
-            <div className="sticky top-0 z-30" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingTop: 48 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px 10px" }}>
-                    <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>←</button>
-                    <h1 style={{ fontSize: 17, fontWeight: 700 }}>⚙️ Настройки профиля</h1>
+            <div className="sticky top-0 z-30" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingTop: 44 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 16px 6px" }}>
+                    <button onClick={() => router.back()} style={{ width: 34, height: 34, borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>←</button>
+                    <h1 style={{ fontSize: 16, fontWeight: 700 }}>⚙️ Настройки профиля</h1>
                 </div>
-                {/* Tabs внутри sticky header — всегда видны */}
-                <div style={{ display: "flex", gap: 6, padding: "0 16px 12px" }}>
+                <div style={{ display: "flex", gap: 6, padding: "0 16px 8px" }}>
                     <button onClick={() => setTab("info")} style={tabStyle("info")}>📝 Профиль</button>
                     <button onClick={() => setTab("answers")} style={tabStyle("answers")}>💬 Вопросы</button>
                     <button onClick={() => setTab("ai")} style={tabStyle("ai")}>🤖 AI анкета</button>
@@ -127,15 +126,15 @@ export default function SettingsPage() {
                 {tab === "info" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>Имя</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>Имя</label>
                             <input value={name} onChange={e => setName(e.target.value)} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none" }} />
                         </div>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>Город</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>Город</label>
                             <input value={city} onChange={e => setCity(e.target.value)} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none" }} />
                         </div>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>О себе</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>О себе</label>
                             <textarea value={about} onChange={e => setAbout(e.target.value)} rows={4} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none", resize: "none" }} />
                         </div>
                         <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳ Сохраняем..." : "Сохранить изменения"}</button>
