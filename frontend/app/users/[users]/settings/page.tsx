@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { BottomNav } from "@/components/bottom-nav";
 
-interface Answer { question_id: string; text: string; emoji: string; answer: string | string[]; }
+interface Answer { question_id: string; text: string; emoji: string; answer: string | string[]; category?: string; }
 interface ChatMsg { role: "user" | "assistant"; content: string; }
 
 export default function SettingsPage() {
@@ -20,6 +20,8 @@ export default function SettingsPage() {
     const [city, setCity] = useState("");
     const [saving, setSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState("");
+    const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null);
+    const [editingAnswerText, setEditingAnswerText] = useState("");
 
     // AI builder
     const [aiAccess, setAiAccess] = useState<any>(null);
@@ -62,6 +64,19 @@ export default function SettingsPage() {
             body: JSON.stringify({ telegram_id: parseInt(userId), question_id: qid, answer: "" }),
         });
         setAnswers(prev => prev.filter(a => a.question_id !== qid));
+    };
+
+    const saveEditedAnswer = async (qid: string) => {
+        if (!editingAnswerText.trim()) return;
+        try {
+            await fetch(`${BackEnd_URL}/api/v1/profile/answers`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ telegram_id: parseInt(userId), question_id: qid, answer: editingAnswerText.trim() }),
+            });
+            setAnswers(prev => prev.map(a => a.question_id === qid ? { ...a, answer: editingAnswerText.trim() } : a));
+            setEditingAnswerId(null);
+            setEditingAnswerText("");
+        } catch {}
     };
 
     const sendAiMessage = async () => {
@@ -121,8 +136,7 @@ export default function SettingsPage() {
                             <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>О себе</label>
                             <textarea value={about} onChange={e => setAbout(e.target.value)} rows={4} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none", resize: "none" }} />
                         </div>
-                        <button onClick={() => router.push(`/users/${userId}/profile`)} style={{ padding: "12px", borderRadius: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>📷 Изменить фото</button>
-                        <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳" : "Сохранить изменения"}</button>
+                        <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳ Сохраняем..." : "Сохранить изменения"}</button>
                         {saveMsg && <p style={{ textAlign: "center", fontSize: 14, color: "#86efac" }}>{saveMsg}</p>}
                     </div>
                 )}
@@ -132,13 +146,31 @@ export default function SettingsPage() {
                         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>Ответы на вопросы — отображаются в профиле как теги "Обо мне"</p>
                         {answers.length === 0 && <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px 0" }}>Нет ответов. Нажми ❓ на главном экране чтобы ответить на вопросы.</p>}
                         {answers.map(a => (
-                            <div key={a.question_id} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                                <span style={{ fontSize: 20 }}>{a.emoji}</span>
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{a.text}</p>
-                                    <p style={{ fontSize: 14, fontWeight: 600 }}>{Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}</p>
+                            <div key={a.question_id} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: "12px 14px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: editingAnswerId === a.question_id ? 8 : 0 }}>
+                                    <span style={{ fontSize: 20 }}>{a.emoji}</span>
+                                    <div style={{ flex: 1 }}>
+                                        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{a.text}</p>
+                                        {editingAnswerId !== a.question_id && (
+                                            <p style={{ fontSize: 14, fontWeight: 600 }}>{Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}</p>
+                                        )}
+                                    </div>
+                                    {editingAnswerId !== a.question_id && (
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                            <button onClick={() => { setEditingAnswerId(a.question_id); setEditingAnswerText(Array.isArray(a.answer) ? a.answer.join(", ") : a.answer); }} style={{ padding: "4px 10px", borderRadius: 8, background: "rgba(124,58,237,0.25)", border: "none", color: "#c084fc", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Изменить</button>
+                                            <button onClick={() => deleteAnswer(a.question_id)} style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(239,68,68,0.2)", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer" }}>✕</button>
+                                        </div>
+                                    )}
                                 </div>
-                                <button onClick={() => deleteAnswer(a.question_id)} style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(239,68,68,0.2)", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer" }}>✕</button>
+                                {editingAnswerId === a.question_id && (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                        <textarea value={editingAnswerText} onChange={e => setEditingAnswerText(e.target.value)} rows={2} autoFocus style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(124,58,237,0.5)", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 14, outline: "none", resize: "none" }} />
+                                        <div style={{ display: "flex", gap: 8 }}>
+                                            <button onClick={() => { setEditingAnswerId(null); setEditingAnswerText(""); }} style={{ flex: 1, padding: "9px", borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 13, cursor: "pointer" }}>Отмена</button>
+                                            <button onClick={() => saveEditedAnswer(a.question_id)} disabled={!editingAnswerText.trim()} style={{ flex: 1, padding: "9px", borderRadius: 12, background: "linear-gradient(135deg, #7c3aed, #db2777)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: editingAnswerText.trim() ? 1 : 0.4 }}>Сохранить</button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
