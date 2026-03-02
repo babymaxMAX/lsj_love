@@ -108,8 +108,11 @@ async def send_icebreaker_message(target_id: int, message: str, sender):
         sender_photo = getattr(sender, "photo", None)
         sender_id = getattr(sender, "telegram_id", None)
 
+        gender_raw = str(getattr(sender, "gender", "") or "").lower()
+        wrote = "написал" if gender_raw in ("man", "male", "мужской") else "написала"
+
         text = (
-            f"💌 <b>{sender_name}</b> хочет познакомиться и написал(а) тебе:\n\n"
+            f"💌 <b>{sender_name}</b> хочет познакомиться и {wrote} тебе:\n\n"
             f"<i>«{message}»</i>\n\n"
             f"Хочешь ответить?"
         )
@@ -127,9 +130,23 @@ async def send_superlike_message(target_id: int, sender):
         sender_photo = getattr(sender, "photo", None)
         sender_id = getattr(sender, "telegram_id", None)
 
+        gender_raw = str(getattr(sender, "gender", "") or "").lower()
+        is_male = gender_raw in ("man", "male", "мужской")
+
+        if is_male:
+            sent = "отправил"
+            liked = "понравился"
+            highlighted = "выделил"
+            pronoun = "он"
+        else:
+            sent = "отправила"
+            liked = "понравилась"
+            highlighted = "выделила"
+            pronoun = "она"
+
         text = (
-            f"⭐ <b>{sender_name} отправил(а) тебе Суперлайк!</b>\n\n"
-            f"Ты очень понравился(ась) — он(а) специально выделил(а) тебя.\n"
+            f"⭐ <b>{sender_name} {sent} тебе Суперлайк!</b>\n\n"
+            f"Ты очень {liked} {pronoun} — {pronoun} специально {highlighted} тебя.\n"
             f"Ответить взаимностью?"
         )
         kb = liked_by_keyboard()
@@ -138,13 +155,15 @@ async def send_superlike_message(target_id: int, sender):
         logger.error(f"send_superlike_message failed: {e}")
 
 
-async def send_photo_liked_notification(owner_id: int, liker_name: str, photo_idx: int, owner_is_premium: bool):
+async def send_photo_liked_notification(owner_id: int, liker_name: str, photo_idx: int, owner_is_premium: bool, liker_gender: str = ""):
     """Уведомляет владельца фото о лайке. Если Premium — показывает имя, иначе анонимно."""
     from app.bot.main import bot
     try:
+        gender_raw = str(liker_gender or "").lower()
+        liked_verb = "лайкнул" if gender_raw in ("man", "male", "мужской") else "лайкнула"
         if owner_is_premium:
             text = (
-                f"❤️ <b>{liker_name}</b> лайкнул(а) твоё фото {photo_idx + 1}!\n\n"
+                f"❤️ <b>{liker_name}</b> {liked_verb} твоё фото {photo_idx + 1}!\n\n"
                 f"Загляни в профиль — возможно, стоит ответить взаимностью 😊"
             )
         else:
@@ -157,14 +176,16 @@ async def send_photo_liked_notification(owner_id: int, liker_name: str, photo_id
         logger.warning(f"send_photo_liked_notification failed: {e}")
 
 
-async def send_photo_commented_notification(owner_id: int, commenter_name: str, comment_text: str, photo_idx: int, owner_is_premium: bool):
+async def send_photo_commented_notification(owner_id: int, commenter_name: str, comment_text: str, photo_idx: int, owner_is_premium: bool, commenter_gender: str = ""):
     """Уведомляет владельца фото о новом комментарии."""
     from app.bot.main import bot
     try:
         short_comment = comment_text[:80] + ("..." if len(comment_text) > 80 else "")
+        gender_raw = str(commenter_gender or "").lower()
+        commented_verb = "прокомментировал" if gender_raw in ("man", "male", "мужской") else "прокомментировала"
         if owner_is_premium:
             text = (
-                f"💬 <b>{commenter_name}</b> прокомментировал(а) твоё фото {photo_idx + 1}:\n\n"
+                f"💬 <b>{commenter_name}</b> {commented_verb} твоё фото {photo_idx + 1}:\n\n"
                 f"<i>«{short_comment}»</i>"
             )
         else:
