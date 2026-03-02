@@ -123,7 +123,7 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            <div style={{ padding: "16px", flex: 1 }}>
+            <div style={{ padding: "20px 16px 16px", flex: 1 }}>
                 {tab === "info" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         <div>
