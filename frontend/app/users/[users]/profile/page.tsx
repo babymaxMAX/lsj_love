@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { BottomNav } from "@/components/bottom-nav";
 
@@ -43,6 +44,7 @@ function isVideoUrl(url: string, mediaType?: string) {
 
 export default function ProfilePage({ params }: { params: { users: string } }) {
     const userId = params.users;
+    const router = useRouter();
     const [user, setUser] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [mediaUrls, setMediaUrls] = useState<string[]>([]);
@@ -328,17 +330,29 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     <h1 className="text-lg font-bold leading-tight">Мой профиль</h1>
                     <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>До {MAX_MEDIA} фото и видео</p>
                 </div>
-                <button
-                    onClick={() => setEditOpen(true)}
-                    className="flex items-center gap-1.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                    style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", padding: "8px 16px", flexShrink: 0 }}
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
-                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                    Изменить
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setEditOpen(true)}
+                        className="flex items-center gap-1.5 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                        style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", padding: "8px 14px", flexShrink: 0 }}
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <rect x="3" y="3" width="18" height="18" rx="3" />
+                            <circle cx="12" cy="12" r="3.5" />
+                        </svg>
+                        Фото
+                    </button>
+                    <button
+                        onClick={() => router.push(`/users/${userId}/profile-settings`)}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90"
+                        style={{ background: "rgba(255,255,255,0.1)", flexShrink: 0 }}
+                    >
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             {/* ── Media Slider ── */}

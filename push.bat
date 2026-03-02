@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "fix: AI matchmaking - public URL photo fallback, text fallback for visual criteria, smarter prompt"
+git commit -m "feat: profile settings page with labeled tabs, edit questions+save, backend update profile/quiz endpoints"
 git push
 pause
 

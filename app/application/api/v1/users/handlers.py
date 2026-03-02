@@ -57,6 +57,22 @@ class PhotosResponse(BaseModel):
     photos: list[str]
 
 
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    about: Optional[str] = None
+
+
+class QuizAnswer(BaseModel):
+    question: str
+    answer: str
+    emoji: str = "💬"
+
+
+class QuizAnswersRequest(BaseModel):
+    answers: list[QuizAnswer]
+
+
 router = APIRouter(
     prefix="/users",
     tags=["User"],
@@ -574,6 +590,77 @@ async def get_users_liked_by(
     return GetUsersFromResponseSchema(
         items=[UserDetailSchema.from_entity(user) for user in users],
     )
+
+
+@router.patch(
+    "/{user_id}/profile",
+    status_code=status.HTTP_200_OK,
+    description="Обновить имя, город, описание пользователя из Mini App.",
+)
+async def update_user_profile(
+    user_id: int,
+    body: UpdateProfileRequest,
+    container: Container = Depends(init_container),
+):
+    """Обновляет поля профиля (имя, город, о себе) — вызывается из настроек Mini App."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    data: dict = {}
+    if body.name is not None and body.name.strip():
+        data["name"] = body.name.strip()
+    if body.city is not None and body.city.strip():
+        data["city"] = body.city.strip()
+    if body.about is not None:
+        data["about"] = body.about.strip()
+
+    if data:
+        await service.update_user_info_after_reg(telegram_id=user_id, data=data)
+
+    return {"ok": True}
+
+
+@router.get(
+    "/{user_id}/quiz-answers",
+    status_code=status.HTTP_200_OK,
+    description="Получить ответы пользователя на вопросы профиля.",
+)
+async def get_quiz_answers(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    answers = getattr(user, "quiz_answers", None) or []
+    return {"answers": answers}
+
+
+@router.post(
+    "/{user_id}/quiz-answers",
+    status_code=status.HTTP_200_OK,
+    description="Сохранить ответы пользователя на вопросы профиля.",
+)
+async def save_quiz_answers(
+    user_id: int,
+    body: QuizAnswersRequest,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    answers_data = [{"question": a.question, "answer": a.answer, "emoji": a.emoji} for a in body.answers]
+    await service.update_user_info_after_reg(telegram_id=user_id, data={"quiz_answers": answers_data})
+    return {"ok": True, "answers": answers_data}
 
 
 @router.post(
