@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "feat: daily grants Premium/VIP, superlike display, fix PRO->Premium badge, admin give credits, AI matchmaking exclude liked, girls-write-first in profile+bot"
+git commit -m "feat: unlimited likes for girls, girl welcome msg on register, free privileges block on premium page"
 git push origin main
 pause

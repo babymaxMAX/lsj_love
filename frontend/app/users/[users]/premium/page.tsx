@@ -456,6 +456,35 @@ export default function PremiumPage({ params }: { params: { users: string } }) {
 
             {/* Планы */}
             <div style={{ padding: "14px 14px 20px", display: "flex", flexDirection: "column", gap: 12, flex: 1, overflowY: "auto" }}>
+
+                {/* Блок бесплатных преимуществ для девушек */}
+                <div style={{ borderRadius: 20, overflow: "hidden", border: "1px solid rgba(236,72,153,0.35)", background: "linear-gradient(135deg, rgba(236,72,153,0.12) 0%, rgba(168,85,247,0.08) 100%)" }}>
+                    <div style={{ padding: "14px 16px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 22 }}>👩</span>
+                        <div>
+                            <div style={{ fontWeight: 800, fontSize: 15, color: "#fff" }}>Для девушек — бесплатно</div>
+                            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Эти функции доступны без подписки</div>
+                        </div>
+                        <div style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 100, background: "linear-gradient(135deg, #ec4899, #a855f7)", color: "#fff" }}>БЕСПЛАТНО</div>
+                    </div>
+                    <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        {[
+                            { icon: "❤️", title: "Безлимитные лайки", desc: "Без дневных ограничений — лайкай сколько хочешь" },
+                            { icon: "👁", title: "Кто тебя лайкнул", desc: "Видишь список симпатий ещё до взаимного матча" },
+                            { icon: "✉️", title: "Написать первой", desc: "Парни с включённой опцией — открыты для твоих сообщений" },
+                            { icon: "🤖", title: "AI Подбор", desc: "Пробный период доступен сразу после регистрации" },
+                        ].map((f, i) => (
+                            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                                <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>{f.icon}</span>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>{f.title}</div>
+                                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 1.4 }}>{f.desc}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {PLANS.map(plan => (
                     <PlanCard key={plan.id} plan={plan} rubPerUsdt={rubPerUsdt} onPay={startPayment} />
                 ))}
