@@ -326,7 +326,7 @@ async def toggle_girls_write_first(
     status_text = "✅ Включено" if new_val else "❌ Отключено"
     await callback.answer(f"Девушки пишут первыми: {status_text}", show_alert=False)
 
-    # Обновляем клавиатуру профиля чтобы кнопка сразу отразила новое состояние
+    # Обновляем клавиатуру профиля — кнопка сразу меняет иконку
     try:
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
@@ -335,9 +335,15 @@ async def toggle_girls_write_first(
         if until and hasattr(until, "tzinfo") and until.tzinfo is None:
             until = until.replace(tzinfo=timezone.utc)
         is_vip = pt == "vip" and until and until > now
+        is_active = bool(getattr(user, "is_active", True))
+        boosts_left = _compute_boosts_left(user, now)
         kb = profile_inline_kb(
-            gender=getattr(user, "gender", None),
+            user_id=callback.from_user.id,
+            liked_by=False,
             is_vip=is_vip,
+            boosts_left=boosts_left,
+            is_active=is_active,
+            gender=str(getattr(user, "gender", "") or ""),
             allow_girls_write_first=new_val,
         )
         await callback.message.edit_reply_markup(reply_markup=kb)
