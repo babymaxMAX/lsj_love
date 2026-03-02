@@ -22,6 +22,8 @@ export default function SettingsPage() {
     const [saveMsg, setSaveMsg] = useState("");
     const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null);
     const [editingAnswerText, setEditingAnswerText] = useState("");
+    const [girlsWriteFirst, setGirlsWriteFirst] = useState(false);
+    const [togglingGirls, setTogglingGirls] = useState(false);
 
     // AI builder
     const [aiAccess, setAiAccess] = useState<any>(null);
@@ -38,6 +40,7 @@ export default function SettingsPage() {
             setAbout(d.about || "");
             setName(d.name || "");
             setCity(d.city || "");
+            setGirlsWriteFirst(d.allow_girls_write_first || false);
         }).catch(() => {});
         fetch(`${BackEnd_URL}/api/v1/profile/answers/${userId}`).then(r => r.json()).then(d => setAnswers(d.answers || [])).catch(() => {});
         fetch(`${BackEnd_URL}/api/v1/profile/ai-builder/status/${userId}`).then(r => r.json()).then(setAiAccess).catch(() => {});
@@ -139,6 +142,53 @@ export default function SettingsPage() {
                         </div>
                         <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳ Сохраняем..." : "Сохранить изменения"}</button>
                         {saveMsg && <p style={{ textAlign: "center", fontSize: 14, color: "#86efac" }}>{saveMsg}</p>}
+
+                        {/* Toggle for men only */}
+                        {user && (user.gender === "male" || user.gender === "мужской") && (
+                            <div style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between",
+                                padding: "14px 16px", borderRadius: 16,
+                                background: "rgba(255,255,255,0.06)",
+                                border: `1px solid ${girlsWriteFirst ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.1)"}`,
+                            }}>
+                                <div>
+                                    <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
+                                        💬 Девушки пишут первыми
+                                    </p>
+                                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 1.4 }}>
+                                        {girlsWriteFirst
+                                            ? "Включено — девушки могут написать без матча"
+                                            : "Выключено — переписка только после матча"}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        setTogglingGirls(true);
+                                        try {
+                                            const r = await fetch(`${BackEnd_URL}/api/v1/users/${userId}/toggle-girls-write-first`, { method: "POST" });
+                                            const d = await r.json();
+                                            setGirlsWriteFirst(d.allow_girls_write_first);
+                                        } catch {}
+                                        setTogglingGirls(false);
+                                    }}
+                                    disabled={togglingGirls}
+                                    style={{
+                                        width: 52, height: 28, borderRadius: 14, border: "none", cursor: "pointer",
+                                        background: girlsWriteFirst
+                                            ? "linear-gradient(135deg, #22c55e, #16a34a)"
+                                            : "rgba(255,255,255,0.15)",
+                                        position: "relative", transition: "background 0.3s",
+                                        flexShrink: 0, marginLeft: 12,
+                                    }}
+                                >
+                                    <div style={{
+                                        position: "absolute", top: 3, width: 22, height: 22, borderRadius: "50%",
+                                        background: "#fff", transition: "left 0.3s",
+                                        left: girlsWriteFirst ? 27 : 3,
+                                    }} />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 

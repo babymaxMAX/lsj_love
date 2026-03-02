@@ -548,9 +548,11 @@ async def get_users_liked_by(
     service_likes: BaseLikesService = container.resolve(BaseLikesService)
     service_users: BaseUsersService = container.resolve(BaseUsersService)
 
-    # Premium gate for "who liked you"
+    # Premium gate for "who liked you" — женщины видят бесплатно
     try:
         requesting_user = await service_users.get_user(telegram_id=user_id)
+        gender = str(getattr(requesting_user, "gender", "") or "").lower()
+        is_female = gender in ("female", "женский")
         pt = getattr(requesting_user, "premium_type", None)
         until = getattr(requesting_user, "premium_until", None)
         now = datetime.now(timezone.utc)
@@ -558,9 +560,10 @@ async def get_users_liked_by(
             until = until.replace(tzinfo=timezone.utc)
         is_premium = bool(pt and until and now < until)
     except Exception:
+        is_female = False
         is_premium = False
 
-    if not is_premium:
+    if not is_premium and not is_female:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Функция «Кто тебя лайкнул» доступна с подпиской Premium.", "requires_premium": True},
@@ -580,6 +583,50 @@ async def get_users_liked_by(
     return GetUsersFromResponseSchema(
         items=[UserDetailSchema.from_entity(user) for user in users],
     )
+
+
+@router.post(
+    "/{user_id}/toggle-girls-write-first",
+    status_code=status.HTTP_200_OK,
+    description="Переключить функцию 'Девушки пишут первыми' для мужчины.",
+)
+async def toggle_girls_write_first(
+    user_id: int,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    current = bool(getattr(user, "allow_girls_write_first", False))
+    new_val = not current
+    await service.update_user_info_after_reg(telegram_id=user_id, data={"allow_girls_write_first": new_val})
+    return {"ok": True, "allow_girls_write_first": new_val}
+
+
+@router.get(
+    "/{user_id}/can-girl-write/{girl_id}",
+    status_code=status.HTTP_200_OK,
+    description="Может ли девушка написать мужчине до матча.",
+)
+async def can_girl_write_first(
+    user_id: int,
+    girl_id: int,
+    container: Container = Depends(init_container),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        man = await service.get_user(telegram_id=user_id)
+        girl = await service.get_user(telegram_id=girl_id)
+    except ApplicationException:
+        return {"can_write": False}
+    girl_gender = str(getattr(girl, "gender", "") or "").lower()
+    is_female = girl_gender in ("female", "женский")
+    if not is_female:
+        return {"can_write": False}
+    allowed = bool(getattr(man, "allow_girls_write_first", False))
+    return {"can_write": allowed}
 
 
 @router.patch(
@@ -701,3 +748,191 @@ async def reset_all_users(
 
     client.close()
     return {"ok": True, "deleted": results}
+
+
+# ─────────────────────────── ADMIN API ───────────────────────────
+
+ADMIN_SECRET = "lsjlove_admin_2026"
+
+
+def _check_admin(secret: str):
+    if secret != ADMIN_SECRET:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "Forbidden"})
+
+
+@router.get("/admin/stats", status_code=status.HTTP_200_OK)
+async def admin_stats(secret: str, container: Container = Depends(init_container)):
+    _check_admin(secret)
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from datetime import datetime, timezone, timedelta
+    config: Config = container.resolve(Config)
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+    users_col = db[config.mongodb_users_collection]
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    total = await users_col.count_documents({})
+    active = await users_col.count_documents({"is_active": True, "is_banned": {"$ne": True}})
+    banned = await users_col.count_documents({"is_banned": True})
+    premium = await users_col.count_documents({"premium_type": {"$in": ["premium", "vip"]}, "premium_until": {"$gt": now}})
+    vip = await users_col.count_documents({"premium_type": "vip", "premium_until": {"$gt": now}})
+    new_today = await users_col.count_documents({"created_at": {"$gte": today_start}})
+    online_5min = await users_col.count_documents({"last_seen": {"$gte": now - timedelta(minutes=5)}})
+    male = await users_col.count_documents({"gender": {"$in": ["male", "мужской"]}})
+    female = await users_col.count_documents({"gender": {"$in": ["female", "женский"]}})
+    client.close()
+    return {
+        "total": total, "active": active, "banned": banned,
+        "premium": premium, "vip": vip, "new_today": new_today,
+        "online_5min": online_5min, "male": male, "female": female,
+    }
+
+
+@router.get("/admin/users/list", status_code=status.HTTP_200_OK)
+async def admin_list_users(
+    secret: str,
+    page: int = 1,
+    limit: int = 20,
+    search: str = "",
+    container: Container = Depends(init_container),
+):
+    _check_admin(secret)
+    from motor.motor_asyncio import AsyncIOMotorClient
+    config: Config = container.resolve(Config)
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+    users_col = db[config.mongodb_users_collection]
+
+    query: dict = {}
+    if search:
+        try:
+            sid = int(search)
+            query = {"telegram_id": sid}
+        except ValueError:
+            query = {"$or": [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"username": {"$regex": search, "$options": "i"}},
+            ]}
+
+    skip = (page - 1) * limit
+    total = await users_col.count_documents(query)
+    cursor = users_col.find(query, {"_id": 0, "telegram_id": 1, "name": 1, "username": 1,
+                                     "gender": 1, "age": 1, "city": 1, "premium_type": 1,
+                                     "premium_until": 1, "is_active": 1, "is_banned": 1,
+                                     "created_at": 1, "last_seen": 1}).skip(skip).limit(limit)
+    items = await cursor.to_list(length=limit)
+    for it in items:
+        for k in ["premium_until", "created_at", "last_seen"]:
+            if k in it and it[k]:
+                it[k] = str(it[k])
+    client.close()
+    return {"total": total, "page": page, "items": items}
+
+
+@router.get("/admin/users/{target_id}", status_code=status.HTTP_200_OK)
+async def admin_get_user(secret: str, target_id: int, container: Container = Depends(init_container)):
+    _check_admin(secret)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        user = await service.get_user(telegram_id=target_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {
+        "telegram_id": user.telegram_id,
+        "name": str(user.name),
+        "username": user.username,
+        "gender": str(getattr(user, "gender", "")),
+        "age": str(getattr(user, "age", "")),
+        "city": str(getattr(user, "city", "")),
+        "about": str(getattr(user, "about", "")),
+        "premium_type": getattr(user, "premium_type", None),
+        "premium_until": str(getattr(user, "premium_until", None)),
+        "is_active": getattr(user, "is_active", True),
+        "is_banned": getattr(user, "is_banned", False),
+        "referral_balance": getattr(user, "referral_balance", 0),
+        "superlike_credits": getattr(user, "superlike_credits", 0),
+        "photos": getattr(user, "photos", []),
+        "created_at": str(getattr(user, "created_at", None)),
+        "last_seen": str(getattr(user, "last_seen", None)),
+        "allow_girls_write_first": getattr(user, "allow_girls_write_first", False),
+    }
+
+
+class AdminSetPremiumRequest(BaseModel):
+    premium_type: Optional[str] = None   # "premium", "vip", None
+    days: int = 30
+
+
+@router.post("/admin/users/{target_id}/set-premium", status_code=status.HTTP_200_OK)
+async def admin_set_premium(
+    secret: str,
+    target_id: int,
+    body: AdminSetPremiumRequest,
+    container: Container = Depends(init_container),
+):
+    _check_admin(secret)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        await service.get_user(telegram_id=target_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    from datetime import datetime, timezone, timedelta
+    if body.premium_type:
+        until = datetime.now(timezone.utc) + timedelta(days=body.days)
+        data = {"premium_type": body.premium_type, "premium_until": until}
+    else:
+        data = {"premium_type": None, "premium_until": None}
+    await service.update_user_info_after_reg(telegram_id=target_id, data=data)
+    return {"ok": True}
+
+
+@router.post("/admin/users/{target_id}/ban", status_code=status.HTTP_200_OK)
+async def admin_ban_user(
+    secret: str,
+    target_id: int,
+    container: Container = Depends(init_container),
+):
+    _check_admin(secret)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        await service.get_user(telegram_id=target_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    await service.update_user_info_after_reg(telegram_id=target_id, data={"is_banned": True, "is_active": False})
+    return {"ok": True}
+
+
+@router.post("/admin/users/{target_id}/unban", status_code=status.HTTP_200_OK)
+async def admin_unban_user(
+    secret: str,
+    target_id: int,
+    container: Container = Depends(init_container),
+):
+    _check_admin(secret)
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        await service.get_user(telegram_id=target_id)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    await service.update_user_info_after_reg(telegram_id=target_id, data={"is_banned": False, "is_active": True})
+    return {"ok": True}
+
+
+@router.delete("/admin/users/{target_id}", status_code=status.HTTP_200_OK)
+async def admin_delete_user(
+    secret: str,
+    target_id: int,
+    container: Container = Depends(init_container),
+):
+    _check_admin(secret)
+    from motor.motor_asyncio import AsyncIOMotorClient
+    config: Config = container.resolve(Config)
+    client = AsyncIOMotorClient(config.mongodb_connection_uri)
+    db = client[config.mongodb_dating_database]
+
+    await db[config.mongodb_users_collection].delete_one({"telegram_id": target_id})
+    await db[config.mongodb_likes_collection].delete_many({"$or": [{"from_user": target_id}, {"to_user": target_id}]})
+    client.close()
+    return {"ok": True}

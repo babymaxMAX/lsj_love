@@ -41,6 +41,7 @@ class UserDetailSchema(BaseModel):
     last_seen: Optional[str] = None   # ISO-строка UTC
     profile_answers: Optional[dict] = None
     premium_type: Optional[str] = None  # "premium" | "vip" | None
+    allow_girls_write_first: bool = False
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -78,6 +79,7 @@ class UserDetailSchema(BaseModel):
             last_seen=_to_utc_iso(user.last_seen),
             profile_answers=getattr(user, "profile_answers", None),
             premium_type=getattr(user, "premium_type", None) if _is_sub_active(user) else None,
+            allow_girls_write_first=bool(getattr(user, "allow_girls_write_first", False)),
         )
 
 

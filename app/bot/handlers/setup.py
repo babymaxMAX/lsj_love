@@ -1,5 +1,6 @@
 from aiogram import Dispatcher
 
+from app.bot.handlers.users.admin import admin_router
 from app.bot.handlers.users.premium import premium_router
 from app.bot.handlers.users.profile import user_profile_router
 from app.bot.handlers.users.profile_edit import profile_edit_router
@@ -8,7 +9,8 @@ from app.bot.handlers.users.start import user_router as user_start_router
 
 
 def register_routers(dp: Dispatcher):
-    dp.include_router(user_start_router)   # /start должен быть первым
+    dp.include_router(admin_router)        # Админ-панель первой — до фильтра регистрации
+    dp.include_router(user_start_router)   # /start должен быть вторым
     dp.include_router(premium_router)
     dp.include_router(registration_router)
     dp.include_router(profile_edit_router)

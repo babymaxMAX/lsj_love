@@ -44,6 +44,10 @@ class UserEntity(BaseEntity):
     last_seen: Optional[datetime] = None    # последний раз онлайн
     # Ответы на вопросы профиля
     profile_answers: Optional[dict] = None
+    # Функция "Девушки пишут первыми" (только для мужчин)
+    allow_girls_write_first: bool = False
+    # Бан
+    is_banned: bool = False
 
     def __post_init__(self):
         if self.photos is None:

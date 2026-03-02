@@ -65,7 +65,17 @@ async def profile(
     boosts_left = _compute_boosts_left(user, now) if is_vip else 0
 
     profile_hidden = bool(getattr(user, "profile_hidden", False))
-    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=not profile_hidden)
+    gender = str(getattr(user, "gender", "") or "")
+    allow_girls = bool(getattr(user, "allow_girls_write_first", False))
+    keyboard = profile_inline_kb(
+        user_id=update.from_user.id,
+        liked_by=False,
+        is_vip=is_vip,
+        boosts_left=boosts_left,
+        is_active=not profile_hidden,
+        gender=gender,
+        allow_girls_write_first=allow_girls,
+    )
 
     if isinstance(update, Message):
         try:
@@ -284,3 +294,50 @@ async def boost_profile(
         parse_mode="HTML",
         reply_markup=back_kb,
     )
+
+
+@user_profile_router.callback_query(F.data == "toggle_girls_write_first")
+async def toggle_girls_write_first(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    await callback.answer()
+
+    try:
+        user = await service.get_user(telegram_id=callback.from_user.id)
+    except Exception:
+        await callback.message.answer("Ошибка получения профиля.")
+        return
+
+    gender = str(getattr(user, "gender", "") or "").lower()
+    if gender not in ("male", "мужской"):
+        await callback.message.answer("⚠️ Эта настройка только для мужчин.")
+        return
+
+    current = bool(getattr(user, "allow_girls_write_first", False))
+    new_val = not current
+    await service.update_user_info_after_reg(
+        telegram_id=callback.from_user.id,
+        data={"allow_girls_write_first": new_val},
+    )
+
+    if new_val:
+        msg = (
+            "💬 <b>Девушки могут писать тебе первыми — включено!</b>\n\n"
+            "Теперь девушки, которые находят твою анкету, смогут написать тебе сообщение "
+            "без взаимного матча. Это увеличивает шансы познакомиться!"
+        )
+    else:
+        msg = (
+            "🔒 <b>Девушки пишут первыми — отключено.</b>\n\n"
+            "Теперь переписка возможна только после взаимного лайка (матча)."
+        )
+
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 В профиль", callback_data="profile_page")]
+    ])
+    try:
+        await callback.message.edit_text(msg, parse_mode="HTML", reply_markup=back_kb)
+    except Exception:
+        await callback.message.answer(msg, parse_mode="HTML", reply_markup=back_kb)
