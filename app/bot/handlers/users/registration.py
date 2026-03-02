@@ -199,7 +199,8 @@ async def user_reg(
     if registered_gender in ("female", "женский"):
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
         from app.settings.config import Config
-        _config: Config = container.resolve(Config)
+        _cfg_container = init_container()
+        _config: Config = _cfg_container.resolve(Config)
         app_url = f"{_config.front_end_url}/users/{message.from_user.id}"
         girl_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
