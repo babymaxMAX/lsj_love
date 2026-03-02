@@ -472,7 +472,6 @@ export default function PremiumPage({ params }: { params: { users: string } }) {
                             { icon: "❤️", title: "Безлимитные лайки", desc: "Без дневных ограничений — лайкай сколько хочешь" },
                             { icon: "👁", title: "Кто тебя лайкнул", desc: "Видишь список симпатий ещё до взаимного матча" },
                             { icon: "✉️", title: "Написать первой", desc: "Парни с включённой опцией — открыты для твоих сообщений" },
-                            { icon: "🤖", title: "AI Подбор", desc: "Пробный период доступен сразу после регистрации" },
                         ].map((f, i) => (
                             <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                                 <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>{f.icon}</span>

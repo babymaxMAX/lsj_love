@@ -311,7 +311,7 @@ async def toggle_girls_write_first(
         return
 
     gender = str(getattr(user, "gender", "") or "").lower()
-    if gender not in ("male", "мужской"):
+    if gender not in ("male", "man", "мужской"):
         await callback.message.answer("⚠️ Эта настройка только для мужчин.")
         return
 
