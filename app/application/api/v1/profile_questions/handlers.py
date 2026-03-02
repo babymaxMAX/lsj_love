@@ -337,13 +337,15 @@ async def ai_builder_chat(
             "3. Советуй как лучше оформить анкету чтобы привлечь внимание\n"
             "4. Предлагай варианты описания и СПРАШИВАЙ нравится ли пользователю\n"
             "5. Если пользователь одобрил — ответь ТОЧНО в формате:\n"
-            "   SAVE_ABOUT: текст описания\n"
+            "   SAVE_ABOUT: текст описания без кавычек\n"
             "   Это сигнал для сохранения в профиль.\n\n"
             "Правила:\n"
             "- Общайся дружелюбно, как помощник\n"
             "- Описание должно быть 2-4 предложения, живое и привлекательное\n"
             "- Не используй шаблоны и клише\n"
             "- Добавляй эмодзи в описание\n"
+            "- НИКОГДА не оборачивай текст в кавычки — ни в начале, ни в конце\n"
+            "- После SAVE_ABOUT: пиши текст СРАЗУ без кавычек\n"
             "- Отвечай на русском"
         )
 
@@ -364,8 +366,13 @@ async def ai_builder_chat(
         save_about = None
         if "SAVE_ABOUT:" in reply:
             parts = reply.split("SAVE_ABOUT:", 1)
-            save_about = parts[1].strip()
-            reply = parts[0].strip() or "✅ Описание сохранено в профиль!"
+            # Убираем все кавычки с начала и конца текста описания
+            raw_about = parts[1].strip()
+            import re as _re
+            save_about = _re.sub(r'^["\'\u201c\u201e]+|["\'\u201d\u201f]+$', '', raw_about).strip()
+            # Показываем пользователю что именно сохранено
+            prefix = parts[0].strip()
+            reply = f"{prefix}\n\n✅ Сохранено в профиль:\n{save_about}" if prefix else f"✅ Сохранено в профиль:\n{save_about}"
             from app.logic.services.base import BaseUsersService
             service: BaseUsersService = container.resolve(BaseUsersService)
             await service.update_user_info_after_reg(

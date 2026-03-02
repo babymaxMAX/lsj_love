@@ -551,7 +551,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     {user.about && (
                         <div className="pt-2 border-t border-white/10">
                             <p className="text-xs text-white/40 mb-1">✍️ О себе</p>
-                            <p className="text-sm text-white/80 leading-relaxed">{user.about}</p>
+                            <p className="text-sm text-white/80 leading-relaxed">{user.about.replace(/^["']+|["']+$/g, "").trim()}</p>
                         </div>
                     )}
                 </div>
