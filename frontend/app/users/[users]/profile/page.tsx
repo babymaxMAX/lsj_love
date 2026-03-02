@@ -338,7 +338,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
             {/* ── Header (sticky) ── */}
             <div
                 className="sticky top-0 z-30 flex items-center justify-between px-4 py-3"
-                style={{ background: headerGradient, backdropFilter: "blur(12px)", borderBottom: headerBorder }}
+                style={{ background: headerGradient, backdropFilter: "blur(12px)", borderBottom: headerBorder, paddingTop: 48 }}
             >
                 <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
