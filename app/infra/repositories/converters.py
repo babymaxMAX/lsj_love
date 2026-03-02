@@ -48,6 +48,7 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         photo=user_document.get("photo") or None,
         photos=user_document.get("photos") or [],
         is_active=user_document.get("is_active", True),
+        is_banned=bool(user_document.get("is_banned", False)),
         profile_hidden=bool(user_document.get("profile_hidden", False)),
         premium_type=user_document.get("premium_type"),
         premium_until=user_document.get("premium_until"),
@@ -59,6 +60,7 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         referral_balance=float(user_document.get("referral_balance") or 0.0),
         last_seen=user_document.get("last_seen"),
         profile_answers=user_document.get("profile_answers"),
+        allow_girls_write_first=bool(user_document.get("allow_girls_write_first", False)),
         created_at=user_document.get("created_at"),
     )
 

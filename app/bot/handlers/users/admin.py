@@ -132,10 +132,10 @@ def fmt_premium(pt: Optional[str], until) -> str:
 
 
 def gender_icon(gender: str) -> str:
-    g = (gender or "").lower()
-    if g in ("female", "женский"):
+    g = (gender or "").lower().strip()
+    if g in ("female", "женский", "женщина"):
         return "👩"
-    if g in ("male", "мужской"):
+    if g in ("male", "man", "мужской", "мужчина"):
         return "👨"
     return "👤"
 

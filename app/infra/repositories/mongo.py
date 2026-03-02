@@ -411,8 +411,8 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             return []
 
         user_age = user.age
-        age_min = int(user_age) - 5
-        age_max = int(user_age) + 5
+        age_min = max(16, int(user_age) - 15)
+        age_max = int(user_age) + 15
 
         excluded = list(exclude_ids or [])
         excluded.append(telegram_id)
@@ -421,6 +421,8 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
+            "is_active": True,
+            "is_banned": {"$ne": True},
             "profile_hidden": {"$ne": True},
             "$expr": {
                 "$and": [
@@ -431,10 +433,22 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         }
 
         if hasattr(user, "gender") and user.gender:
-            gender_map = {"Мужской": "Женский", "Женский": "Мужской", "Man": "Female", "Female": "Man"}
-            target_gender = gender_map.get(str(user.gender))
+            # Поддерживаем все форматы: "Man"/"Female", "Мужской"/"Женский", "male"/"female"
+            gender_str = str(user.gender).strip()
+            gender_map = {
+                "Man": "Female", "Female": "Man",
+                "man": "Female", "female": "Man",
+                "male": "Female", "Male": "Female",
+                "Мужской": "Женский", "Женский": "Мужской",
+                "мужской": "Женский", "женский": "Мужской",
+            }
+            target_gender = gender_map.get(gender_str)
             if target_gender:
-                query_filter["gender"] = target_gender
+                # Ищем по всем возможным форматам противоположного пола
+                if target_gender == "Female":
+                    query_filter["gender"] = {"$in": ["Female", "female", "Женский", "женский"]}
+                else:
+                    query_filter["gender"] = {"$in": ["Man", "man", "male", "Male", "Мужской", "мужской"]}
 
         # Фильтр по городу: сначала только свой город
         user_city = str(getattr(user, "city", "") or "").strip()
@@ -525,6 +539,31 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                     {"$project": {"_sort_priority": 0}},
                 ]
                 async for doc in self._collection.aggregate(global_pipeline):
+                    result.append(convert_user_document_to_entity(user_document=doc))
+
+            # Финальный fallback — без ограничения по возрасту, только пол и исключения
+            if not result:
+                age_free_filter = {
+                    "telegram_id": {"$nin": excluded},
+                    "is_active": True,
+                    "is_banned": {"$ne": True},
+                }
+                if "gender" in query_filter:
+                    age_free_filter["gender"] = query_filter["gender"]
+                agefree_pipeline = [
+                    {"$match": age_free_filter},
+                    {"$addFields": {"_sort_priority": {"$switch": {
+                        "branches": [
+                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
+                        ],
+                        "default": 3,
+                    }}}},
+                    {"$sort": {"_sort_priority": 1}},
+                    {"$project": {"_sort_priority": 0}},
+                ]
+                async for doc in self._collection.aggregate(agefree_pipeline):
                     result.append(convert_user_document_to_entity(user_document=doc))
 
         return result

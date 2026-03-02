@@ -766,7 +766,8 @@ class MatchmakingResponse(BaseModel):
 
 
 async def _s3_download_bytes(key: str, config: Config) -> bytes | None:
-    """Загружает файл из S3 по ключу и возвращает bytes."""
+    """Загружает файл из S3 по ключу и возвращает bytes (таймаут 5с)."""
+    import asyncio
     try:
         from aiobotocore.session import get_session
         session = get_session()
@@ -777,8 +778,11 @@ async def _s3_download_bytes(key: str, config: Config) -> bytes | None:
             region_name=config.region_name,
             endpoint_url=config.s3_endpoint_url,
         ) as client:
-            resp = await client.get_object(Bucket=config.bucket_name, Key=key)
-            data = await resp["Body"].read()
+            resp = await asyncio.wait_for(
+                client.get_object(Bucket=config.bucket_name, Key=key),
+                timeout=5.0,
+            )
+            data = await asyncio.wait_for(resp["Body"].read(), timeout=5.0)
             return data
     except Exception as e:
         logger.warning(f"S3 download failed for key={key}: {e}")
@@ -1187,7 +1191,7 @@ async def ai_matchmaking(
 
     top_candidate_ids: list[int]
     if has_visual:
-        top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:12]]
+        top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:6]]
     else:
         # ── Шаг 1: Текстовый скрининг ──
         try:
@@ -1247,18 +1251,51 @@ async def ai_matchmaking(
             "photo_url": photo_url,
         })
 
+    import asyncio as _asyncio
     try:
-        final_ids, reply_text = await _matchmaking_vision_rank(
-            candidates_info=candidates_with_photos,
-            user_criteria=data.message,
-            conversation=data.conversation,
-            shown_ids=shown_ids,
-            api_key=config.openai_api_key,
+        final_ids, reply_text = await _asyncio.wait_for(
+            _matchmaking_vision_rank(
+                candidates_info=candidates_with_photos,
+                user_criteria=data.message,
+                conversation=data.conversation,
+                shown_ids=shown_ids,
+                api_key=config.openai_api_key,
+            ),
+            timeout=30.0,
         )
     except Exception as e:
         logger.error(f"matchmaking vision rank error: {e}")
-        final_ids = []
-        reply_text = "Произошла ошибка анализа. Попробуй ещё раз."
+        # Fallback 1: text-only скрининг через OpenAI
+        try:
+            logger.info("Falling back to text-only matchmaking")
+            text_ids = await _asyncio.wait_for(
+                _matchmaking_text_screen(
+                    candidates_text=candidates_text,
+                    user_criteria=data.message,
+                    conversation=data.conversation,
+                    shown_ids=shown_ids,
+                    api_key=config.openai_api_key,
+                    user_info=user_info_str,
+                ),
+                timeout=15.0,
+            )
+            final_ids = [i for i in text_ids if i in id_to_doc][:3]
+            reply_text = "Подобрал анкеты по описанию 🔍"
+        except Exception as e2:
+            logger.error(f"matchmaking text fallback error: {e2}")
+            # Fallback 2: простой текстовый поиск без OpenAI
+            query_words_fb = [w for w in data.message.lower().split() if len(w) >= 3]
+            fallback_ids = []
+            for doc in candidates_docs:
+                combined = (str(doc.get("about", "") or "") + " " + str(doc.get("name", "") or "")).lower()
+                if not query_words_fb or any(w in combined for w in query_words_fb):
+                    fallback_ids.append(doc["telegram_id"])
+                if len(fallback_ids) >= 3:
+                    break
+            if not fallback_ids:
+                fallback_ids = [d["telegram_id"] for d in candidates_docs[:3]]
+            final_ids = fallback_ids
+            reply_text = "Вот анкеты из базы — посмотри, может понравится кто-то 👀"
 
     # Если AI нашёл совпадения — загружаем полные entity через сервис
     final_users = []
