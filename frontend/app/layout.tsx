@@ -47,7 +47,7 @@ export default function RootLayout({
 					})();
 				`}} />
 				<Providers themeProps={{ attribute: "class", defaultTheme: "dark" }}>
-					<main className="max-w-lg mx-auto min-h-screen" style={{ paddingTop: 8 }}>
+					<main className="max-w-lg mx-auto min-h-screen" style={{ paddingTop: 0 }}>
 						{children}
 					</main>
 				</Providers>
