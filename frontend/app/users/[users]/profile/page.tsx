@@ -76,7 +76,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
 
     const loadUser = useCallback(() => {
         setLoading(true);
-        fetch(`${BackEnd_URL}/api/v1/users/${userId}`)
+        fetch(`${BackEnd_URL}/api/v1/users/${userId}?_t=${Date.now()}`, { cache: "no-store" })
             .then((r) => r.json())
             .then((data: UserProfile) => {
                 setUser(data);
@@ -98,6 +98,15 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     }, [userId]);
 
     useEffect(() => { loadUser(); }, [loadUser]);
+
+    // Перезагружаем профиль когда пользователь возвращается в приложение (после бота)
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === "visible") loadUser();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+    }, [loadUser]);
 
     // Загружаем лайки для каждого фото
     useEffect(() => {
