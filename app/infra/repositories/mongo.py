@@ -410,30 +410,32 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         if user is None:
             return []
 
-        user_age = user.age
-        age_min = max(16, int(user_age) - 15)
-        age_max = int(user_age) + 15
+        # Безопасное извлечение возраста (может быть int, str, Age-объект или None)
+        age_min = 16
+        age_max = 99
+        use_age_filter = False
+        try:
+            user_age_raw = user.age
+            if user_age_raw is not None:
+                age_val = int(
+                    user_age_raw.as_generic_type()
+                    if hasattr(user_age_raw, "as_generic_type")
+                    else user_age_raw
+                )
+                age_min = max(16, age_val - 15)
+                age_max = age_val + 15
+                use_age_filter = True
+        except (TypeError, ValueError):
+            pass
 
         excluded = list(exclude_ids or [])
         excluded.append(telegram_id)
 
         now = datetime.now(timezone.utc)
 
-        query_filter: dict = {
-            "telegram_id": {"$nin": excluded},
-            "is_active": True,
-            "is_banned": {"$ne": True},
-            "profile_hidden": {"$ne": True},
-            "$expr": {
-                "$and": [
-                    {"$gte": [{"$toInt": "$age"}, age_min]},
-                    {"$lte": [{"$toInt": "$age"}, age_max]},
-                ],
-            },
-        }
-
+        # Гендерный фильтр — поддерживаем все форматы хранения
+        gender_filter = None
         if hasattr(user, "gender") and user.gender:
-            # Поддерживаем все форматы: "Man"/"Female", "Мужской"/"Женский", "male"/"female"
             gender_str = str(user.gender).strip()
             gender_map = {
                 "Man": "Female", "Female": "Man",
@@ -443,48 +445,44 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 "мужской": "Женский", "женский": "Мужской",
             }
             target_gender = gender_map.get(gender_str)
-            if target_gender:
-                # Ищем по всем возможным форматам противоположного пола
-                if target_gender == "Female":
-                    query_filter["gender"] = {"$in": ["Female", "female", "Женский", "женский"]}
-                else:
-                    query_filter["gender"] = {"$in": ["Man", "man", "male", "Male", "Мужской", "мужской"]}
+            if target_gender == "Female":
+                gender_filter = {"$in": ["Female", "female", "Женский", "женский"]}
+            elif target_gender == "Man":
+                gender_filter = {"$in": ["Man", "man", "male", "Male", "Мужской", "мужской"]}
 
-        # Фильтр по городу: сначала только свой город
-        user_city = str(getattr(user, "city", "") or "").strip()
-        if user_city:
-            query_filter["city"] = user_city
+        # Безопасный age-expr: $convert с onError/onNull возвращает граничное значение
+        # — пользователи без возраста включаются (не исключаются из-за null)
+        age_expr = {
+            "$and": [
+                {"$gte": [
+                    {"$convert": {"input": "$age", "to": "double", "onError": age_min, "onNull": age_min}},
+                    age_min,
+                ]},
+                {"$lte": [
+                    {"$convert": {"input": "$age", "to": "double", "onError": age_max, "onNull": age_max}},
+                    age_max,
+                ]},
+            ]
+        } if use_age_filter else None
 
-        # Приоритетная сортировка: boosted → VIP → Premium → бесплатные
-        pipeline = [
-            {"$match": query_filter},
+        # Базовый фильтр — всегда применяется
+        base_filter: dict = {
+            "telegram_id": {"$nin": excluded},
+            "is_active": True,
+            "is_banned": {"$ne": True},
+            "profile_hidden": {"$ne": True},
+        }
+        if gender_filter:
+            base_filter["gender"] = gender_filter
+
+        sort_stages = [
             {"$addFields": {
                 "_sort_priority": {
                     "$switch": {
                         "branches": [
-                            # Boost активен
-                            {
-                                "case": {"$and": [
-                                    {"$gt": ["$boost_until", now]},
-                                ]},
-                                "then": 0,
-                            },
-                            # VIP с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "vip"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 1,
-                            },
-                            # Premium с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "premium"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 2,
-                            },
+                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
+                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
                         ],
                         "default": 3,
                     }
@@ -494,77 +492,45 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             {"$project": {"_sort_priority": 0}},
         ]
 
-        result = []
-        async for doc in self._collection.aggregate(pipeline):
-            result.append(convert_user_document_to_entity(user_document=doc))
+        async def _run_query(extra: dict, with_age: bool = True) -> list:
+            f = {**base_filter, **extra}
+            if with_age and age_expr:
+                f["$expr"] = age_expr
+            pipeline = [{"$match": f}] + sort_stages
+            docs = []
+            async for doc in self._collection.aggregate(pipeline):
+                docs.append(convert_user_document_to_entity(user_document=doc))
+            return docs
 
-        # Если не нашли никого в своём городе — ищем в ближайших городах
+        user_city = str(getattr(user, "city", "") or "").strip()
+        result: list = []
+
+        # Шаг 1: свой город + фильтр возраста
+        if user_city:
+            result = await _run_query({"city": user_city})
+
+        # Шаг 2: соседние города + фильтр возраста
         if not result and user_city:
             neighbors = _CITY_NEIGHBORS.get(user_city, [])
             if neighbors:
-                fallback_filter = dict(query_filter)
-                fallback_filter.pop("city", None)
-                fallback_filter["city"] = {"$in": neighbors}
-                fallback_pipeline = [
-                    {"$match": fallback_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(fallback_pipeline):
-                    result.append(convert_user_document_to_entity(user_document=doc))
+                result = await _run_query({"city": {"$in": neighbors}})
 
-            # Если и в ближайших городах никого — ищем по всей базе без фильтра города
-            if not result:
-                global_filter = dict(query_filter)
-                global_filter.pop("city", None)
-                global_pipeline = [
-                    {"$match": global_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(global_pipeline):
-                    result.append(convert_user_document_to_entity(user_document=doc))
+        # Шаг 3: вся база + фильтр возраста
+        if not result:
+            result = await _run_query({})
 
-            # Финальный fallback — без ограничения по возрасту, только пол и исключения
-            if not result:
-                age_free_filter = {
-                    "telegram_id": {"$nin": excluded},
-                    "is_active": True,
-                    "is_banned": {"$ne": True},
-                }
-                if "gender" in query_filter:
-                    age_free_filter["gender"] = query_filter["gender"]
-                agefree_pipeline = [
-                    {"$match": age_free_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(agefree_pipeline):
-                    result.append(convert_user_document_to_entity(user_document=doc))
+        # Шаг 4: вся база без фильтра возраста
+        if not result:
+            result = await _run_query({}, with_age=False)
+
+        # Шаг 5: абсолютный fallback — только пол и исключения (без is_active/banned)
+        if not result:
+            absolute_filter: dict = {"telegram_id": {"$nin": excluded}}
+            if gender_filter:
+                absolute_filter["gender"] = gender_filter
+            pipeline = [{"$match": absolute_filter}] + sort_stages
+            async for doc in self._collection.aggregate(pipeline):
+                result.append(convert_user_document_to_entity(user_document=doc))
 
         return result
 
