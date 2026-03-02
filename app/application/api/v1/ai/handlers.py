@@ -1215,9 +1215,9 @@ async def ai_matchmaking(
             logger.error(f"matchmaking text screen error: {e}")
             selected_ids = [d["telegram_id"] for d in candidates_docs[:8]]
 
-        top_candidate_ids = [i for i in selected_ids if i in id_to_doc][:10]
+        top_candidate_ids = [i for i in selected_ids if i in id_to_doc][:6]
         if not top_candidate_ids:
-            top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:10]]
+            top_candidate_ids = [d["telegram_id"] for d in candidates_docs[:6]]
 
     # ── Шаг 2: Vision-ранжирование ─────────────────────────────────────────
     import base64 as _b64
@@ -1305,7 +1305,8 @@ async def ai_matchmaking(
             final_ids = fallback_ids
             reply_text = "Вот анкеты из базы — посмотри, может понравится кто-то 👀"
 
-    # Если AI нашёл совпадения — загружаем полные entity через сервис
+    # Если AI нашёл совпадения — загружаем полные entity через сервис (макс. 3 анкеты за раз)
+    final_ids = final_ids[:3]
     final_users = []
     for fid in final_ids:
         if fid in id_to_doc:

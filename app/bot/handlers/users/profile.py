@@ -8,6 +8,8 @@ from aiogram.filters import Command
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     Message,
 )
 from punq import Container
@@ -308,11 +310,6 @@ async def toggle_girls_write_first(
         user = await service.get_user(telegram_id=callback.from_user.id)
     except Exception:
         await callback.message.answer("Ошибка получения профиля.")
-        return
-
-    gender = str(getattr(user, "gender", "") or "").lower()
-    if gender not in ("male", "man", "мужской"):
-        await callback.message.answer("⚠️ Эта настройка только для мужчин.")
         return
 
     current = bool(getattr(user, "allow_girls_write_first", False))
