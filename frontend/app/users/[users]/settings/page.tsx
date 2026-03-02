@@ -100,9 +100,10 @@ export default function SettingsPage() {
     };
 
     const tabStyle = (t: string) => ({
-        flex: 1, padding: "10px 0", borderRadius: 12, fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer",
-        background: tab === t ? "linear-gradient(135deg, #7c3aed, #db2777)" : "rgba(255,255,255,0.06)",
-        color: tab === t ? "#fff" : "rgba(255,255,255,0.5)",
+        flex: 1, padding: "10px 4px", borderRadius: 12, fontWeight: 700, fontSize: 12, border: "none", cursor: "pointer",
+        background: tab === t ? "linear-gradient(135deg, #7c3aed, #db2777)" : "rgba(255,255,255,0.1)",
+        color: tab === t ? "#fff" : "rgba(255,255,255,0.75)",
+        whiteSpace: "nowrap" as const,
     });
 
     if (!user) return <div className="flex items-center justify-center h-screen" style={{ background: "#0f0f1a" }}><div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" /></div>;
@@ -115,10 +116,10 @@ export default function SettingsPage() {
             </div>
 
             {/* Tabs */}
-            <div style={{ display: "flex", gap: 6, padding: "12px 16px 0" }}>
+            <div style={{ display: "flex", gap: 8, padding: "12px 16px 0", overflowX: "auto" }}>
                 <button onClick={() => setTab("info")} style={tabStyle("info")}>📝 Профиль</button>
-                <button onClick={() => setTab("answers")} style={tabStyle("answers")}>💬 Обо мне</button>
-                <button onClick={() => setTab("ai")} style={tabStyle("ai")}>🤖 AI</button>
+                <button onClick={() => setTab("answers")} style={tabStyle("answers")}>💬 Вопросы</button>
+                <button onClick={() => setTab("ai")} style={tabStyle("ai")}>🤖 AI анкета</button>
             </div>
 
             <div style={{ padding: "16px", flex: 1 }}>
