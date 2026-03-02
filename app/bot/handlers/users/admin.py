@@ -1,27 +1,38 @@
-"""Административная панель бота LSJ Love."""
+"""
+Административная панель бота LSJ Love.
+Полный функционал: статистика, пользователи, поиск, подписки, баны,
+рассылки, онлайн, новые регистрации.
+"""
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-import httpx
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
+from motor.motor_asyncio import AsyncIOMotorClient
+from punq import Container
+
+from app.logic.init import init_container
+from app.logic.services.base import BaseUsersService
+from app.settings.config import Config
 
 logger = logging.getLogger(__name__)
 
 admin_router: Router = Router(name="Admin panel router")
 
 ADMIN_IDS = {7741189969}
-API_BASE = "http://localhost:8000/api/v1/users"
-ADMIN_SECRET = "lsjlove_admin_2026"
+
+_container: Container = init_container()
+_config: Config = _container.resolve(Config)
 
 
 def is_admin(user_id: int) -> bool:
@@ -29,79 +40,145 @@ def is_admin(user_id: int) -> bool:
 
 
 class AdminStates(StatesGroup):
-    waiting_user_id = State()
-    waiting_premium_days = State()
-    waiting_ban_id = State()
     waiting_search = State()
+    waiting_ban_id = State()
+    waiting_unban_id = State()
+    waiting_broadcast_text = State()
+    waiting_broadcast_filter = State()
+    waiting_premium_uid = State()
+    waiting_premium_days = State()
 
+
+# ─── Keyboards ───────────────────────────────────────────────────────────────
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="adm:stats")],
-        [InlineKeyboardButton(text="👥 Список пользователей", callback_data="adm:users:1")],
-        [InlineKeyboardButton(text="🔍 Поиск пользователя", callback_data="adm:search")],
-        [InlineKeyboardButton(text="🚫 Забанить пользователя", callback_data="adm:ban_prompt")],
-        [InlineKeyboardButton(text="✅ Разбанить пользователя", callback_data="adm:unban_prompt")],
+        [
+            InlineKeyboardButton(text="📊 Статистика", callback_data="adm:stats"),
+            InlineKeyboardButton(text="🆕 Новые", callback_data="adm:recent"),
+        ],
+        [
+            InlineKeyboardButton(text="👥 Пользователи", callback_data="adm:users:1"),
+            InlineKeyboardButton(text="🟢 Онлайн", callback_data="adm:online"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Поиск", callback_data="adm:search"),
+            InlineKeyboardButton(text="🚫 Забаненные", callback_data="adm:banned"),
+        ],
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="adm:broadcast_menu")],
     ])
 
 
-def back_to_admin_kb() -> InlineKeyboardMarkup:
+def back_kb(cb: str = "adm:main") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Главное меню", callback_data="adm:main")]
+        [InlineKeyboardButton(text="◀️ Главное меню", callback_data=cb)]
     ])
 
 
-async def fetch(endpoint: str, method: str = "GET", **kwargs) -> Optional[dict]:
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            url = f"{API_BASE}{endpoint}"
-            if method == "GET":
-                resp = await client.get(url, params={"secret": ADMIN_SECRET, **kwargs})
-            elif method == "POST":
-                resp = await client.post(url, params={"secret": ADMIN_SECRET}, json=kwargs)
-            elif method == "DELETE":
-                resp = await client.delete(url, params={"secret": ADMIN_SECRET})
-            else:
-                return None
-            if resp.status_code == 200:
-                return resp.json()
-    except Exception as e:
-        logger.error(f"Admin API error: {e}")
-    return None
+def user_detail_kb(uid: int, is_banned: bool) -> InlineKeyboardMarkup:
+    ban_text = "✅ Разбанить" if is_banned else "🚫 Забанить"
+    ban_cb = f"adm:unban:{uid}" if is_banned else f"adm:ban:{uid}"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⭐ Premium 30д", callback_data=f"adm:prem:{uid}:premium:30"),
+            InlineKeyboardButton(text="💎 VIP 30д", callback_data=f"adm:prem:{uid}:vip:30"),
+        ],
+        [
+            InlineKeyboardButton(text="⭐ Premium 7д", callback_data=f"adm:prem:{uid}:premium:7"),
+            InlineKeyboardButton(text="💎 VIP 7д", callback_data=f"adm:prem:{uid}:vip:7"),
+        ],
+        [InlineKeyboardButton(text="❌ Снять подписку", callback_data=f"adm:prem:{uid}:none:0")],
+        [
+            InlineKeyboardButton(text=ban_text, callback_data=ban_cb),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"adm:del:{uid}"),
+        ],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:main")],
+    ])
 
 
-def fmt_premium(pt: Optional[str], until: Optional[str]) -> str:
+def broadcast_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Всем пользователям", callback_data="adm:bc:all")],
+        [InlineKeyboardButton(text="👨 Только мужчинам", callback_data="adm:bc:male")],
+        [InlineKeyboardButton(text="👩 Только женщинам", callback_data="adm:bc:female")],
+        [InlineKeyboardButton(text="⭐ Premium и VIP", callback_data="adm:bc:premium")],
+        [InlineKeyboardButton(text="🆕 Новые (≤7 дней)", callback_data="adm:bc:new")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:main")],
+    ])
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _get_db():
+    client: AsyncIOMotorClient = _container.resolve(AsyncIOMotorClient)
+    return client[_config.mongodb_dating_database]
+
+
+def fmt_premium(pt: Optional[str], until) -> str:
     if not pt:
         return "Нет"
-    label = {"premium": "Premium", "vip": "VIP"}.get(pt, pt)
-    if until and until != "None":
+    label = {"premium": "⭐ Premium", "vip": "💎 VIP"}.get(pt, pt)
+    if until:
         try:
-            dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            days_left = (dt - datetime.now(timezone.utc)).days
-            return f"{label} ({days_left}д.)"
+            if isinstance(until, str):
+                until = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            if hasattr(until, "tzinfo") and until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            days = (until - datetime.now(timezone.utc)).days
+            return f"{label} ({days}д.)"
         except Exception:
             pass
     return label
 
 
-def user_detail_kb(uid: int, is_banned: bool) -> InlineKeyboardMarkup:
-    ban_btn = (
-        InlineKeyboardButton(text="✅ Разбанить", callback_data=f"adm:unban:{uid}")
-        if is_banned
-        else InlineKeyboardButton(text="🚫 Забанить", callback_data=f"adm:ban:{uid}")
+def gender_icon(gender: str) -> str:
+    g = (gender or "").lower()
+    if g in ("female", "женский"):
+        return "👩"
+    if g in ("male", "мужской"):
+        return "👨"
+    return "👤"
+
+
+async def _build_user_card(doc: dict) -> str:
+    uid = doc.get("telegram_id", "?")
+    name = doc.get("name", "?")
+    uname = f"@{doc['username']}" if doc.get("username") else "—"
+    g_icon = gender_icon(doc.get("gender", ""))
+    age = doc.get("age", "—")
+    city = doc.get("city", "—")
+    pt = fmt_premium(doc.get("premium_type"), doc.get("premium_until"))
+    banned = " 🚫 ЗАБАНЕН" if doc.get("is_banned") else ""
+    bal = float(doc.get("referral_balance", 0) or 0)
+    photos = len(doc.get("photos", []) or [])
+    last = doc.get("last_seen")
+    last_str = "—"
+    if last:
+        try:
+            if hasattr(last, "tzinfo") and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            mins = (datetime.now(timezone.utc) - last).seconds // 60
+            if (datetime.now(timezone.utc) - last).days == 0 and mins < 5:
+                last_str = "🟢 Онлайн"
+            elif (datetime.now(timezone.utc) - last).days == 0:
+                last_str = f"🟡 {mins}мин назад"
+            else:
+                last_str = f"⚪ {(datetime.now(timezone.utc) - last).days}д назад"
+        except Exception:
+            pass
+    about = str(doc.get("about", "") or "")[:100]
+    return (
+        f"{g_icon} <b>{name}</b>{banned}\n"
+        f"ID: <code>{uid}</code> | {uname}\n"
+        f"Возраст: {age} | Город: {city}\n"
+        f"Подписка: {pt}\n"
+        f"Реф. баланс: {bal:.1f}₽ | Фото: {photos}шт\n"
+        f"Статус: {last_str}\n"
+        + (f"📝 {about}" if about else "")
     )
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Выдать Premium 30д", callback_data=f"adm:prem:{uid}:premium:30")],
-        [InlineKeyboardButton(text="💎 Выдать VIP 30д", callback_data=f"adm:prem:{uid}:vip:30")],
-        [InlineKeyboardButton(text="❌ Снять подписку", callback_data=f"adm:prem:{uid}:none:0")],
-        [ban_btn, InlineKeyboardButton(text="🗑 Удалить анкету", callback_data=f"adm:del:{uid}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:main")],
-    ])
 
 
-# ─── /admin command ───────────────────────────────────────────────
+# ─── /admin command ───────────────────────────────────────────────────────────
 
 @admin_router.message(Command("admin"))
 async def cmd_admin(message: Message):
@@ -115,90 +192,114 @@ async def cmd_admin(message: Message):
     )
 
 
-# ─── Main menu callback ───────────────────────────────────────────
+# ─── Main menu ────────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data == "adm:main")
-async def cb_admin_main(cq: CallbackQuery):
+async def cb_main(cq: CallbackQuery, state: FSMContext):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    await cq.message.edit_text(
-        "🛠 <b>Панель администратора LSJ Love</b>\n\nВыберите раздел:",
-        reply_markup=main_menu_kb(),
-        parse_mode="HTML",
-    )
+    await state.clear()
+    try:
+        await cq.message.edit_text(
+            "🛠 <b>Панель администратора LSJ Love</b>\n\nВыберите раздел:",
+            reply_markup=main_menu_kb(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        await cq.message.answer(
+            "🛠 <b>Панель администратора LSJ Love</b>",
+            reply_markup=main_menu_kb(),
+            parse_mode="HTML",
+        )
     await cq.answer()
 
 
-# ─── Stats ───────────────────────────────────────────────────────
+# ─── Statistics ───────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data == "adm:stats")
 async def cb_stats(cq: CallbackQuery):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    await cq.answer("Загружаю...")
-    data = await fetch("/admin/stats")
-    if not data:
-        await cq.message.edit_text("❌ Ошибка загрузки статистики.", reply_markup=back_to_admin_kb())
-        return
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    total = await col.count_documents({})
+    active = await col.count_documents({"is_active": True, "is_banned": {"$ne": True}})
+    banned = await col.count_documents({"is_banned": True})
+    new_today = await col.count_documents({"created_at": {"$gte": today}})
+    new_week = await col.count_documents({"created_at": {"$gte": week_ago}})
+    online = await col.count_documents({"last_seen": {"$gte": now - timedelta(minutes=5)}})
+    premium = await col.count_documents({"premium_type": "premium", "premium_until": {"$gt": now}})
+    vip = await col.count_documents({"premium_type": "vip", "premium_until": {"$gt": now}})
+    male = await col.count_documents({"gender": {"$in": ["male", "мужской"]}})
+    female = await col.count_documents({"gender": {"$in": ["female", "женский"]}})
+    with_photo = await col.count_documents({"$or": [
+        {"photos": {"$exists": True, "$not": {"$size": 0}}},
+        {"photo": {"$exists": True, "$ne": None, "$ne": ""}},
+    ]})
+
     text = (
         "📊 <b>Статистика LSJ Love</b>\n\n"
-        f"👤 Всего пользователей: <b>{data.get('total', 0)}</b>\n"
-        f"✅ Активных: <b>{data.get('active', 0)}</b>\n"
-        f"🚫 Забанено: <b>{data.get('banned', 0)}</b>\n"
-        f"🆕 Зарегистрировались сегодня: <b>{data.get('new_today', 0)}</b>\n"
-        f"🟢 Онлайн (5 мин): <b>{data.get('online_5min', 0)}</b>\n\n"
-        f"⭐ Premium: <b>{data.get('premium', 0)}</b>\n"
-        f"💎 VIP: <b>{data.get('vip', 0)}</b>\n\n"
-        f"👨 Мужчин: <b>{data.get('male', 0)}</b>\n"
-        f"👩 Женщин: <b>{data.get('female', 0)}</b>\n"
+        f"👤 Всего пользователей: <b>{total}</b>\n"
+        f"✅ Активных: <b>{active}</b>\n"
+        f"🚫 Забанено: <b>{banned}</b>\n\n"
+        f"📅 Новых сегодня: <b>{new_today}</b>\n"
+        f"📆 Новых за неделю: <b>{new_week}</b>\n"
+        f"🟢 Онлайн сейчас (5мин): <b>{online}</b>\n\n"
+        f"⭐ Premium: <b>{premium}</b>\n"
+        f"💎 VIP: <b>{vip}</b>\n\n"
+        f"👨 Мужчин: <b>{male}</b>\n"
+        f"👩 Женщин: <b>{female}</b>\n"
+        f"📷 С фото: <b>{with_photo}</b> из {total}"
     )
-    await cq.message.edit_text(text, reply_markup=back_to_admin_kb(), parse_mode="HTML")
+    await cq.message.edit_text(text, reply_markup=back_kb(), parse_mode="HTML")
 
 
-# ─── Users list ──────────────────────────────────────────────────
+# ─── Recent registrations ────────────────────────────────────────────────────
 
-@admin_router.callback_query(F.data.startswith("adm:users:"))
-async def cb_users_list(cq: CallbackQuery):
+@admin_router.callback_query(F.data == "adm:recent")
+async def cb_recent(cq: CallbackQuery):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    page = int(cq.data.split(":")[-1])
-    await cq.answer("Загружаю...")
-    data = await fetch("/admin/users/list", page=page, limit=10)
-    if not data:
-        await cq.message.edit_text("❌ Ошибка.", reply_markup=back_to_admin_kb())
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    cursor = col.find({}, {"telegram_id": 1, "name": 1, "username": 1, "gender": 1,
+                           "created_at": 1, "premium_type": 1}).sort("created_at", -1).limit(10)
+    docs = await cursor.to_list(10)
+    if not docs:
+        await cq.message.edit_text("Нет пользователей.", reply_markup=back_kb())
         return
-    items = data.get("items", [])
-    total = data.get("total", 0)
-    pages = max(1, (total + 9) // 10)
-
-    lines = [f"👥 <b>Пользователи</b> (стр. {page}/{pages}, всего {total})\n"]
-    for u in items:
-        name = u.get("name", "?")
-        uid = u.get("telegram_id", "?")
-        uname = f"@{u['username']}" if u.get("username") else "—"
-        gender_icon = "👩" if str(u.get("gender", "")).lower() in ("female", "женский") else "👨"
-        banned = " 🚫" if u.get("is_banned") else ""
-        pt = fmt_premium(u.get("premium_type"), u.get("premium_until"))
-        lines.append(f"{gender_icon} <b>{name}</b> | {uname} | {uid}{banned}\n  └ {pt}")
-
-    nav_buttons = []
-    if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data=f"adm:users:{page-1}"))
-    if page < pages:
-        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data=f"adm:users:{page+1}"))
-
+    lines = ["🆕 <b>Последние 10 регистраций</b>\n"]
     kb_rows = []
-    for u in items:
-        uid = u.get("telegram_id")
-        name = u.get("name", "?")
-        kb_rows.append([InlineKeyboardButton(text=f"🔍 {name} ({uid})", callback_data=f"adm:user:{uid}")])
-    if nav_buttons:
-        kb_rows.append(nav_buttons)
+    for d in docs:
+        uid = d.get("telegram_id")
+        name = d.get("name", "?")
+        g = gender_icon(d.get("gender", ""))
+        uname = f"@{d['username']}" if d.get("username") else "—"
+        created = d.get("created_at")
+        time_str = ""
+        if created:
+            try:
+                if hasattr(created, "tzinfo") and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                delta = datetime.now(timezone.utc) - created
+                if delta.days == 0:
+                    time_str = f"{delta.seconds // 3600}ч назад"
+                else:
+                    time_str = f"{delta.days}д назад"
+            except Exception:
+                pass
+        lines.append(f"{g} <b>{name}</b> | {uname} | {time_str}")
+        kb_rows.append([InlineKeyboardButton(text=f"{g} {name} ({uid})", callback_data=f"adm:user:{uid}")])
     kb_rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="adm:main")])
-
     await cq.message.edit_text(
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
@@ -206,7 +307,126 @@ async def cb_users_list(cq: CallbackQuery):
     )
 
 
-# ─── User detail ─────────────────────────────────────────────────
+# ─── Online users ────────────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data == "adm:online")
+async def cb_online(cq: CallbackQuery):
+    if not is_admin(cq.from_user.id):
+        await cq.answer("⛔")
+        return
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    now = datetime.now(timezone.utc)
+    cursor = col.find(
+        {"last_seen": {"$gte": now - timedelta(minutes=5)}},
+        {"telegram_id": 1, "name": 1, "username": 1, "gender": 1, "last_seen": 1}
+    ).limit(20)
+    docs = await cursor.to_list(20)
+    if not docs:
+        await cq.message.edit_text("🟢 Нет пользователей онлайн.", reply_markup=back_kb())
+        return
+    lines = [f"🟢 <b>Онлайн прямо сейчас ({len(docs)})</b>\n"]
+    kb_rows = []
+    for d in docs:
+        uid = d.get("telegram_id")
+        name = d.get("name", "?")
+        g = gender_icon(d.get("gender", ""))
+        uname = f"@{d['username']}" if d.get("username") else "—"
+        lines.append(f"{g} <b>{name}</b> | {uname}")
+        kb_rows.append([InlineKeyboardButton(text=f"{g} {name} ({uid})", callback_data=f"adm:user:{uid}")])
+    kb_rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="adm:main")])
+    await cq.message.edit_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+        parse_mode="HTML",
+    )
+
+
+# ─── Banned users ────────────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data == "adm:banned")
+async def cb_banned(cq: CallbackQuery):
+    if not is_admin(cq.from_user.id):
+        await cq.answer("⛔")
+        return
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    cursor = col.find(
+        {"is_banned": True},
+        {"telegram_id": 1, "name": 1, "username": 1, "gender": 1}
+    ).limit(20)
+    docs = await cursor.to_list(20)
+    if not docs:
+        await cq.message.edit_text("🚫 Забаненных пользователей нет.", reply_markup=back_kb())
+        return
+    lines = [f"🚫 <b>Забаненные ({len(docs)})</b>\n"]
+    kb_rows = []
+    for d in docs:
+        uid = d.get("telegram_id")
+        name = d.get("name", "?")
+        g = gender_icon(d.get("gender", ""))
+        uname = f"@{d['username']}" if d.get("username") else "—"
+        lines.append(f"{g} <b>{name}</b> | {uname} | <code>{uid}</code>")
+        kb_rows.append([InlineKeyboardButton(text=f"✅ Разбанить {name}", callback_data=f"adm:unban:{uid}")])
+    kb_rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="adm:main")])
+    await cq.message.edit_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+        parse_mode="HTML",
+    )
+
+
+# ─── Users list ───────────────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("adm:users:"))
+async def cb_users(cq: CallbackQuery):
+    if not is_admin(cq.from_user.id):
+        await cq.answer("⛔")
+        return
+    page = int(cq.data.split(":")[-1])
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    limit = 8
+    skip = (page - 1) * limit
+    total = await col.count_documents({})
+    pages = max(1, (total + limit - 1) // limit)
+    cursor = col.find(
+        {},
+        {"telegram_id": 1, "name": 1, "username": 1, "gender": 1,
+         "premium_type": 1, "premium_until": 1, "is_banned": 1, "last_seen": 1}
+    ).sort("created_at", -1).skip(skip).limit(limit)
+    docs = await cursor.to_list(limit)
+
+    lines = [f"👥 <b>Пользователи</b> (стр. {page}/{pages}, всего {total})\n"]
+    kb_rows = []
+    for d in docs:
+        uid = d.get("telegram_id")
+        name = d.get("name", "?")
+        g = gender_icon(d.get("gender", ""))
+        pt = fmt_premium(d.get("premium_type"), d.get("premium_until"))
+        banned = " 🚫" if d.get("is_banned") else ""
+        lines.append(f"{g} <b>{name}</b>{banned} — {pt}")
+        kb_rows.append([InlineKeyboardButton(text=f"{g} {name} ({uid}){banned}", callback_data=f"adm:user:{uid}")])
+
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"adm:users:{page-1}"))
+    if page < pages:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"adm:users:{page+1}"))
+    if nav:
+        kb_rows.append(nav)
+    kb_rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="adm:main")])
+    await cq.message.edit_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+        parse_mode="HTML",
+    )
+
+
+# ─── User detail ──────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data.startswith("adm:user:"))
 async def cb_user_detail(cq: CallbackQuery):
@@ -214,75 +434,92 @@ async def cb_user_detail(cq: CallbackQuery):
         await cq.answer("⛔")
         return
     uid = int(cq.data.split(":")[-1])
-    await cq.answer("Загружаю...")
-    data = await fetch(f"/admin/users/{uid}")
-    if not data:
-        await cq.message.edit_text("❌ Пользователь не найден.", reply_markup=back_to_admin_kb())
+    await cq.answer("⏳")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    doc = await col.find_one({"telegram_id": uid})
+    if not doc:
+        await cq.message.edit_text("❌ Пользователь не найден.", reply_markup=back_kb())
         return
-    pt = fmt_premium(data.get("premium_type"), data.get("premium_until"))
-    gender_icon = "👩" if str(data.get("gender", "")).lower() in ("female", "женский") else "👨"
-    banned_str = " 🚫 ЗАБАНЕН" if data.get("is_banned") else ""
-    text = (
-        f"{gender_icon} <b>{data.get('name', '?')}</b>{banned_str}\n"
-        f"ID: <code>{data.get('telegram_id')}</code>\n"
-        f"Username: @{data.get('username') or '—'}\n"
-        f"Возраст: {data.get('age', '—')} | Город: {data.get('city', '—')}\n"
-        f"Подписка: {pt}\n"
-        f"Баланс реф.: {data.get('referral_balance', 0):.1f} ₽\n"
-        f"Суперлайки: {data.get('superlike_credits', 0)}\n"
-        f"Фото: {len(data.get('photos', []))} шт.\n"
-        f"Последний визит: {(data.get('last_seen') or '—')[:19]}\n"
-        f"Зарегистрирован: {(data.get('created_at') or '—')[:19]}\n\n"
-        f"📝 О себе: {(data.get('about') or '—')[:200]}"
-    )
-    await cq.message.edit_text(
-        text,
-        reply_markup=user_detail_kb(uid, bool(data.get("is_banned"))),
-        parse_mode="HTML",
-    )
+
+    text = await _build_user_card(doc)
+    is_banned = bool(doc.get("is_banned"))
+
+    # Пробуем показать фото профиля
+    photos = doc.get("photos", []) or []
+    photo_key = photos[0] if photos else doc.get("photo", "")
+    sent_with_photo = False
+
+    if photo_key:
+        from app.bot.utils.notificator import _resolve_photo
+        try:
+            raw = await _resolve_photo(photo_key, user_id=uid)
+            if raw:
+                kb = user_detail_kb(uid, is_banned)
+                try:
+                    await cq.message.delete()
+                except Exception:
+                    pass
+                if isinstance(raw, bytes):
+                    await cq.message.answer_photo(
+                        photo=BufferedInputFile(raw, filename="photo.jpg"),
+                        caption=text,
+                        reply_markup=kb,
+                        parse_mode="HTML",
+                    )
+                else:
+                    await cq.message.answer_photo(
+                        photo=raw,
+                        caption=text,
+                        reply_markup=kb,
+                        parse_mode="HTML",
+                    )
+                sent_with_photo = True
+        except Exception as e:
+            logger.warning(f"Admin photo load error: {e}")
+
+    if not sent_with_photo:
+        try:
+            await cq.message.edit_text(text, reply_markup=user_detail_kb(uid, is_banned), parse_mode="HTML")
+        except Exception:
+            await cq.message.answer(text, reply_markup=user_detail_kb(uid, is_banned), parse_mode="HTML")
 
 
-# ─── Grant premium ───────────────────────────────────────────────
+# ─── Grant premium ────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data.startswith("adm:prem:"))
 async def cb_set_premium(cq: CallbackQuery):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    _, _, uid_str, ptype, days_str = cq.data.split(":")
-    uid = int(uid_str)
-    days = int(days_str)
-    pt = None if ptype == "none" else ptype
-    result = await fetch(
-        f"/admin/users/{uid}/set-premium",
-        method="POST",
-        premium_type=pt,
-        days=days,
-    )
-    if result and result.get("ok"):
-        label = {"premium": "Premium", "vip": "VIP"}.get(pt, "снята")
-        await cq.answer(f"✅ Подписка {label} {'выдана' if pt else 'снята'}!", show_alert=True)
+    parts = cq.data.split(":")
+    uid = int(parts[2])
+    ptype = parts[3]
+    days = int(parts[4])
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    if ptype == "none":
+        await col.update_one({"telegram_id": uid}, {"$set": {"premium_type": None, "premium_until": None}})
+        await cq.answer("❌ Подписка снята!", show_alert=True)
     else:
-        await cq.answer("❌ Ошибка!", show_alert=True)
-    # Refresh user detail
-    data = await fetch(f"/admin/users/{uid}")
-    if data:
-        pt2 = fmt_premium(data.get("premium_type"), data.get("premium_until"))
-        gender_icon = "👩" if str(data.get("gender", "")).lower() in ("female", "женский") else "👨"
-        banned_str = " 🚫 ЗАБАНЕН" if data.get("is_banned") else ""
-        text = (
-            f"{gender_icon} <b>{data.get('name', '?')}</b>{banned_str}\n"
-            f"ID: <code>{data.get('telegram_id')}</code>\n"
-            f"Подписка: {pt2}\n"
-        )
-        await cq.message.edit_text(
-            text,
-            reply_markup=user_detail_kb(uid, bool(data.get("is_banned"))),
-            parse_mode="HTML",
-        )
+        until = datetime.now(timezone.utc) + timedelta(days=days)
+        await col.update_one({"telegram_id": uid}, {"$set": {"premium_type": ptype, "premium_until": until}})
+        label = {"premium": "⭐ Premium", "vip": "💎 VIP"}.get(ptype, ptype)
+        await cq.answer(f"✅ {label} на {days} дней выдан!", show_alert=True)
+    # Уведомляем пользователя
+    try:
+        label_map = {"premium": "⭐ Premium", "vip": "💎 VIP", "none": None}
+        if ptype != "none":
+            await cq.bot.send_message(
+                uid,
+                f"🎉 Тебе выдана подписка <b>{label_map.get(ptype, ptype)}</b> на {days} дней!\n\nПриятного использования 💕",
+                parse_mode="HTML",
+            )
+    except Exception:
+        pass
 
 
-# ─── Ban / Unban ─────────────────────────────────────────────────
+# ─── Ban ─────────────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data.startswith("adm:ban:"))
 async def cb_ban(cq: CallbackQuery):
@@ -290,20 +527,26 @@ async def cb_ban(cq: CallbackQuery):
         await cq.answer("⛔")
         return
     uid = int(cq.data.split(":")[-1])
-    result = await fetch(f"/admin/users/{uid}/ban", method="POST")
-    if result and result.get("ok"):
-        await cq.answer("🚫 Пользователь забанен!", show_alert=True)
-    else:
-        await cq.answer("❌ Ошибка!", show_alert=True)
-    data = await fetch(f"/admin/users/{uid}")
-    if data:
-        gender_icon = "👩" if str(data.get("gender", "")).lower() in ("female", "женский") else "👨"
-        await cq.message.edit_text(
-            f"{gender_icon} <b>{data.get('name', '?')}</b> 🚫 ЗАБАНЕН",
-            reply_markup=user_detail_kb(uid, True),
-            parse_mode="HTML",
-        )
+    db = _get_db()
+    await db[_config.mongodb_users_collection].update_one(
+        {"telegram_id": uid},
+        {"$set": {"is_banned": True, "is_active": False}}
+    )
+    await cq.answer("🚫 Пользователь забанен!", show_alert=True)
+    try:
+        await cq.bot.send_message(uid, "🚫 Ваш аккаунт заблокирован администрацией LSJ Love.")
+    except Exception:
+        pass
+    doc = await db[_config.mongodb_users_collection].find_one({"telegram_id": uid})
+    if doc:
+        text = await _build_user_card(doc)
+        try:
+            await cq.message.edit_text(text, reply_markup=user_detail_kb(uid, True), parse_mode="HTML")
+        except Exception:
+            await cq.message.answer(text, reply_markup=user_detail_kb(uid, True), parse_mode="HTML")
 
+
+# ─── Unban ────────────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data.startswith("adm:unban:"))
 async def cb_unban(cq: CallbackQuery):
@@ -311,38 +554,47 @@ async def cb_unban(cq: CallbackQuery):
         await cq.answer("⛔")
         return
     uid = int(cq.data.split(":")[-1])
-    result = await fetch(f"/admin/users/{uid}/unban", method="POST")
-    if result and result.get("ok"):
-        await cq.answer("✅ Пользователь разбанен!", show_alert=True)
-    else:
-        await cq.answer("❌ Ошибка!", show_alert=True)
-    data = await fetch(f"/admin/users/{uid}")
-    if data:
-        gender_icon = "👩" if str(data.get("gender", "")).lower() in ("female", "женский") else "👨"
-        await cq.message.edit_text(
-            f"{gender_icon} <b>{data.get('name', '?')}</b> ✅ Разбанен",
-            reply_markup=user_detail_kb(uid, False),
-            parse_mode="HTML",
-        )
+    db = _get_db()
+    await db[_config.mongodb_users_collection].update_one(
+        {"telegram_id": uid},
+        {"$set": {"is_banned": False, "is_active": True}}
+    )
+    await cq.answer("✅ Пользователь разбанен!", show_alert=True)
+    try:
+        await cq.bot.send_message(uid, "✅ Ваш аккаунт разблокирован. Добро пожаловать обратно в LSJ Love!")
+    except Exception:
+        pass
+    doc = await db[_config.mongodb_users_collection].find_one({"telegram_id": uid})
+    if doc:
+        text = await _build_user_card(doc)
+        try:
+            await cq.message.edit_text(text, reply_markup=user_detail_kb(uid, False), parse_mode="HTML")
+        except Exception:
+            await cq.message.answer(text, reply_markup=user_detail_kb(uid, False), parse_mode="HTML")
 
 
-# ─── Delete user ─────────────────────────────────────────────────
+# ─── Delete user ──────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data.startswith("adm:del:"))
-async def cb_delete_user(cq: CallbackQuery):
+async def cb_delete(cq: CallbackQuery):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
     uid = int(cq.data.split(":")[-1])
-    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"adm:delconf:{uid}")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data=f"adm:user:{uid}")],
     ])
-    await cq.message.edit_text(
-        f"⚠️ Удалить анкету пользователя <code>{uid}</code>? Это действие необратимо.",
-        reply_markup=confirm_kb,
-        parse_mode="HTML",
-    )
+    try:
+        await cq.message.edit_text(
+            f"⚠️ Удалить анкету пользователя <code>{uid}</code>?\nДействие необратимо.",
+            reply_markup=kb, parse_mode="HTML",
+        )
+    except Exception:
+        await cq.message.answer(
+            f"⚠️ Удалить анкету <code>{uid}</code>?",
+            reply_markup=kb, parse_mode="HTML",
+        )
     await cq.answer()
 
 
@@ -352,15 +604,16 @@ async def cb_delete_confirm(cq: CallbackQuery):
         await cq.answer("⛔")
         return
     uid = int(cq.data.split(":")[-1])
-    result = await fetch(f"/admin/users/{uid}", method="DELETE")
-    if result and result.get("ok"):
-        await cq.answer("🗑 Анкета удалена!", show_alert=True)
-        await cq.message.edit_text("🗑 Анкета удалена.", reply_markup=back_to_admin_kb())
-    else:
-        await cq.answer("❌ Ошибка!", show_alert=True)
+    db = _get_db()
+    await db[_config.mongodb_users_collection].delete_one({"telegram_id": uid})
+    await db[_config.mongodb_likes_collection].delete_many(
+        {"$or": [{"from_user": uid}, {"to_user": uid}]}
+    )
+    await cq.answer("🗑 Удалено!", show_alert=True)
+    await cq.message.edit_text("🗑 Анкета удалена.", reply_markup=back_kb())
 
 
-# ─── Search prompt ───────────────────────────────────────────────
+# ─── Search ───────────────────────────────────────────────────────────────────
 
 @admin_router.callback_query(F.data == "adm:search")
 async def cb_search_prompt(cq: CallbackQuery, state: FSMContext):
@@ -368,11 +621,16 @@ async def cb_search_prompt(cq: CallbackQuery, state: FSMContext):
         await cq.answer("⛔")
         return
     await state.set_state(AdminStates.waiting_search)
-    await cq.message.edit_text(
-        "🔍 Введите <b>ID</b>, имя или username пользователя:",
-        reply_markup=back_to_admin_kb(),
-        parse_mode="HTML",
-    )
+    try:
+        await cq.message.edit_text(
+            "🔍 Введите <b>Telegram ID</b>, имя или @username:",
+            reply_markup=back_kb(), parse_mode="HTML",
+        )
+    except Exception:
+        await cq.message.answer(
+            "🔍 Введите <b>Telegram ID</b>, имя или @username:",
+            reply_markup=back_kb(), parse_mode="HTML",
+        )
     await cq.answer()
 
 
@@ -381,24 +639,33 @@ async def msg_search(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
     await state.clear()
-    search = message.text.strip()
-    data = await fetch("/admin/users/list", page=1, limit=5, search=search)
-    if not data or not data.get("items"):
-        await message.answer("❌ Пользователи не найдены.", reply_markup=back_to_admin_kb())
+    q = message.text.strip().lstrip("@")
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    try:
+        qint = int(q)
+        query = {"telegram_id": qint}
+    except ValueError:
+        query = {"$or": [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+        ]}
+    docs = await col.find(query, {"telegram_id": 1, "name": 1, "username": 1, "gender": 1,
+                                   "premium_type": 1, "premium_until": 1, "is_banned": 1}).limit(10).to_list(10)
+    if not docs:
+        await message.answer("❌ Не найдено.", reply_markup=back_kb())
         return
-    items = data["items"]
     kb_rows = []
-    for u in items:
-        uid = u.get("telegram_id")
-        name = u.get("name", "?")
-        kb_rows.append([InlineKeyboardButton(text=f"🔍 {name} ({uid})", callback_data=f"adm:user:{uid}")])
+    lines = [f"🔍 Найдено: {len(docs)}\n"]
+    for d in docs:
+        uid = d.get("telegram_id")
+        name = d.get("name", "?")
+        g = gender_icon(d.get("gender", ""))
+        uname = f"@{d['username']}" if d.get("username") else "—"
+        banned = " 🚫" if d.get("is_banned") else ""
+        lines.append(f"{g} <b>{name}</b> | {uname} | <code>{uid}</code>{banned}")
+        kb_rows.append([InlineKeyboardButton(text=f"{g} {name} ({uid}){banned}", callback_data=f"adm:user:{uid}")])
     kb_rows.append([InlineKeyboardButton(text="◀️ Меню", callback_data="adm:main")])
-    lines = [f"🔍 Найдено: {data['total']}\n"]
-    for u in items:
-        name = u.get("name", "?")
-        uid = u.get("telegram_id", "?")
-        uname = f"@{u['username']}" if u.get("username") else "—"
-        lines.append(f"• <b>{name}</b> | {uname} | <code>{uid}</code>")
     await message.answer(
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
@@ -406,54 +673,98 @@ async def msg_search(message: Message, state: FSMContext):
     )
 
 
-# ─── Ban / Unban by ID prompt ────────────────────────────────────
+# ─── Broadcast ────────────────────────────────────────────────────────────────
 
-@admin_router.callback_query(F.data == "adm:ban_prompt")
-async def cb_ban_prompt(cq: CallbackQuery, state: FSMContext):
+@admin_router.callback_query(F.data == "adm:broadcast_menu")
+async def cb_broadcast_menu(cq: CallbackQuery):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    await state.set_state(AdminStates.waiting_ban_id)
-    await state.update_data(action="ban")
-    await cq.message.edit_text(
-        "🚫 Введите <b>Telegram ID</b> пользователя для бана:",
-        reply_markup=back_to_admin_kb(),
-        parse_mode="HTML",
-    )
+    try:
+        await cq.message.edit_text(
+            "📢 <b>Рассылка</b>\n\nВыберите аудиторию:",
+            reply_markup=broadcast_menu_kb(), parse_mode="HTML",
+        )
+    except Exception:
+        await cq.message.answer(
+            "📢 <b>Рассылка</b>\n\nВыберите аудиторию:",
+            reply_markup=broadcast_menu_kb(), parse_mode="HTML",
+        )
     await cq.answer()
 
 
-@admin_router.callback_query(F.data == "adm:unban_prompt")
-async def cb_unban_prompt(cq: CallbackQuery, state: FSMContext):
+@admin_router.callback_query(F.data.startswith("adm:bc:"))
+async def cb_broadcast_select(cq: CallbackQuery, state: FSMContext):
     if not is_admin(cq.from_user.id):
         await cq.answer("⛔")
         return
-    await state.set_state(AdminStates.waiting_ban_id)
-    await state.update_data(action="unban")
-    await cq.message.edit_text(
-        "✅ Введите <b>Telegram ID</b> пользователя для разбана:",
-        reply_markup=back_to_admin_kb(),
-        parse_mode="HTML",
-    )
+    audience = cq.data.split(":")[-1]
+    audience_map = {
+        "all": "всем пользователям",
+        "male": "мужчинам",
+        "female": "женщинам",
+        "premium": "Premium и VIP",
+        "new": "новым (≤7 дней)",
+    }
+    await state.set_state(AdminStates.waiting_broadcast_text)
+    await state.update_data(audience=audience)
+    try:
+        await cq.message.edit_text(
+            f"📢 Рассылка <b>{audience_map.get(audience, audience)}</b>\n\n"
+            f"Введите текст сообщения (поддерживается HTML разметка):",
+            reply_markup=back_kb("adm:broadcast_menu"), parse_mode="HTML",
+        )
+    except Exception:
+        await cq.message.answer(
+            f"📢 Введите текст для рассылки <b>{audience_map.get(audience, audience)}</b>:",
+            reply_markup=back_kb("adm:broadcast_menu"), parse_mode="HTML",
+        )
     await cq.answer()
 
 
-@admin_router.message(AdminStates.waiting_ban_id)
-async def msg_ban_by_id(message: Message, state: FSMContext):
+@admin_router.message(AdminStates.waiting_broadcast_text)
+async def msg_broadcast(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
     data = await state.get_data()
-    action = data.get("action", "ban")
+    audience = data.get("audience", "all")
     await state.clear()
-    try:
-        uid = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Неверный ID.", reply_markup=back_to_admin_kb())
+    text = message.text or message.caption or ""
+    if not text.strip():
+        await message.answer("❌ Пустое сообщение. Рассылка отменена.", reply_markup=back_kb())
         return
-    endpoint = f"/admin/users/{uid}/ban" if action == "ban" else f"/admin/users/{uid}/unban"
-    result = await fetch(endpoint, method="POST")
-    if result and result.get("ok"):
-        label = "забанен 🚫" if action == "ban" else "разбанен ✅"
-        await message.answer(f"Пользователь <code>{uid}</code> {label}", parse_mode="HTML", reply_markup=back_to_admin_kb())
-    else:
-        await message.answer("❌ Ошибка. Проверьте ID.", reply_markup=back_to_admin_kb())
+
+    db = _get_db()
+    col = db[_config.mongodb_users_collection]
+    now = datetime.now(timezone.utc)
+
+    query: dict = {"is_banned": {"$ne": True}, "is_active": True}
+    if audience == "male":
+        query["gender"] = {"$in": ["male", "мужской"]}
+    elif audience == "female":
+        query["gender"] = {"$in": ["female", "женский"]}
+    elif audience == "premium":
+        query["premium_type"] = {"$in": ["premium", "vip"]}
+        query["premium_until"] = {"$gt": now}
+    elif audience == "new":
+        query["created_at"] = {"$gte": now - timedelta(days=7)}
+
+    cursor = col.find(query, {"telegram_id": 1})
+    uids = [d["telegram_id"] async for d in cursor]
+
+    status_msg = await message.answer(f"⏳ Рассылка {len(uids)} пользователям...")
+    sent = 0
+    failed = 0
+    for uid in uids:
+        try:
+            await message.bot.send_message(uid, text, parse_mode="HTML")
+            sent += 1
+        except Exception:
+            failed += 1
+
+    await status_msg.edit_text(
+        f"✅ Рассылка завершена!\n\n"
+        f"📤 Отправлено: {sent}\n"
+        f"❌ Ошибок: {failed}",
+        reply_markup=back_kb(),
+    )

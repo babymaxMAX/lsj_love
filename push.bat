@@ -2,6 +2,6 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 git add -A
-git commit -m "feat: girls see likers free, girls-write-first toggle for men, admin panel, AI matchmaking hides IDs"
+git commit -m "feat: full admin panel with stats/broadcast/search/ban, admin button in /start"
 git push origin main
 pause

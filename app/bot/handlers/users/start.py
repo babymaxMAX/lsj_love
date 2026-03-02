@@ -81,13 +81,14 @@ async def start(message: Message, state: FSMContext, container: Container = init
 
         if user.is_active:
             from app.settings.config import Config
+            from app.bot.handlers.users.admin import ADMIN_IDS
             config: Config = container.resolve(Config)
             await service.update_user_info_after_reg(
                 telegram_id=message.from_user.id,
                 data={"last_seen": datetime.now(timezone.utc)},
             )
             app_url = f"{config.front_end_url}/users/{message.from_user.id}"
-            kb = InlineKeyboardMarkup(inline_keyboard=[
+            buttons = [
                 [InlineKeyboardButton(
                     text="📱 Открыть как приложение",
                     web_app=WebAppInfo(url=app_url),
@@ -96,7 +97,10 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
                 [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
                 [InlineKeyboardButton(text="💬 Поддержка LSJLove", url="https://t.me/babymaxx")],
-            ])
+            ]
+            if message.from_user.id in ADMIN_IDS:
+                buttons.append([InlineKeyboardButton(text="🛠 Панель администратора", callback_data="adm:main")])
+            kb = InlineKeyboardMarkup(inline_keyboard=buttons)
             await message.answer(
                 text=(
                     f"С возвращением, <b>{message.from_user.first_name}</b>! 💫\n\n"
