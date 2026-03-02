@@ -304,46 +304,42 @@ async def toggle_girls_write_first(
     container: Container = init_container(),
 ):
     service: BaseUsersService = container.resolve(BaseUsersService)
-    await callback.answer()
 
     try:
         user = await service.get_user(telegram_id=callback.from_user.id)
     except Exception:
-        await callback.message.answer("Ошибка получения профиля.")
+        await callback.answer("Ошибка профиля", show_alert=True)
         return
 
     current = bool(getattr(user, "allow_girls_write_first", False))
     new_val = not current
-    await service.update_user_info_after_reg(
-        telegram_id=callback.from_user.id,
-        data={"allow_girls_write_first": new_val},
-    )
 
-    # Показываем уведомление через answer, затем обновляем профиль на месте
+    try:
+        await service.update_user_info_after_reg(
+            telegram_id=callback.from_user.id,
+            data={"allow_girls_write_first": new_val},
+        )
+    except Exception:
+        await callback.answer("Ошибка сохранения", show_alert=True)
+        return
+
     status_text = "✅ Включено" if new_val else "❌ Отключено"
     await callback.answer(f"Девушки пишут первыми: {status_text}", show_alert=False)
 
-    # Перезагружаем актуальный профиль с обновлённым значением
-    updated_user = await service.get_user(telegram_id=callback.from_user.id)
-    from datetime import datetime, timezone
-    caption = user_profile_text_message(user=updated_user)
-
-    from app.bot.keyboards.inline import profile_inline_kb
-    now = datetime.now(timezone.utc)
-    pt = getattr(updated_user, "premium_type", None)
-    until = getattr(updated_user, "premium_until", None)
-    is_vip = pt == "vip" and until and (until.replace(tzinfo=timezone.utc) if until.tzinfo is None else until) > now
-    allow_girls = bool(getattr(updated_user, "allow_girls_write_first", False))
-    kb = profile_inline_kb(
-        gender=getattr(updated_user, "gender", None),
-        is_vip=is_vip,
-        allow_girls_write_first=allow_girls,
-    )
-
+    # Обновляем клавиатуру профиля чтобы кнопка сразу отразила новое состояние
     try:
-        await callback.message.edit_caption(caption=caption, parse_mode="HTML", reply_markup=kb)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        pt = getattr(user, "premium_type", None)
+        until = getattr(user, "premium_until", None)
+        if until and hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_vip = pt == "vip" and until and until > now
+        kb = profile_inline_kb(
+            gender=getattr(user, "gender", None),
+            is_vip=is_vip,
+            allow_girls_write_first=new_val,
+        )
+        await callback.message.edit_reply_markup(reply_markup=kb)
     except Exception:
-        try:
-            await callback.message.edit_text(caption, parse_mode="HTML", reply_markup=kb)
-        except Exception:
-            pass
+        pass
