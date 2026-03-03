@@ -600,10 +600,13 @@ async def successful_payment(message: Message, container: Container = init_conta
             service: BaseUsersService = container.resolve(BaseUsersService)
             user = await service.get_user(telegram_id=user_id)
             now = datetime.now(timezone.utc)
-            current_until = getattr(user, "premium_until", None) or now
-            if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
-                current_until = current_until.replace(tzinfo=None)
-            base = max(current_until, now)
+            current_until = getattr(user, "premium_until", None)
+            if current_until is None:
+                base = now
+            else:
+                if hasattr(current_until, "tzinfo") and current_until.tzinfo is None:
+                    current_until = current_until.replace(tzinfo=timezone.utc)
+                base = max(current_until, now)
             until = base + timedelta(days=7)
             await service.update_user_info_after_reg(
                 telegram_id=user_id,
