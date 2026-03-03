@@ -319,12 +319,13 @@ async def create_platega_payment(
     amount = prices[body.product]
     product_info = PRODUCTS[body.product]
 
+    frontend_url = config.front_end_url.rstrip("/")
     request_body = {
         "paymentMethod": PAYMENT_METHODS[body.method],
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": product_info["name"],
-        "return": f"[REDACTED]/users/{body.telegram_id}/premium?status=success",
-        "failedUrl": f"[REDACTED]/users/{body.telegram_id}/premium?status=failed",
+        "return": f"{frontend_url}/users/{body.telegram_id}/premium?status=success",
+        "failedUrl": f"{frontend_url}/users/{body.telegram_id}/premium?status=failed",
         "payload": f"{body.telegram_id}:{body.product}",
     }
 
