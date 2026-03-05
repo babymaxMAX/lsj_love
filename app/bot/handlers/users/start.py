@@ -96,7 +96,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 [InlineKeyboardButton(text="🌐 Открыть как сайт", url=app_url)],
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile_page")],
                 [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
-                [InlineKeyboardButton(text="💬 Поддержка LSJLove", url="https://t.me/babymaxx")],
+                [InlineKeyboardButton(text="💬 Поддержка Kupidon AI", url="https://t.me/babymaxx")],
             ]
             if message.from_user.id in ADMIN_IDS:
                 buttons.append([InlineKeyboardButton(text="🛠 Панель администратора", callback_data="adm:main")])
@@ -162,7 +162,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
             )
         else:
             welcome = (
-                "💕 Добро пожаловать в <b>LSJLove</b>!\n\n"
+                "💕 Добро пожаловать в <b>Kupidon AI</b>!\n\n"
                 "Здесь ты найдёшь свою вторую половинку.\n\n"
                 "✨ <b>Что тебя ждёт:</b>\n"
                 "• Свайпай анкеты и находи людей рядом\n"

@@ -479,7 +479,7 @@ async def get_payment_status(
                     label = "⭐ Premium" if product_info["premium_type"] == "premium" else "💎 VIP"
                     await _notify_user(uid,
                         f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                        f"Активирован <b>LSJLove {label}</b>.\n"
+                        f"Активирован <b>Kupidon AI {label}</b>.\n"
                         f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b>\n\n"
                         f"Открой приложение и наслаждайся! ✨"
                     )
@@ -591,7 +591,7 @@ async def platega_webhook(
             label = "⭐ Premium" if product_info["premium_type"] == "premium" else "💎 VIP"
             await _notify_user(uid,
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"Активирован <b>LSJLove {label}</b>.\n"
+                f"Активирован <b>Kupidon AI {label}</b>.\n"
                 f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b>\n\n"
                 f"Открой приложение и наслаждайся! ✨"
             )

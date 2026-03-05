@@ -151,7 +151,7 @@ async def referral_info(
         referred_line = f"\n📨 Ты пришёл по реферальной ссылке."
 
     text = (
-        f"🔗 <b>Реферальная программа LSJLove</b>\n\n"
+        f"🔗 <b>Реферальная программа Kupidon AI</b>\n\n"
         f"Приглашай друзей — зарабатывай <b>50%</b> с каждой их покупки!\n\n"
         f"<b>Твоя ссылка:</b>\n"
         f"<code>{referral_link}</code>\n\n"

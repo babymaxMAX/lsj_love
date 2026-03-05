@@ -190,7 +190,7 @@ async def cmd_admin(message: Message):
         await message.answer("⛔ Нет доступа.")
         return
     await message.answer(
-        "🛠 <b>Панель администратора LSJ Love</b>\n\nВыберите раздел:",
+        "🛠 <b>Панель администратора Kupidon AI</b>\n\nВыберите раздел:",
         reply_markup=main_menu_kb(),
         parse_mode="HTML",
     )
@@ -206,13 +206,13 @@ async def cb_main(cq: CallbackQuery, state: FSMContext):
     await state.clear()
     try:
         await cq.message.edit_text(
-            "🛠 <b>Панель администратора LSJ Love</b>\n\nВыберите раздел:",
+            "🛠 <b>Панель администратора Kupidon AI</b>\n\nВыберите раздел:",
             reply_markup=main_menu_kb(),
             parse_mode="HTML",
         )
     except Exception:
         await cq.message.answer(
-            "🛠 <b>Панель администратора LSJ Love</b>",
+            "🛠 <b>Панель администратора Kupidon AI</b>",
             reply_markup=main_menu_kb(),
             parse_mode="HTML",
         )
@@ -249,7 +249,7 @@ async def cb_stats(cq: CallbackQuery):
     ]})
 
     text = (
-        "📊 <b>Статистика LSJ Love</b>\n\n"
+        "📊 <b>Статистика Kupidon AI</b>\n\n"
         f"👤 Всего пользователей: <b>{total}</b>\n"
         f"✅ Активных: <b>{active}</b>\n"
         f"🚫 Забанено: <b>{banned}</b>\n\n"
@@ -573,7 +573,7 @@ async def cb_ban(cq: CallbackQuery):
     )
     await cq.answer("🚫 Пользователь забанен!", show_alert=True)
     try:
-        await cq.bot.send_message(uid, "🚫 Ваш аккаунт заблокирован администрацией LSJ Love.")
+        await cq.bot.send_message(uid, "🚫 Ваш аккаунт заблокирован администрацией Kupidon AI.")
     except Exception:
         pass
     doc = await db[_config.mongodb_users_collection].find_one({"telegram_id": uid})
@@ -600,7 +600,7 @@ async def cb_unban(cq: CallbackQuery):
     )
     await cq.answer("✅ Пользователь разбанен!", show_alert=True)
     try:
-        await cq.bot.send_message(uid, "✅ Ваш аккаунт разблокирован. Добро пожаловать обратно в LSJ Love!")
+        await cq.bot.send_message(uid, "✅ Ваш аккаунт разблокирован. Добро пожаловать обратно в Kupidon AI!")
     except Exception:
         pass
     doc = await db[_config.mongodb_users_collection].find_one({"telegram_id": uid})

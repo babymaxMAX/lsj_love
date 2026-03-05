@@ -20,7 +20,7 @@ LOOKING_FOR_RU = {
 
 def first_welcome_message(user: User) -> str:
     message: str = (
-        f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
+        f"Добро пожаловать в <b>Kupidon AI</b> 💕\n\n"
         f"Привет, <b>{user.first_name}</b>! Здесь ты найдёшь свою вторую половинку."
     )
     return message
@@ -45,7 +45,7 @@ def user_profile_text_message(user: UserEntity) -> str:
     username_str = f"  ·  @{user.username}" if user.username else ""
 
     lines = [
-        "✨ <b>LSJLove — Моя анкета</b>",
+        "✨ <b>Kupidon AI — Моя анкета</b>",
         "━━━━━━━━━━━━━━━━━━━━",
         f"👤  <b>{name_line}{age_str}</b>{username_str}",
         f"📍  {user.city or '—'}",
@@ -144,7 +144,7 @@ def match_text_message(user: UserEntity) -> str:
 
 def premium_info_message() -> str:
     return (
-        "💎 <b>LSJLove Premium</b>\n\n"
+        "💎 <b>Kupidon AI Premium</b>\n\n"
         "Выбери тариф:\n\n"
 
         "⭐ <b>Premium — 350 ₽ / 150 Stars в неделю</b>\n"

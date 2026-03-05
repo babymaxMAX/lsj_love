@@ -30,7 +30,7 @@ router = APIRouter(prefix="/ai", tags=["AI"])
 async def get_city_coordinates(city: str) -> tuple[float, float] | None:
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": city, "format": "json", "limit": 1}
-    headers = {"User-Agent": "LSJLove/1.0"}
+    headers = {"User-Agent": "KupidonAI/1.0"}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
@@ -823,7 +823,7 @@ async def _matchmaking_text_screen(
     user_context = f"\nИнформация о пользователе, который ищет: {user_info}" if user_info else ""
 
     system = (
-        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств LSJLove. "
+        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств Kupidon AI. "
         "Пользователь описывает, кого ищет. Тебе дан список анкет с ID, именем, возрастом, городом, описанием, "
         "типом подписки и ответами на вопросы профиля.\n\n"
         "Ты отлично понимаешь разговорный русский язык и неформальные описания внешности.\n"
@@ -897,7 +897,7 @@ async def _matchmaking_vision_rank(
     shown_note = f" Не повторяй ID: {shown_ids}." if shown_ids else ""
 
     system = (
-        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств LSJLove. "
+        "Ты — умный и дружелюбный помощник по подбору пар в приложении знакомств Kupidon AI. "
         "Общайся как живой человек-помощник, а не робот.\n\n"
         "ЗАДАЧА: Смотри на фотографии и описания кандидатов, выбери 2-3 анкеты которые подходят под критерии пользователя.\n\n"
         "VISION-АНАЛИЗ ФОТО (если есть):\n"

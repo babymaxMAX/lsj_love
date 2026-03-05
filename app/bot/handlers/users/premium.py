@@ -357,7 +357,7 @@ async def choose_vip(callback: CallbackQuery, container: Container = init_contai
 async def stars_premium(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
     await callback.message.answer_invoice(
-        title="LSJLove Premium",
+        title="Kupidon AI Premium",
         description="Безлимитные лайки, просмотр кто лайкнул, откат свайпа, 1 суперлайк/день",
         payload="premium_monthly",
         currency="XTR",
@@ -370,7 +370,7 @@ async def stars_premium(callback: CallbackQuery, container: Container = init_con
 async def stars_vip(callback: CallbackQuery, container: Container = init_container()):
     config: Config = container.resolve(Config)
     await callback.message.answer_invoice(
-        title="LSJLove VIP",
+        title="Kupidon AI VIP",
         description="AI Icebreaker ×10/день, буст профиля, приоритет в выдаче + всё из Premium",
         payload="vip_monthly",
         currency="XTR",
@@ -616,7 +616,7 @@ async def successful_payment(message: Message, container: Container = init_conta
             days_left = (until - now).days
             await message.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"Активирован <b>LSJLove {label}</b>.\n"
+                f"Активирован <b>Kupidon AI {label}</b>.\n"
                 f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b> ({days_left} дн.)\n\n"
                 f"Открой приложение и наслаждайся! ✨",
                 parse_mode="HTML",
