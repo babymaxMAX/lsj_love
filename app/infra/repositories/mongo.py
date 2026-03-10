@@ -410,10 +410,6 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         if user is None:
             return []
 
-        user_age = user.age
-        age_min = int(user_age) - 5
-        age_max = int(user_age) + 5
-
         excluded = list(exclude_ids or [])
         excluded.append(telegram_id)
 
@@ -421,13 +417,8 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
+            "is_active": True,
             "profile_hidden": {"$ne": True},
-            "$expr": {
-                "$and": [
-                    {"$gte": [{"$toInt": "$age"}, age_min]},
-                    {"$lte": [{"$toInt": "$age"}, age_max]},
-                ],
-            },
         }
 
         if hasattr(user, "gender") and user.gender:
@@ -436,7 +427,6 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             if target_gender:
                 query_filter["gender"] = target_gender
 
-        # Фильтр по городу: сначала только свой город
         user_city = str(getattr(user, "city", "") or "").strip()
         if user_city:
             query_filter["city"] = user_city
@@ -481,50 +471,29 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         ]
 
         result = []
-        async for doc in self._collection.aggregate(pipeline):
-            result.append(convert_user_document_to_entity(user_document=doc))
+        try:
+            async for doc in self._collection.aggregate(pipeline):
+                result.append(convert_user_document_to_entity(user_document=doc))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Aggregation failed, using simple find: {e}")
+            async for doc in self._collection.find(query_filter):
+                result.append(convert_user_document_to_entity(user_document=doc))
 
-        # Если не нашли никого в своём городе — ищем в ближайших городах
+        # Если в своём городе никого — ищем в ближайших
         if not result and user_city:
             neighbors = _CITY_NEIGHBORS.get(user_city, [])
             if neighbors:
-                fallback_filter = dict(query_filter)
-                fallback_filter.pop("city", None)
-                fallback_filter["city"] = {"$in": neighbors}
-                fallback_pipeline = [
-                    {"$match": fallback_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(fallback_pipeline):
+                nb_filter = dict(query_filter)
+                nb_filter["city"] = {"$in": neighbors}
+                async for doc in self._collection.find(nb_filter):
                     result.append(convert_user_document_to_entity(user_document=doc))
 
-            # Если и в ближайших городах никого — ищем по всей базе без фильтра города
+            # Если и в ближайших никого — ищем везде
             if not result:
-                global_filter = dict(query_filter)
-                global_filter.pop("city", None)
-                global_pipeline = [
-                    {"$match": global_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(global_pipeline):
+                all_filter = dict(query_filter)
+                all_filter.pop("city", None)
+                async for doc in self._collection.find(all_filter):
                     result.append(convert_user_document_to_entity(user_document=doc))
 
         return result
