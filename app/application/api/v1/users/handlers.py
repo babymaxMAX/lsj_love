@@ -11,13 +11,55 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.routing import APIRouter
 from pydantic import BaseModel
 
 from punq import Container
 
 from app.application.api.schemas import ErrorSchema
+
+# ─── SVG-заглушка когда фото недоступно ──────────────────────────────────────
+_AVATAR_COLORS = ["#7c3aed", "#ec4899", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444"]
+_CORS_HEADERS = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"}
+
+
+def _svg_avatar(name: str = "?", uid: int = 0) -> Response:
+    """Генерирует SVG-аватар с инициалом вместо чёрного экрана."""
+    letter = (name or "?")[0].upper()
+    color  = _AVATAR_COLORS[uid % len(_AVATAR_COLORS)]
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">'
+        f'<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">'
+        f'<stop offset="0%" style="stop-color:{color};stop-opacity:0.6"/>'
+        f'<stop offset="100%" style="stop-color:{color};stop-opacity:1"/>'
+        f'</linearGradient></defs>'
+        f'<rect width="400" height="400" fill="url(#g)"/>'
+        f'<text x="200" y="240" font-family="Arial,sans-serif" font-size="180" '
+        f'font-weight="bold" fill="white" text-anchor="middle" opacity="0.9">{letter}</text>'
+        f'</svg>'
+    )
+    return Response(content=svg.encode(), media_type="image/svg+xml", headers=_CORS_HEADERS)
+
+
+async def _stream_s3(uploader, s3_key: str):
+    """Скачивает файл из S3 и возвращает байты. Raises Exception если не удалось."""
+    async with uploader.get_client() as client:
+        resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
+        body = await resp["Body"].read()
+    if not body:
+        raise ValueError("Empty S3 response")
+    return body
+
+
+async def _stream_url(url: str) -> bytes:
+    """Скачивает файл по URL и возвращает байты."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=12),
+                               allow_redirects=True) as r:
+            if r.status != 200:
+                raise ValueError(f"HTTP {r.status}")
+            return await r.read()
 from app.application.api.v1.users.filters import GetUsersFilters
 from app.application.api.v1.users.schemas import (
     GetUsersFromResponseSchema,
@@ -149,32 +191,59 @@ async def get_user_photo_by_index(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     if not photos or index >= len(photos) or index < 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+        # Возвращаем SVG-аватар вместо 404
+        try:
+            user = await service.get_user(telegram_id=user_id)
+            name = str(getattr(user, "name", user_id) or user_id)
+        except Exception:
+            name = str(user_id)
+        return _svg_avatar(name, user_id)
 
     s3_key = photos[index]
+    _ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+               "webp": "image/webp", "gif": "image/gif",
+               "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
+
+    # Если в photos[] хранится полный URL (старый формат) — скачиваем по URL
+    if s3_key.startswith("http"):
+        try:
+            body = await _stream_url(s3_key)
+            ext = s3_key.split("?")[0].rsplit(".", 1)[-1].lower()
+            ct = _ct_map.get(ext, "image/jpeg")
+            return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+        except Exception:
+            pass
+        return _svg_avatar(str(user_id), user_id)
+
+    # S3 ключ — стримим напрямую
     ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
-    _ct = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-           "webp": "image/webp", "gif": "image/gif",
-           "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
-    content_type = _ct.get(ext, "image/jpeg")
-    _cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600"}
+    ct = _ct_map.get(ext, "image/jpeg")
+    try:
+        body = await _stream_s3(uploader, s3_key)
+        return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+    except Exception:
+        pass
+
+    # S3 упал — пробуем presigned URL
     try:
         async with uploader.get_client() as client:
-            resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
-            body = await resp["Body"].read()
-            return StreamingResponse(iter([body]), media_type=content_type, headers=_cors)
+            url = await client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                ExpiresIn=3600,
+            )
+        body = await _stream_url(url)
+        return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
     except Exception:
-        # Fallback: presigned URL
-        try:
-            async with uploader.get_client() as client:
-                url = await client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": uploader.bucket_name, "Key": s3_key},
-                    ExpiresIn=3600,
-                )
-                return RedirectResponse(url=url, headers=_cors)
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found in S3")
+        pass
+
+    # Все попытки провалились — SVG аватар
+    try:
+        user = await service.get_user(telegram_id=user_id)
+        name = str(getattr(user, "name", user_id) or user_id)
+    except Exception:
+        name = str(user_id)
+    return _svg_avatar(name, user_id)
 
 
 @router.get(
@@ -196,66 +265,72 @@ async def get_user_photo(
     except ApplicationException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    _cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600"}
+    user_name = str(getattr(user, "name", user_id) or user_id)
 
-    # Сначала пробуем photos[] (новый формат S3 ключей) — стримим байты напрямую
+    # 1) Пробуем photos[] — S3 ключи или URL-ы
     photos = getattr(user, "photos", []) or []
     if photos:
         s3_key = photos[0]
-        ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
-        _ct = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-               "webp": "image/webp", "gif": "image/gif",
-               "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
-        ct = _ct.get(ext, "image/jpeg")
-        try:
-            async with uploader.get_client() as client:
-                resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
-                body = await resp["Body"].read()
-                return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
-        except Exception:
-            pass
+        _ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                   "webp": "image/webp", "gif": "image/gif",
+                   "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
+        if s3_key.startswith("http"):
+            try:
+                body = await _stream_url(s3_key)
+                ext = s3_key.split("?")[0].rsplit(".", 1)[-1].lower()
+                ct = _ct_map.get(ext, "image/jpeg")
+                return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+            except Exception:
+                pass
+        else:
+            try:
+                body = await _stream_s3(uploader, s3_key)
+                ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
+                ct = _ct_map.get(ext, "image/jpeg")
+                return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+            except Exception:
+                # S3 упал → пробуем presigned
+                try:
+                    async with uploader.get_client() as client:
+                        url = await client.generate_presigned_url(
+                            "get_object",
+                            Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                            ExpiresIn=3600,
+                        )
+                    body = await _stream_url(url)
+                    return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+                except Exception:
+                    pass
 
-    # Фолбэк на старый photo (Telegram file_id или HTTP URL)
-    photo = user.photo
-    if not photo:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo")
+    # 2) Фолбэк: legacy photo (HTTP URL или Telegram file_id)
+    photo = getattr(user, "photo", None)
+    if photo:
+        if photo.startswith("http"):
+            try:
+                body = await _stream_url(photo)
+                return StreamingResponse(iter([body]), media_type="image/jpeg", headers=_CORS_HEADERS)
+            except Exception:
+                pass
+        elif photo and not photo.startswith("http"):
+            # Telegram file_id
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"https://api.telegram.org/bot{config.token}/getFile",
+                        params={"file_id": photo},
+                        timeout=aiohttp.ClientTimeout(total=8),
+                    ) as resp:
+                        data = await resp.json()
+                    if data.get("ok"):
+                        file_path = data["result"]["file_path"]
+                        file_url = f"https://api.telegram.org/file/bot{config.token}/{file_path}"
+                        body = await _stream_url(file_url)
+                        return StreamingResponse(iter([body]), media_type="image/jpeg", headers=_CORS_HEADERS)
+            except Exception:
+                pass
 
-    # HTTP-ссылка — скачиваем и стримим (без redirect)
-    if photo.startswith("http"):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(photo, timeout=aiohttp.ClientTimeout(total=10)) as r:
-                    if r.status == 200:
-                        body = await r.read()
-                        ct = r.headers.get("Content-Type", "image/jpeg")
-                        return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
-        except Exception:
-            pass
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo unavailable")
-
-    # Telegram file_id — получаем URL через Bot API и скачиваем на сервере (без redirect)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"https://api.telegram.org/bot{config.token}/getFile",
-                params={"file_id": photo},
-                timeout=aiohttp.ClientTimeout(total=8),
-            ) as resp:
-                data = await resp.json()
-            if not data.get("ok"):
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-            file_path = data["result"]["file_path"]
-            file_url = f"https://api.telegram.org/file/bot{config.token}/{file_path}"
-            async with session.get(file_url, timeout=aiohttp.ClientTimeout(total=15)) as fr:
-                if fr.status != 200:
-                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telegram file unavailable")
-                body = await fr.read()
-                ct = fr.headers.get("Content-Type", "image/jpeg")
-                return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telegram API error")
+    # 3) Всё провалилось — красивый SVG-аватар
+    return _svg_avatar(user_name, user_id)
 
 
 @router.post(

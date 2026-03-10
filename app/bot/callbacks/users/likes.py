@@ -154,7 +154,8 @@ async def process_next_user(callback: CallbackQuery, session: UserSession):
 
 
 @callback_like_router.callback_query(
-    lambda callback_query: callback_query.data.startswith("like_"),
+    # Исключаем like_back_ — его обрабатывает отдельный хендлер ниже
+    lambda c: c.data and c.data.startswith("like_") and not c.data.startswith("like_back_"),
 )
 async def handle_like_user(
     callback: CallbackQuery,
@@ -166,7 +167,11 @@ async def handle_like_user(
 
     await callback.answer()
 
-    liked_user_id = int(callback.data.split("_")[1])
+    try:
+        liked_user_id = int(callback.data[len("like_"):])
+    except (ValueError, IndexError):
+        await callback.message.answer("⚠️ Ошибка: неверный формат данных")
+        return
 
     try:
         user_liked = await users_service.get_user(liked_user_id)
