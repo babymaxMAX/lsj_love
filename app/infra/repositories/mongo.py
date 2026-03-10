@@ -421,9 +421,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             "profile_hidden": {"$ne": True},
         }
 
+        # Гендер-фильтр: исключаем только ТОЧНО совпадающий свой пол
+        # (null/отсутствующий пол — показываем, т.к. 97% пользователей без пола)
         if hasattr(user, "gender") and user.gender:
             gender_str = str(user.gender)
-            same_genders = {
+            same_exact = {
                 "Мужской": ["Мужской", "Man", "man"],
                 "Man": ["Мужской", "Man", "man"],
                 "man": ["Мужской", "Man", "man"],
@@ -431,13 +433,9 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 "Female": ["Женский", "Female", "female"],
                 "female": ["Женский", "Female", "female"],
             }
-            exclude = same_genders.get(gender_str)
-            if exclude:
-                query_filter["$or"] = [
-                    {"gender": {"$nin": exclude}},
-                    {"gender": None},
-                    {"gender": {"$exists": False}},
-                ]
+            to_exclude = same_exact.get(gender_str)
+            if to_exclude:
+                query_filter["gender"] = {"$nin": to_exclude}
 
         import logging as _log
         _logger = _log.getLogger(__name__)
@@ -453,15 +451,34 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             except Exception as e:
                 _logger.warning(f"Converter error for {doc.get('telegram_id')}: {e}")
 
-        # Сортировка: свой город → соседи → остальные, внутри каждой группы — с фото первыми
+        # Определяем противоположный пол для приоритета
+        opposite_genders = set()
+        if hasattr(user, "gender") and user.gender:
+            opp_map = {
+                "Мужской": {"Женский", "Female", "female"},
+                "Man": {"Женский", "Female", "female"},
+                "man": {"Женский", "Female", "female"},
+                "Женский": {"Мужской", "Man", "man"},
+                "Female": {"Мужской", "Man", "man"},
+                "female": {"Мужской", "Man", "man"},
+            }
+            opposite_genders = opp_map.get(str(user.gender), set())
+
+        # Сортировка: подтверждённый противоположный пол + фото → город → остальные
         def _sort_key(u):
             u_city = str(getattr(u, "city", "") or "").strip()
+            u_gender = str(getattr(u, "gender", "") or "")
             has_photo = 0 if (getattr(u, "photos", None) or getattr(u, "photo", None)) else 1
+            # Приоритет пола: подтверждённый противоположный = 0, null = 1
+            gender_priority = 0 if u_gender in opposite_genders else 1
+            # Приоритет города
             if user_city and u_city == user_city:
-                return (0, has_photo)  # свой город
-            if u_city in neighbors:
-                return (1, has_photo)  # соседний город
-            return (2, has_photo)      # остальные
+                city_priority = 0
+            elif u_city in neighbors:
+                city_priority = 1
+            else:
+                city_priority = 2
+            return (gender_priority, city_priority, has_photo)
 
         all_docs.sort(key=_sort_key)
 
