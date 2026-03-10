@@ -421,21 +421,23 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             "profile_hidden": {"$ne": True},
         }
 
-        # Гендер-фильтр: исключаем только ТОЧНО совпадающий свой пол
-        # (null/отсутствующий пол — показываем, т.к. 97% пользователей без пола)
-        if hasattr(user, "gender") and user.gender:
-            gender_str = str(user.gender)
-            same_exact = {
-                "Мужской": ["Мужской", "Man", "man"],
-                "Man": ["Мужской", "Man", "man"],
-                "man": ["Мужской", "Man", "man"],
-                "Женский": ["Женский", "Female", "female"],
-                "Female": ["Женский", "Female", "female"],
-                "female": ["Женский", "Female", "female"],
-            }
-            to_exclude = same_exact.get(gender_str)
-            if to_exclude:
-                query_filter["gender"] = {"$nin": to_exclude}
+        # Гендер-фильтр: используем looking_for (кого ищет) для определения
+        # что показывать — это надёжнее чем gender (у 97% null)
+        user_looking = str(getattr(user, "looking_for", "") or "")
+        user_gender_str = str(getattr(user, "gender", "") or "")
+        
+        # Исключаем пользователей которые ТОЧНО того же пола
+        same_gender_values = {
+            "Мужской": ["Мужской", "Man", "man"],
+            "Man": ["Мужской", "Man", "man"],
+            "man": ["Мужской", "Man", "man"],
+            "Женский": ["Женский", "Female", "female"],
+            "Female": ["Женский", "Female", "female"],
+            "female": ["Женский", "Female", "female"],
+        }
+        exclude_genders = same_gender_values.get(user_gender_str)
+        if exclude_genders:
+            query_filter["gender"] = {"$nin": exclude_genders}
 
         import logging as _log
         _logger = _log.getLogger(__name__)
@@ -451,9 +453,19 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             except Exception as e:
                 _logger.warning(f"Converter error for {doc.get('telegram_id')}: {e}")
 
-        # Определяем противоположный пол для приоритета
-        opposite_genders = set()
-        if hasattr(user, "gender") and user.gender:
+        # Определяем кого ищет пользователь (looking_for) для сортировки
+        wanted_genders = set()
+        if user_looking:
+            wanted_map = {
+                "Женский": {"Женский", "Female", "female"},
+                "Female": {"Женский", "Female", "female"},
+                "female": {"Женский", "Female", "female"},
+                "Мужской": {"Мужской", "Man", "man"},
+                "Man": {"Мужской", "Man", "man"},
+                "man": {"Мужской", "Man", "man"},
+            }
+            wanted_genders = wanted_map.get(user_looking, set())
+        elif user_gender_str:
             opp_map = {
                 "Мужской": {"Женский", "Female", "female"},
                 "Man": {"Женский", "Female", "female"},
@@ -462,16 +474,14 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 "Female": {"Мужской", "Man", "man"},
                 "female": {"Мужской", "Man", "man"},
             }
-            opposite_genders = opp_map.get(str(user.gender), set())
+            wanted_genders = opp_map.get(user_gender_str, set())
 
-        # Сортировка: подтверждённый противоположный пол + фото → город → остальные
         def _sort_key(u):
             u_city = str(getattr(u, "city", "") or "").strip()
             u_gender = str(getattr(u, "gender", "") or "")
             has_photo = 0 if (getattr(u, "photos", None) or getattr(u, "photo", None)) else 1
-            # Приоритет пола: подтверждённый противоположный = 0, null = 1
-            gender_priority = 0 if u_gender in opposite_genders else 1
-            # Приоритет города
+            # Приоритет: подтверждённый нужный пол = 0, null = 1
+            gender_priority = 0 if u_gender in wanted_genders else 1
             if user_city and u_city == user_city:
                 city_priority = 0
             elif u_city in neighbors:
