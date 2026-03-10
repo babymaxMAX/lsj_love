@@ -1080,6 +1080,8 @@ async def ai_matchmaking(
             continue
         all_user_docs.append(doc)
 
+    logger.info(f"Matchmaking: found {len(all_user_docs)} active users for user {data.user_id}")
+
     # Исключаем shown_ids
     candidates_docs = [d for d in all_user_docs if d["telegram_id"] not in shown_ids]
 
@@ -1092,23 +1094,17 @@ async def ai_matchmaking(
                 matches=[],
             )
 
-    # ── Геосортировка: вычисляем расстояние от пользователя ──
-    user_city = str(getattr(current_user, "city", "") or "")
-    user_coords = await get_cached_coordinates(user_city, db) if user_city else None
-
+    # ── Сортировка: свой город первым, остальные после ──
+    user_city = str(getattr(current_user, "city", "") or "").strip().lower()
     id_to_dist: dict[int, float | None] = {}
-    for doc in candidates_docs:
-        cand_city = str(doc.get("city", "") or "")
-        if user_coords and cand_city:
-            cand_coords = await get_cached_coordinates(cand_city, db)
-            if cand_coords:
-                id_to_dist[doc["telegram_id"]] = round(haversine_km(user_coords[0], user_coords[1], cand_coords[0], cand_coords[1]))
-            else:
-                id_to_dist[doc["telegram_id"]] = None
-        else:
-            id_to_dist[doc["telegram_id"]] = None
 
-    candidates_docs.sort(key=lambda d: id_to_dist.get(d["telegram_id"]) or 99999)
+    def _city_sort_key(doc):
+        c = str(doc.get("city", "") or "").strip().lower()
+        if c == user_city and user_city:
+            return 0
+        return 1
+
+    candidates_docs.sort(key=_city_sort_key)
 
     # ── Собираем profile_answers ──
     id_to_answers: dict[int, dict] = {}
@@ -1148,10 +1144,8 @@ async def ai_matchmaking(
         gender = str(doc.get("gender", "") or "")
         about = str(doc.get("about", "") or "")[:120]
         photos = doc.get("photos", []) or []
-        dist = id_to_dist.get(uid)
-        dist_str = f" (~{int(dist)}км)" if dist is not None else ""
 
-        line = f"ID:{uid} | {name}, {age}л | {city}{dist_str} | Пол:{gender} | О себе: {about} | Фото: {len(photos)}шт"
+        line = f"ID:{uid} | {name}, {age}л | {city} | Пол:{gender} | О себе: {about} | Фото: {len(photos)}шт"
 
         cand_answers = id_to_answers.get(uid, {})
         if cand_answers:
