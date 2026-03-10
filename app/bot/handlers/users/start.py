@@ -54,7 +54,10 @@ async def _notify_referrer_registration(bot, referrer_id: int, new_user: Message
 
 @user_router.message(CommandStart())
 async def start(message: Message, state: FSMContext, container: Container = init_container()):
-    await state.clear()
+    try:
+        await state.clear()
+    except Exception:
+        pass
 
     service: BaseUsersService = container.resolve(BaseUsersService)
 
@@ -169,3 +172,13 @@ async def start(message: Message, state: FSMContext, container: Container = init
                 welcome += "\n\n🎁 Ты зарегистрировался по реферальной ссылке!"
             await message.answer(text=welcome, parse_mode="HTML")
             await start_registration(message, state)
+
+    except Exception as e:
+        logger.error(f"/start handler unexpected error: {e}", exc_info=True)
+        try:
+            await message.answer(
+                "Произошла ошибка. Попробуй /start ещё раз.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
