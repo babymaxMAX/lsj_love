@@ -436,49 +436,34 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             if exclude_genders:
                 query_filter["gender"] = {"$nin": exclude_genders}
 
-        # Шаг 1: простой find без города (надёжный, без aggregation pipeline)
         import logging as _log
         _logger = _log.getLogger(__name__)
 
-        base_filter = dict(query_filter)
         user_city = str(getattr(user, "city", "") or "").strip()
+        neighbors = _CITY_NEIGHBORS.get(user_city, []) if user_city else []
 
-        # Сначала пробуем свой город
-        result = []
-        if user_city:
-            city_filter = dict(base_filter)
-            city_filter["city"] = user_city
-            async for doc in self._collection.find(city_filter):
-                try:
-                    result.append(convert_user_document_to_entity(user_document=doc))
-                except Exception as e:
-                    _logger.warning(f"Converter error for user {doc.get('telegram_id')}: {e}")
+        # Загружаем ВСЕ подходящие анкеты одним запросом
+        all_docs = []
+        async for doc in self._collection.find(query_filter):
+            try:
+                all_docs.append(convert_user_document_to_entity(user_document=doc))
+            except Exception as e:
+                _logger.warning(f"Converter error for {doc.get('telegram_id')}: {e}")
 
-        # Если в своём городе никого — ищем в ближайших
-        if not result and user_city:
-            neighbors = _CITY_NEIGHBORS.get(user_city, [])
-            if neighbors:
-                nb_filter = dict(base_filter)
-                nb_filter["city"] = {"$in": neighbors}
-                async for doc in self._collection.find(nb_filter):
-                    try:
-                        result.append(convert_user_document_to_entity(user_document=doc))
-                    except Exception as e:
-                        _logger.warning(f"Converter error: {e}")
+        # Сортировка: свой город → соседи → остальные, внутри каждой группы — с фото первыми
+        def _sort_key(u):
+            u_city = str(getattr(u, "city", "") or "").strip()
+            has_photo = 0 if (getattr(u, "photos", None) or getattr(u, "photo", None)) else 1
+            if user_city and u_city == user_city:
+                return (0, has_photo)  # свой город
+            if u_city in neighbors:
+                return (1, has_photo)  # соседний город
+            return (2, has_photo)      # остальные
 
-        # Если всё ещё никого — ищем везде (без фильтра города)
-        if not result:
-            async for doc in self._collection.find(base_filter):
-                try:
-                    result.append(convert_user_document_to_entity(user_document=doc))
-                except Exception as e:
-                    _logger.warning(f"Converter error: {e}")
+        all_docs.sort(key=_sort_key)
 
-        # Сортировка: с фото первыми
-        result.sort(key=lambda u: 0 if (getattr(u, "photos", None) or getattr(u, "photo", None)) else 1)
-
-        _logger.info(f"best_result_for_user({telegram_id}): found {len(result)} profiles")
-        return result
+        _logger.info(f"best_result_for_user({telegram_id}): found {len(all_docs)} profiles")
+        return all_docs
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:
         users_documents = self._collection.find(

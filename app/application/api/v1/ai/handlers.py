@@ -1145,6 +1145,12 @@ async def ai_matchmaking(
         user_info_parts.append(f"Ответы на вопросы: {'; '.join(ans_list)}")
     user_info_str = " | ".join(user_info_parts)
 
+    # Определяем какой пол ищет пользователь для подсказки AI
+    user_gender_label = {"Man": "мужчина", "man": "мужчина", "Мужской": "мужчина",
+                         "Female": "девушка", "female": "девушка", "Женский": "девушка"}.get(user_gender, "")
+    if user_gender_label:
+        user_info_str += f" | Я {user_gender_label}, ищу противоположный пол"
+
     # ── Формируем текст анкет с расстоянием и ответами ──
     profiles_lines = []
     for doc in candidates_docs[:80]:
@@ -1152,11 +1158,13 @@ async def ai_matchmaking(
         name = str(doc.get("name", "") or "")
         age = str(doc.get("age", "") or "")
         city = str(doc.get("city", "") or "")
-        gender = str(doc.get("gender", "") or "")
+        raw_gender = doc.get("gender") or ""
+        gender_display = {"Man": "мужчина", "man": "мужчина", "Мужской": "мужчина",
+                          "Female": "девушка", "female": "девушка", "Женский": "девушка"}.get(str(raw_gender), "не указан")
         about = str(doc.get("about", "") or "")[:120]
         photos = doc.get("photos", []) or []
 
-        line = f"ID:{uid} | {name}, {age}л | {city} | Пол:{gender} | О себе: {about} | Фото: {len(photos)}шт"
+        line = f"ID:{uid} | {name}, {age}л | {city} | Пол:{gender_display} | О себе: {about} | Фото: {len(photos)}шт"
 
         cand_answers = id_to_answers.get(uid, {})
         if cand_answers:
