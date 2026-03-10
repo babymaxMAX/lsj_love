@@ -1072,7 +1072,7 @@ async def ai_matchmaking(
     users_col = db[config.mongodb_users_collection]
 
     all_users_cursor = users_col.find(
-        {"is_active": True, "telegram_id": {"$ne": data.user_id}},
+        {"is_active": {"$ne": False}, "telegram_id": {"$ne": data.user_id}},
     )
     all_user_docs: list[dict] = []
     async for doc in all_users_cursor:
