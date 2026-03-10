@@ -220,24 +220,42 @@ async def get_user_photo(
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo")
 
+    # HTTP-ссылка — скачиваем и стримим (без redirect)
     if photo.startswith("http"):
-        return RedirectResponse(url=photo, headers=_cors)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(photo, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    if r.status == 200:
+                        body = await r.read()
+                        ct = r.headers.get("Content-Type", "image/jpeg")
+                        return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
+        except Exception:
+            pass
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo unavailable")
 
-    # Это Telegram file_id
+    # Telegram file_id — получаем URL через Bot API и скачиваем на сервере (без redirect)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"https://api.telegram.org/bot{config.token}/getFile",
                 params={"file_id": photo},
+                timeout=aiohttp.ClientTimeout(total=8),
             ) as resp:
                 data = await resp.json()
-                if not data.get("ok"):
-                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-                file_path = data["result"]["file_path"]
-                file_url = f"https://api.telegram.org/file/bot{config.token}/{file_path}"
-                return RedirectResponse(url=file_url)
-    except aiohttp.ClientError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Telegram API error")
+            if not data.get("ok"):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+            file_path = data["result"]["file_path"]
+            file_url = f"https://api.telegram.org/file/bot{config.token}/{file_path}"
+            async with session.get(file_url, timeout=aiohttp.ClientTimeout(total=15)) as fr:
+                if fr.status != 200:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telegram file unavailable")
+                body = await fr.read()
+                ct = fr.headers.get("Content-Type", "image/jpeg")
+                return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Telegram API error")
 
 
 @router.post(

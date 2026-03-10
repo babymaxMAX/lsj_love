@@ -36,17 +36,15 @@ def convert_user_entity_to_document(user: UserEntity) -> dict:
 
 def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEntity:
     return UserEntity(
-        telegram_id=int(user_document["telegram_id"]),
-        username=user_document["username"],
-        name=user_document["name"] if user_document["name"] else None,
-        gender=user_document["gender"] if user_document["gender"] else None,
-        age=user_document["age"] if user_document["age"] else None,
-        city=user_document["city"] if user_document["city"] else None,
-        looking_for=user_document["looking_for"]
-        if user_document["looking_for"]
-        else None,
-        about=user_document["about"] if user_document["about"] else None,
-        photo=user_document["photo"] if user_document.get("photo") else None,
+        telegram_id=int(user_document.get("telegram_id", 0)),
+        username=user_document.get("username") or "",
+        name=user_document.get("name") or None,
+        gender=user_document.get("gender") or None,
+        age=user_document.get("age") or None,
+        city=user_document.get("city") or None,
+        looking_for=user_document.get("looking_for") or None,
+        about=user_document.get("about") or None,
+        photo=user_document.get("photo") or None,
         photos=user_document.get("photos") or [],
         is_active=user_document.get("is_active", True),
         profile_hidden=bool(user_document.get("profile_hidden", False)),
@@ -59,7 +57,7 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         referred_by=user_document.get("referred_by"),
         referral_balance=float(user_document.get("referral_balance") or 0.0),
         last_seen=user_document.get("last_seen"),
-        created_at=user_document["created_at"],
+        created_at=user_document.get("created_at"),
     )
 
 

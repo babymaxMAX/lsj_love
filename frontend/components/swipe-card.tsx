@@ -455,11 +455,22 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                 src={photoUrls[safeIdx]}
                                 alt={user.name}
                                 className="w-full h-96 object-cover"
+                                style={{ background: "linear-gradient(135deg,#1e1e3a,#2d1b69)" }}
                                 draggable={false}
                                 onError={(e) => {
                                     const img = e.target as HTMLImageElement;
-                                    if (!img.src.endsWith("/placeholder.svg")) {
-                                        img.src = "/placeholder.svg";
+                                    // Показываем сгенерированный аватар вместо чёрного экрана
+                                    const initials = (user.name || "?").charAt(0).toUpperCase();
+                                    const colors = ["#7c3aed","#ec4899","#0ea5e9","#10b981","#f59e0b"];
+                                    const color = colors[(user.telegram_id || 0) % colors.length];
+                                    img.style.display = "none";
+                                    const parent = img.parentElement;
+                                    if (parent && !parent.querySelector(".avatar-fallback")) {
+                                        const div = document.createElement("div");
+                                        div.className = "avatar-fallback w-full h-96 flex items-center justify-center";
+                                        div.style.cssText = `background:linear-gradient(135deg,${color}88,${color});`;
+                                        div.innerHTML = `<span style="font-size:96px;opacity:0.85;">${initials}</span>`;
+                                        parent.insertBefore(div, img);
                                     }
                                 }}
                             />
