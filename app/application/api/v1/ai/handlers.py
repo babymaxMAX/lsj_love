@@ -1072,26 +1072,29 @@ async def ai_matchmaking(
     users_col = db[config.mongodb_users_collection]
 
     # Фильтр по противоположному полу
+    user_gender = str(getattr(current_user, "gender", "") or "")
+    user_looking = str(getattr(current_user, "looking_for", "") or "")
+
+    opposite_map = {
+        "Мужской": ["Женский", "Female", "female"],
+        "Man": ["Женский", "Female", "female"],
+        "man": ["Женский", "Female", "female"],
+        "Женский": ["Мужской", "Man", "man"],
+        "Female": ["Мужской", "Man", "man"],
+        "female": ["Мужской", "Man", "man"],
+    }
+    target_genders = opposite_map.get(user_looking) or opposite_map.get(user_gender) or []
+
     mm_filter = {
         "is_active": {"$ne": False},
         "telegram_id": {"$ne": data.user_id},
         "profile_hidden": {"$ne": True},
-        "gender": {"$ne": None},
         "photos": {"$ne": []},
     }
-    user_gender = str(getattr(current_user, "gender", "") or "")
-    if user_gender:
-        same_exact = {
-            "Мужской": ["Мужской", "Man", "man"],
-            "Man": ["Мужской", "Man", "man"],
-            "man": ["Мужской", "Man", "man"],
-            "Женский": ["Женский", "Female", "female"],
-            "Female": ["Женский", "Female", "female"],
-            "female": ["Женский", "Female", "female"],
-        }
-        to_exclude = same_exact.get(user_gender)
-        if to_exclude:
-            mm_filter["gender"] = {"$nin": to_exclude}
+    if target_genders:
+        mm_filter["gender"] = {"$in": target_genders}
+    else:
+        mm_filter["gender"] = {"$ne": None}
 
     all_users_cursor = users_col.find(mm_filter)
     all_user_docs: list[dict] = []

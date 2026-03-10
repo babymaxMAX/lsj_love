@@ -415,31 +415,31 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         now = datetime.now(timezone.utc)
 
+        # Определяем противоположный пол
+        user_looking = str(getattr(user, "looking_for", "") or "")
+        user_gender_str = str(getattr(user, "gender", "") or "")
+
+        opposite_map = {
+            "Мужской": ["Женский", "Female", "female"],
+            "Man": ["Женский", "Female", "female"],
+            "man": ["Женский", "Female", "female"],
+            "Женский": ["Мужской", "Man", "man"],
+            "Female": ["Мужской", "Man", "man"],
+            "female": ["Мужской", "Man", "man"],
+        }
+        # Используем looking_for если есть, иначе определяем по gender
+        target_genders = opposite_map.get(user_looking) or opposite_map.get(user_gender_str) or []
+
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
             "is_active": {"$ne": False},
             "profile_hidden": {"$ne": True},
-            "gender": {"$ne": None},      # только заполнившие анкету
-            "photos": {"$ne": []},         # только с фото
+            "photos": {"$ne": []},
         }
-
-        # Гендер-фильтр: используем looking_for (кого ищет) для определения
-        # что показывать — это надёжнее чем gender (у 97% null)
-        user_looking = str(getattr(user, "looking_for", "") or "")
-        user_gender_str = str(getattr(user, "gender", "") or "")
-        
-        # Исключаем пользователей которые ТОЧНО того же пола
-        same_gender_values = {
-            "Мужской": ["Мужской", "Man", "man"],
-            "Man": ["Мужской", "Man", "man"],
-            "man": ["Мужской", "Man", "man"],
-            "Женский": ["Женский", "Female", "female"],
-            "Female": ["Женский", "Female", "female"],
-            "female": ["Женский", "Female", "female"],
-        }
-        exclude_genders = same_gender_values.get(user_gender_str)
-        if exclude_genders:
-            query_filter["gender"] = {"$nin": exclude_genders}
+        if target_genders:
+            query_filter["gender"] = {"$in": target_genders}
+        else:
+            query_filter["gender"] = {"$ne": None}
 
         import logging as _log
         _logger = _log.getLogger(__name__)
