@@ -474,6 +474,9 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 except Exception as e:
                     _logger.warning(f"Converter error: {e}")
 
+        # Сортировка: с фото первыми
+        result.sort(key=lambda u: 0 if (getattr(u, "photos", None) or getattr(u, "photo", None)) else 1)
+
         _logger.info(f"best_result_for_user({telegram_id}): found {len(result)} profiles")
         return result
 
