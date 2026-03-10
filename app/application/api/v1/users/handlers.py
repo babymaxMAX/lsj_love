@@ -480,7 +480,16 @@ async def get_users_best_result(
 
     try:
         already_liked = await service_likes.get_telegram_id_liked_from(user_id=user_id)
-        users = await service_users.get_best_result_for_user(user_id, exclude_ids=already_liked)
+
+        from motor.motor_asyncio import AsyncIOMotorClient
+        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        config_obj: Config = container.resolve(Config)
+        skips_col = client[config_obj.mongodb_dating_database]["skips"]
+        skip_docs = skips_col.find({"from_user": user_id}, {"to_user": 1})
+        skipped_ids = [d["to_user"] async for d in skip_docs]
+
+        exclude = list(set(already_liked + skipped_ids))
+        users = await service_users.get_best_result_for_user(user_id, exclude_ids=exclude)
     except ApplicationException as exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -592,6 +601,35 @@ async def ping_user(
         telegram_id=user_id,
         data={"last_seen": now},
     )
+    return {"ok": True}
+
+
+class SkipRequest(BaseModel):
+    from_user: int
+    to_user: int
+
+
+@router.post(
+    "/skip",
+    status_code=status.HTTP_200_OK,
+    description="Skip (dislike) a user — they won't appear again in swipe.",
+)
+async def skip_user(
+    body: SkipRequest,
+    container: Container = Depends(init_container),
+):
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config_obj: Config = container.resolve(Config)
+    col = client[config_obj.mongodb_dating_database]["skips"]
+    try:
+        await col.insert_one({
+            "from_user": body.from_user,
+            "to_user": body.to_user,
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception:
+        pass
     return {"ok": True}
 
 

@@ -84,8 +84,13 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         nextUser();
     };
 
-    const handleDislike = (targetId: number) => {
-        seenIds.add(targetId); // не показывать снова в этой сессии
+    const handleDislike = async (targetId: number) => {
+        seenIds.add(targetId);
+        fetch(`${BackEnd_URL}/api/v1/users/skip`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
+        }).catch(() => {});
         nextUser();
     };
 
