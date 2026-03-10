@@ -1096,7 +1096,6 @@ async def ai_matchmaking(
 
     # ── Сортировка: свой город первым, остальные после ──
     user_city = str(getattr(current_user, "city", "") or "").strip().lower()
-    id_to_dist: dict[int, float | None] = {}
 
     def _city_sort_key(doc):
         c = str(doc.get("city", "") or "").strip().lower()
@@ -1223,14 +1222,12 @@ async def ai_matchmaking(
         age = str(doc.get("age", "") or "")
         city = str(doc.get("city", "") or "")
         about = str(doc.get("about", "") or "")[:200]
-        dist = id_to_dist.get(uid)
-        dist_str = f" (~{int(dist)}км)" if dist is not None else ""
 
         photo_note = "" if (photo_b64 or photo_url) else " [фото недоступно — анализируй по описанию]"
 
         candidates_with_photos.append({
             "id": uid,
-            "text": f"{name}, {age}л, {city}{dist_str}. {about}{photo_note}",
+            "text": f"{name}, {age}л, {city}. {about}{photo_note}",
             "photo_b64": photo_b64,
             "photo_url": photo_url,
         })
