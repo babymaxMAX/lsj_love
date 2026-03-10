@@ -19,6 +19,9 @@ from punq import Container
 
 from app.application.api.schemas import ErrorSchema
 
+import logging as _logging
+_photo_logger = _logging.getLogger("photo_endpoint")
+
 # ─── SVG-заглушка когда фото недоступно ──────────────────────────────────────
 _AVATAR_COLORS = ["#7c3aed", "#ec4899", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444"]
 _CORS_HEADERS = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"}
@@ -42,8 +45,12 @@ def _svg_avatar(name: str = "?", uid: int = 0) -> Response:
     return Response(content=svg.encode(), media_type="image/svg+xml", headers=_CORS_HEADERS)
 
 
-async def _stream_s3(uploader, s3_key: str):
-    """Скачивает файл из S3 и возвращает байты. Raises Exception если не удалось."""
+async def _stream_s3(uploader, s3_key: str) -> bytes:
+    """Скачивает файл из S3 через download_file (с path-style + логированием)."""
+    # Используем новый метод download_file с правильным path-style конфигом
+    if hasattr(uploader, "download_file"):
+        return await uploader.download_file(s3_key)
+    # Fallback для старых версий
     async with uploader.get_client() as client:
         resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
         body = await resp["Body"].read()
@@ -55,10 +62,10 @@ async def _stream_s3(uploader, s3_key: str):
 async def _stream_url(url: str) -> bytes:
     """Скачивает файл по URL и возвращает байты."""
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=12),
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15),
                                allow_redirects=True) as r:
             if r.status != 200:
-                raise ValueError(f"HTTP {r.status}")
+                raise ValueError(f"HTTP {r.status} from {url[:80]}")
             return await r.read()
 from app.application.api.v1.users.filters import GetUsersFilters
 from app.application.api.v1.users.schemas import (
@@ -499,10 +506,14 @@ async def upload_user_media_multipart(
             import logging as _log
             _log.getLogger(__name__).warning(f"Moderation check failed: {e}")
 
-    # Загружаем в S3
+    # Загружаем в S3 (multipart endpoint)
     s3_key = f"{user_id}_{idx}.{ext}"
+    _mime_map2 = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                  "webp": "image/webp", "gif": "image/gif",
+                  "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
+    ct_upload2 = _mime_map2.get(ext, "image/jpeg")
     try:
-        await uploader.upload_file(file=file_bytes, file_name=s3_key)
+        await uploader.upload_file(file=file_bytes, file_name=s3_key, content_type=ct_upload2)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
