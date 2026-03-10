@@ -473,16 +473,6 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 except Exception as e:
                     _logger.warning(f"Converter error: {e}")
 
-        # Если даже без гендер-фильтра никого — убираем и гендер
-        if not result and "gender" in base_filter:
-            no_gender_filter = dict(base_filter)
-            no_gender_filter.pop("gender", None)
-            async for doc in self._collection.find(no_gender_filter):
-                try:
-                    result.append(convert_user_document_to_entity(user_document=doc))
-                except Exception as e:
-                    _logger.warning(f"Converter error: {e}")
-
         _logger.info(f"best_result_for_user({telegram_id}): found {len(result)} profiles")
         return result
 
