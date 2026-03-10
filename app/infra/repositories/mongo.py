@@ -417,15 +417,23 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         query_filter: dict = {
             "telegram_id": {"$nin": excluded},
-            "is_active": True,
+            "is_active": {"$ne": False},
             "profile_hidden": {"$ne": True},
         }
 
         if hasattr(user, "gender") and user.gender:
-            gender_map = {"Мужской": "Женский", "Женский": "Мужской", "Man": "Female", "Female": "Man"}
-            target_gender = gender_map.get(str(user.gender))
-            if target_gender:
-                query_filter["gender"] = target_gender
+            gender_str = str(user.gender)
+            gender_map = {
+                "Мужской": ["Женский", "Female", "female"],
+                "Man": ["Женский", "Female", "female"],
+                "man": ["Женский", "Female", "female"],
+                "Женский": ["Мужской", "Man", "man"],
+                "Female": ["Мужской", "Man", "man"],
+                "female": ["Мужской", "Man", "man"],
+            }
+            target_genders = gender_map.get(gender_str)
+            if target_genders:
+                query_filter["gender"] = {"$in": target_genders}
 
         user_city = str(getattr(user, "city", "") or "").strip()
         if user_city:
