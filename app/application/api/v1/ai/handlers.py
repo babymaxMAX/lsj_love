@@ -1245,35 +1245,30 @@ async def ai_matchmaking(
         final_ids = []
         reply_text = "Произошла ошибка анализа. Попробуй ещё раз."
 
-    # Если AI нашёл совпадения — загружаем полные entity через сервис
+    # Загружаем полные entity для найденных ID
     final_users = []
     for fid in final_ids:
         if fid in id_to_doc:
             try:
                 u = await service.get_user(telegram_id=fid)
                 final_users.append(u)
+            except Exception as e:
+                logger.warning(f"Failed to load user {fid}: {e}")
+
+    # Fallback: если AI не вернул карточки — показываем первых 3 кандидатов
+    if not final_users and candidates_docs:
+        logger.info(f"Matchmaking fallback: AI returned 0 matches, showing top 3 candidates")
+        for doc in candidates_docs[:3]:
+            try:
+                u = await service.get_user(telegram_id=doc["telegram_id"])
+                final_users.append(u)
             except Exception:
                 pass
-
-    # Текстовый fallback для визуальных критериев
-    if not final_users and has_visual:
-        query_words = [w for w in msg_lower.split() if len(w) >= 3]
-        for doc in candidates_docs:
-            about_lower = str(doc.get("about", "") or "").lower()
-            name_lower = str(doc.get("name", "") or "").lower()
-            combined = about_lower + " " + name_lower
-            if any(w in combined for w in query_words):
-                try:
-                    u = await service.get_user(telegram_id=doc["telegram_id"])
-                    final_users.append(u)
-                except Exception:
-                    pass
-            if len(final_users) >= 3:
-                break
-        if final_users:
-            reply_text = "Нашёл по описанию анкеты 🔍"
+        if not reply_text or reply_text == "Произошла ошибка анализа. Попробуй ещё раз.":
+            reply_text = "Вот кого я нашёл для тебя 💫"
 
     from app.application.api.v1.users.schemas import UserDetailSchema as _UDS
     matches_dicts = [_UDS.from_entity(u).model_dump() for u in final_users]
 
+    logger.info(f"Matchmaking result: {len(matches_dicts)} matches, reply={reply_text[:50]}")
     return MatchmakingResponse(reply=reply_text, matches=matches_dicts)
