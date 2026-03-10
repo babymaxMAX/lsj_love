@@ -1071,13 +1071,25 @@ async def ai_matchmaking(
     db = mongo_client[config.mongodb_dating_database]
     users_col = db[config.mongodb_users_collection]
 
-    all_users_cursor = users_col.find(
-        {"is_active": {"$ne": False}, "telegram_id": {"$ne": data.user_id}},
-    )
+    # Фильтр по противоположному полу
+    mm_filter = {"is_active": {"$ne": False}, "telegram_id": {"$ne": data.user_id}, "profile_hidden": {"$ne": True}}
+    user_gender = str(getattr(current_user, "gender", "") or "")
+    if user_gender:
+        gender_map = {
+            "Мужской": ["Женский", "Female", "female"],
+            "Man": ["Женский", "Female", "female"],
+            "man": ["Женский", "Female", "female"],
+            "Женский": ["Мужской", "Man", "man"],
+            "Female": ["Мужской", "Man", "man"],
+            "female": ["Мужской", "Man", "man"],
+        }
+        target = gender_map.get(user_gender)
+        if target:
+            mm_filter["gender"] = {"$in": target}
+
+    all_users_cursor = users_col.find(mm_filter)
     all_user_docs: list[dict] = []
     async for doc in all_users_cursor:
-        if doc.get("profile_hidden"):
-            continue
         all_user_docs.append(doc)
 
     logger.info(f"Matchmaking: found {len(all_user_docs)} active users for user {data.user_id}")
