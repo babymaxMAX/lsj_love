@@ -481,12 +481,17 @@ async def get_users_best_result(
     try:
         already_liked = await service_likes.get_telegram_id_liked_from(user_id=user_id)
 
-        from motor.motor_asyncio import AsyncIOMotorClient
-        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-        config_obj: Config = container.resolve(Config)
-        skips_col = client[config_obj.mongodb_dating_database]["skips"]
-        skip_docs = skips_col.find({"from_user": user_id}, {"to_user": 1})
-        skipped_ids = [d["to_user"] async for d in skip_docs]
+        # Load skipped users
+        skipped_ids = []
+        try:
+            from motor.motor_asyncio import AsyncIOMotorClient
+            _client = container.resolve(AsyncIOMotorClient)
+            _cfg = container.resolve(Config)
+            _skips_col = _client[_cfg.mongodb_dating_database]["skips"]
+            _skip_cursor = _skips_col.find({"from_user": user_id}, {"to_user": 1})
+            skipped_ids = [d["to_user"] async for d in _skip_cursor]
+        except Exception:
+            pass
 
         exclude = list(set(already_liked + skipped_ids))
         users = await service_users.get_best_result_for_user(user_id, exclude_ids=exclude)
@@ -619,9 +624,9 @@ async def skip_user(
     container: Container = Depends(init_container),
 ):
     from motor.motor_asyncio import AsyncIOMotorClient
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config_obj: Config = container.resolve(Config)
-    col = client[config_obj.mongodb_dating_database]["skips"]
+    _client = container.resolve(AsyncIOMotorClient)
+    _cfg = container.resolve(Config)
+    col = _client[_cfg.mongodb_dating_database]["skips"]
     try:
         await col.insert_one({
             "from_user": body.from_user,
