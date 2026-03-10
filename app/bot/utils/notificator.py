@@ -39,7 +39,7 @@ async def _resolve_photo(photo: str, user_id: int | None = None) -> str | bytes 
     from app.settings.config import Config
     try:
         container = init_container()
-        config: Config = container.resolve(Config)
+        config = container.resolve(Config)
         api_base = config.front_end_url.rstrip("/")
         # Извлекаем user_id из ключа, если не передан
         if user_id is None:

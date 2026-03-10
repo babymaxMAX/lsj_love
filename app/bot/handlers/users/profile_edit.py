@@ -33,7 +33,7 @@ async def about_edit_state(
     state: FSMContext,
     container: Container = init_container(),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     try:
         if message.text and message.text.lower() == "🪪 пропустить":
             about = AboutText(None)
@@ -64,8 +64,8 @@ async def photo_edit(
     bot: Bot,
     container: Container = init_container(),
 ):
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    uploader = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
     # Не сбрасываем state до проверки модерации — иначе при отклонении
     # пользователь потеряет возможность отправить следующее фото
 
@@ -79,7 +79,7 @@ async def photo_edit(
     # Модерация: проверяем фото на 18+
     try:
         from app.bot.utils.moderation import check_image_safe
-        config: Config = container.resolve(Config)
+        config = container.resolve(Config)
         is_safe, reason = await check_image_safe(photo_file_bytes, config.openai_api_key)
         if not is_safe:
             # state НЕ сбрасываем — пользователь остаётся в режиме загрузки фото

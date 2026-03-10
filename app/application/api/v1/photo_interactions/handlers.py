@@ -78,7 +78,7 @@ async def toggle_photo_like(
     if liked and body.from_user != body.owner_id:
         async def _notify():
             try:
-                service: BaseUsersService = container.resolve(BaseUsersService)
+                service = container.resolve(BaseUsersService)
                 liker = await service.get_user(telegram_id=body.from_user)
                 owner = await service.get_user(telegram_id=body.owner_id)
                 liker_name = str(getattr(liker, "name", "Кто-то") or "Кто-то")
@@ -143,7 +143,7 @@ async def get_photo_likes_detail(
     }
 
     if viewer_id == owner_id and viewer_id != 0:
-        service: BaseUsersService = container.resolve(BaseUsersService)
+        service = container.resolve(BaseUsersService)
         try:
             owner = await service.get_user(telegram_id=owner_id)
             is_premium = _is_premium_active(owner)
@@ -152,8 +152,8 @@ async def get_photo_likes_detail(
 
         if is_premium:
             result["access"] = "full"
-            client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-            config: Config = container.resolve(Config)
+            client = container.resolve(AsyncIOMotorClient)
+            config = container.resolve(Config)
             col = client[config.mongodb_dating_database]["photo_likes"]
             cursor = col.find(
                 {"owner_id": owner_id, "photo_index": photo_index},
@@ -198,7 +198,7 @@ async def get_my_likes(
     user_id: int,
     container: Container = Depends(init_container),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     try:
         owner = await service.get_user(telegram_id=user_id)
     except Exception:
@@ -207,8 +207,8 @@ async def get_my_likes(
     is_premium = _is_premium_active(owner)
     photos_list = getattr(owner, "photos", []) or []
 
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     col = client[config.mongodb_dating_database]["photo_likes"]
     users_col = client[config.mongodb_dating_database][config.mongodb_users_collection]
 

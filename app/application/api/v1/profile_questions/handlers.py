@@ -90,14 +90,14 @@ PROFILE_QUESTIONS = [
 
 
 def _get_questions_collection(container: Container):
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     return client[config.mongodb_dating_database]["profile_questions"]
 
 
 def _get_users_collection(container: Container):
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     return client[config.mongodb_dating_database][config.mongodb_users_collection]
 
 
@@ -193,7 +193,7 @@ async def reformulate_answer(
     container: Container = Depends(init_container),
 ):
     """AI генерирует 3 красивых варианта формулировки ответа для профиля."""
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     if not config.openai_api_key:
         return {"variants": [data.answer]}
 
@@ -259,7 +259,7 @@ async def ai_builder_status(
     """Check access to AI profile builder (Premium or 24h trial)."""
     from app.logic.services.base import BaseUsersService
     from datetime import datetime, timezone
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     try:
         user = await service.get_user(telegram_id=user_id)
     except Exception:
@@ -298,7 +298,7 @@ async def ai_builder_chat(
 ):
     """AI profile builder chat — helps user create/edit their profile."""
     from datetime import datetime, timezone
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     if not config.openai_api_key:
         return {"reply": "AI не настроен на сервере."}
 
@@ -367,7 +367,7 @@ async def ai_builder_chat(
             save_about = parts[1].strip()
             reply = parts[0].strip() or "✅ Описание сохранено в профиль!"
             from app.logic.services.base import BaseUsersService
-            service: BaseUsersService = container.resolve(BaseUsersService)
+            service = container.resolve(BaseUsersService)
             await service.update_user_info_after_reg(
                 telegram_id=data.telegram_id,
                 data={"about": save_about},

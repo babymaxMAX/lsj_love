@@ -48,7 +48,7 @@ async def profile(
     update: Message | CallbackQuery,
     container: Container = init_container(),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     user = await service.get_user(telegram_id=update.from_user.id)
 
@@ -110,7 +110,7 @@ async def referral_info(
 ):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     await callback.answer()
 
     try:
@@ -173,7 +173,7 @@ async def toggle_visibility(
     callback: CallbackQuery,
     container: Container = init_container(),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     await callback.answer()
 
     try:
@@ -212,7 +212,7 @@ async def boost_profile(
     from datetime import datetime, timezone, timedelta
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     await callback.answer()
 
     try:

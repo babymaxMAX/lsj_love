@@ -118,7 +118,7 @@ async def add_like_to_user(
 ) -> CreateLikeResponseSchema:
     service: BaseLikesService = container.resolve(BaseLikesService)
     users_service: BaseUsersService = container.resolve(BaseUsersService)
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
 
     # Загружаем текущего пользователя для проверки лимитов
     try:

@@ -305,8 +305,8 @@ async def generate_icebreaker(
     data: IcebreakerRequest,
     container: Container = Depends(init_container),
 ) -> IcebreakerResponse:
-    config: Config = container.resolve(Config)
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
+    service = container.resolve(BaseUsersService)
 
     # Проверяем отправителя
     try:
@@ -330,7 +330,7 @@ async def generate_icebreaker(
     # Daily reset для premium/vip пользователей
     if is_premium and used >= limit:
         from motor.motor_asyncio import AsyncIOMotorClient
-        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+        client = container.resolve(AsyncIOMotorClient)
         col = client[config.mongodb_dating_database][config.mongodb_users_collection]
         user_doc = await col.find_one({"telegram_id": data.sender_id}, {"icebreaker_reset_date": 1})
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -411,7 +411,7 @@ async def send_icebreaker(
     data: IcebreakerSendRequest,
     container: Container = Depends(init_container),
 ) -> IcebreakerSendResponse:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         sender = await service.get_user(telegram_id=data.sender_id)
@@ -441,8 +441,8 @@ async def get_icebreaker_status(
     user_id: int,
     container: Container = Depends(init_container),
 ):
-    config: Config = container.resolve(Config)
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -476,7 +476,7 @@ async def get_profile_tips(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> ProfileTipsResponse:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -624,7 +624,7 @@ async def get_advisor_status(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> AdvisorStatusResponse:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -678,8 +678,8 @@ async def dialog_advisor(
     data: DialogAdvisorRequest,
     container: Container = Depends(init_container),
 ) -> DialogAdvisorResponse:
-    config: Config = container.resolve(Config)
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=data.user_id)
@@ -981,7 +981,7 @@ async def matchmaking_status(
     user_id: int,
     container: Container = Depends(init_container),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     try:
         user = await service.get_user(telegram_id=user_id)
     except ApplicationException as e:
@@ -992,8 +992,8 @@ async def matchmaking_status(
         return {"access": True, "is_vip": True, "trial_active": False, "trial_hours_left": None, "trial_expired": False}
 
     from motor.motor_asyncio import AsyncIOMotorClient
-    config: Config = container.resolve(Config)
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
     col = client[config.mongodb_dating_database][config.mongodb_users_collection]
     doc = await col.find_one({"telegram_id": user_id}, {"matchmaking_trial_start": 1})
     trial_start = (doc or {}).get("matchmaking_trial_start")
@@ -1020,8 +1020,8 @@ async def ai_matchmaking(
     data: MatchmakingRequest,
     container: Container = Depends(init_container),
 ) -> MatchmakingResponse:
-    config: Config = container.resolve(Config)
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
+    service = container.resolve(BaseUsersService)
 
     if not config.openai_api_key:
         raise HTTPException(
@@ -1067,7 +1067,7 @@ async def ai_matchmaking(
 
     # ── Загружаем ВСЕ активные анкеты напрямую из MongoDB (без фильтров по городу/полу) ──
     from motor.motor_asyncio import AsyncIOMotorClient
-    mongo_client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    mongo_client = container.resolve(AsyncIOMotorClient)
     db = mongo_client[config.mongodb_dating_database]
     users_col = db[config.mongodb_users_collection]
 

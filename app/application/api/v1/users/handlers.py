@@ -76,7 +76,7 @@ async def get_all_users_handler(
     filters: GetUsersFilters = Depends(),
     container: Container = Depends(init_container),
 ) -> GetUsersResponseSchema:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         users, count = await service.get_all_users(filters=filters.to_infra())
@@ -124,8 +124,8 @@ async def get_user_photo_by_index(
     container: Container = Depends(init_container),
 ):
     """Возвращает фото пользователя по индексу из массива photos[]."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
+    uploader = container.resolve(BaseS3Storage)
 
     try:
         photos = await service.get_photos(telegram_id=user_id)
@@ -158,9 +158,9 @@ async def get_user_photo(
     user_id: int,
     container: Container = Depends(init_container),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    config: Config = container.resolve(Config)
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
+    uploader = container.resolve(BaseS3Storage)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -217,8 +217,8 @@ async def add_user_photo(
     container: Container = Depends(init_container),
 ) -> PhotosResponse:
     """Загружает новое фото в S3 и добавляет в массив photos[] пользователя."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
+    uploader = container.resolve(BaseS3Storage)
 
     # Проверяем существование пользователя
     try:
@@ -258,7 +258,7 @@ async def add_user_photo(
     if not body.media_type.startswith("video/"):
         try:
             from app.bot.utils.moderation import check_image_safe
-            config: Config = container.resolve(Config)
+            config = container.resolve(Config)
             is_safe, reason = await check_image_safe(file_bytes, config.openai_api_key)
             if not is_safe:
                 raise HTTPException(
@@ -319,8 +319,8 @@ async def upload_user_media_multipart(
     container: Container = Depends(init_container),
 ) -> PhotosResponse:
     """Принимает файл через multipart/form-data. Поддерживает видео до 60 МБ."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
+    uploader = container.resolve(BaseS3Storage)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -360,7 +360,7 @@ async def upload_user_media_multipart(
     if not media_type.startswith("video/"):
         try:
             from app.bot.utils.moderation import check_image_safe
-            config: Config = container.resolve(Config)
+            config = container.resolve(Config)
             is_safe, reason = await check_image_safe(file_bytes, config.openai_api_key)
             if not is_safe:
                 raise HTTPException(
@@ -415,7 +415,7 @@ async def delete_user_photo(
     container: Container = Depends(init_container),
 ) -> PhotosResponse:
     """Удаляет фото по индексу из массива photos[] пользователя."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         await service.get_user(telegram_id=user_id)
@@ -449,7 +449,7 @@ async def get_user_handler(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> UserDetailSchema:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=user_id)
@@ -600,7 +600,7 @@ async def ping_user(
     container: Container = Depends(init_container),
 ):
     """Обновляет last_seen пользователя — вызывается с фронта каждые 60 секунд."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     now = datetime.now(timezone.utc)
     await service.update_user_info_after_reg(
         telegram_id=user_id,
@@ -654,7 +654,7 @@ async def update_user_profile(
     body: UpdateProfileRequest,
     container: Container = Depends(init_container),
 ):
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     data = {}
     if body.about is not None:
         data["about"] = body.about
@@ -684,7 +684,7 @@ async def reset_all_users(
     if secret != "lsjlove_reset_2026":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": "Forbidden"})
 
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     from motor.motor_asyncio import AsyncIOMotorClient
 
     client = AsyncIOMotorClient(config.mongodb_connection_uri)

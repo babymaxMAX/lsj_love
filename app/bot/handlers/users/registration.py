@@ -141,9 +141,9 @@ async def user_reg(
     bot: Bot,
     container: Container = init_container(),
 ):
-    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
-    service: BaseUsersService = container.resolve(BaseUsersService)
-    config: Config = container.resolve(Config)
+    uploader = container.resolve(BaseS3Storage)
+    service = container.resolve(BaseUsersService)
+    config = container.resolve(Config)
 
     # Получаем файл из Telegram
     photo_file_id = message.photo[-1].file_id
@@ -208,7 +208,7 @@ async def registration_form(
     container: Container = init_container(),
 ):
     """Команда /form оставлена для совместимости, но сейчас регистрация стартует из /start."""
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         user = await service.get_user(telegram_id=message.from_user.id)

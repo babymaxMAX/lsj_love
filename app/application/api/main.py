@@ -19,8 +19,8 @@ async def _ensure_indexes():
         from motor.motor_asyncio import AsyncIOMotorClient
         from app.settings.config import Config
         container = init_container()
-        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-        config: Config = container.resolve(Config)
+        client = container.resolve(AsyncIOMotorClient)
+        config = container.resolve(Config)
         db = client[config.mongodb_dating_database]
         users = db[config.mongodb_users_collection]
         likes = db[config.mongodb_likes_collection]
@@ -83,7 +83,7 @@ def create_app():
             from app.logic.init import init_container
             from motor.motor_asyncio import AsyncIOMotorClient
             container = init_container()
-            client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+            client = container.resolve(AsyncIOMotorClient)
             await client.admin.command("ping")
             result["mongodb"] = "connected"
         except Exception as e:

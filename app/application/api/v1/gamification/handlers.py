@@ -75,7 +75,7 @@ async def daily_checkin(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> StreakResponse:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     try:
         await service.get_user(telegram_id=user_id)
@@ -102,7 +102,7 @@ async def daily_checkin(
 async def get_hot_rating(
     container: Container = Depends(init_container),
 ) -> HotRatingResponse:
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     from app.infra.repositories.filters.users import GetAllUsersFilters
     users = await service.get_all_users(

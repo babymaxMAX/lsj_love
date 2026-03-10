@@ -34,7 +34,7 @@ async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub
     """Начисляет 50% реферальный бонус рефереру при оплате Stars."""
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
-        service: BaseUsersService = container.resolve(BaseUsersService)
+        service = container.resolve(BaseUsersService)
         user = await service.get_user(telegram_id=telegram_id)
         referred_by = getattr(user, "referred_by", None)
         if not referred_by:
@@ -44,8 +44,8 @@ async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub
         if bonus <= 0:
             return
 
-        client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-        config: Config = container.resolve(Config)
+        client = container.resolve(AsyncIOMotorClient)
+        config = container.resolve(Config)
         users_col = client[config.mongodb_dating_database]["users"]
         result = await users_col.update_one(
             {"telegram_id": referred_by},
@@ -90,7 +90,7 @@ async def _give_stars_referral_bonus(container: Container, telegram_id: int, rub
 
 def _get_backend_url() -> str:
     container = init_container()
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     return config.url_webhook
 
 
@@ -246,7 +246,7 @@ async def create_payment_via_backend(
 
 @premium_router.message(Command("premium"))
 async def premium_command(message: Message, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     await message.answer(
         text=premium_info_message(),
         parse_mode="HTML",
@@ -256,7 +256,7 @@ async def premium_command(message: Message, container: Container = init_containe
 
 @premium_router.callback_query(lambda c: c.data == "premium_info")
 async def premium_info_callback(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     text = premium_info_message()
     kb = premium_main_keyboard(config)
     try:
@@ -286,7 +286,7 @@ def _plan_text(label: str, stars: int, rub: int) -> str:
 
 @premium_router.callback_query(lambda c: c.data == "choose_premium")
 async def choose_premium(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     usdt_rate = await get_usdt_rate()
     rub = int(config.platega_premium_price)
     usdt_str = rub_to_usdt(rub, usdt_rate)
@@ -317,7 +317,7 @@ async def choose_premium(callback: CallbackQuery, container: Container = init_co
 
 @premium_router.callback_query(lambda c: c.data == "choose_vip")
 async def choose_vip(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     usdt_rate = await get_usdt_rate()
     rub = int(config.platega_vip_price)
     usdt_str = rub_to_usdt(rub, usdt_rate)
@@ -351,7 +351,7 @@ async def choose_vip(callback: CallbackQuery, container: Container = init_contai
 
 @premium_router.callback_query(lambda c: c.data == "stars_premium")
 async def stars_premium(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     await callback.message.answer_invoice(
         title="LSJLove Premium",
         description="Безлимитные лайки, просмотр кто лайкнул, откат свайпа, 1 суперлайк/день",
@@ -364,7 +364,7 @@ async def stars_premium(callback: CallbackQuery, container: Container = init_con
 
 @premium_router.callback_query(lambda c: c.data == "stars_vip")
 async def stars_vip(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     await callback.message.answer_invoice(
         title="LSJLove VIP",
         description="AI Icebreaker ×10/день, буст профиля, приоритет в выдаче + всё из Premium",
@@ -377,7 +377,7 @@ async def stars_vip(callback: CallbackQuery, container: Container = init_contain
 
 @premium_router.callback_query(lambda c: c.data == "buy_icebreaker_pack")
 async def buy_icebreaker_pack(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     usdt_rate = await get_usdt_rate()
     usdt_str = rub_to_usdt(config.platega_icebreaker_pack_price, usdt_rate)
     usdt_label = f" · ≈ {usdt_str} USDT" if usdt_str else ""
@@ -416,7 +416,7 @@ async def buy_icebreaker_pack(callback: CallbackQuery, container: Container = in
 
 @premium_router.callback_query(lambda c: c.data == "stars_icebreaker_pack")
 async def stars_icebreaker_pack(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     await callback.message.answer_invoice(
         title="AI Icebreaker ×5",
         description="5 дополнительных AI-сообщений: ИИ анализирует фото и профиль, предлагает 3 варианта.",
@@ -429,7 +429,7 @@ async def stars_icebreaker_pack(callback: CallbackQuery, container: Container = 
 
 @premium_router.callback_query(lambda c: c.data == "stars_superlike")
 async def stars_superlike(callback: CallbackQuery, container: Container = init_container()):
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     await callback.message.answer_invoice(
         title="⭐ Суперлайк",
         description="Твой профиль появится первым у выбранного пользователя, и он получит уведомление.",
@@ -549,8 +549,8 @@ async def successful_payment(message: Message, container: Container = init_conta
     user_id = message.from_user.id
 
     # Атомарные операции с MongoDB — никаких race condition
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     users_col = client[config.mongodb_dating_database]["users"]
 
     if payload == "icebreaker_pack_5":
@@ -593,7 +593,7 @@ async def successful_payment(message: Message, container: Container = init_conta
         label = "⭐ Premium" if premium_type == "premium" else "💎 VIP"
         rub_price = config.platega_premium_price if premium_type == "premium" else config.platega_vip_price
         try:
-            service: BaseUsersService = container.resolve(BaseUsersService)
+            service = container.resolve(BaseUsersService)
             user = await service.get_user(telegram_id=user_id)
             now = datetime.now(timezone.utc)
             current_until = getattr(user, "premium_until", None) or now

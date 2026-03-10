@@ -59,7 +59,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
     except Exception:
         pass
 
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
 
     # Парсим реферальный параметр: /start ref_12345678
     referral_from: int | None = None
@@ -79,7 +79,7 @@ async def start(message: Message, state: FSMContext, container: Container = init
 
         if user.is_active:
             from app.settings.config import Config
-            config: Config = container.resolve(Config)
+            config = container.resolve(Config)
             await service.update_user_info_after_reg(
                 telegram_id=message.from_user.id,
                 data={"last_seen": datetime.now(timezone.utc)},

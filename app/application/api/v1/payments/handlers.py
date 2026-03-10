@@ -80,15 +80,15 @@ class PaymentStatusResponse(BaseModel):
 
 def _get_transactions_collection(container: Container):
     """Возвращает коллекцию MongoDB для хранения транзакций."""
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     return client[config.mongodb_dating_database]["transactions"]
 
 
 def _get_users_collection(container: Container):
     """Возвращает коллекцию MongoDB пользователей для атомарных операций."""
-    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
-    config: Config = container.resolve(Config)
+    client = container.resolve(AsyncIOMotorClient)
+    config = container.resolve(Config)
     return client[config.mongodb_dating_database]["users"]
 
 
@@ -119,7 +119,7 @@ async def _pay_referral_bonus(container: Container, telegram_id: int, amount: fl
     Также отправляет реферреру уведомление в Telegram.
     """
     try:
-        service: BaseUsersService = container.resolve(BaseUsersService)
+        service = container.resolve(BaseUsersService)
         user = await service.get_user(telegram_id=telegram_id)
         referred_by = getattr(user, "referred_by", None)
         if not referred_by:
@@ -189,7 +189,7 @@ async def _activate_subscription(
     Продлевает подписку от текущей даты окончания (или от now если не активна).
     Возвращает новую дату окончания.
     """
-    service: BaseUsersService = container.resolve(BaseUsersService)
+    service = container.resolve(BaseUsersService)
     user = await service.get_user(telegram_id=telegram_id)
     now = datetime.now(timezone.utc)
     current_until = getattr(user, "premium_until", None) or now
@@ -288,7 +288,7 @@ async def get_usdt_rate(container: Container = Depends(init_container)):
     Ответ: { usdt_per_rub: float, rub_per_usdt: float }
     Пример: usdt_per_rub=0.0106 → 1 RUB = 0.0106 USDT → 1 USDT = 94 RUB
     """
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
     if not config.platega_merchant_id:
         return {"usdt_per_rub": None, "rub_per_usdt": None, "error": "not configured"}
     usdt_per_rub = await _fetch_usdt_rate(config.platega_merchant_id, config.platega_secret)
@@ -305,7 +305,7 @@ async def create_platega_payment(
     container: Container = Depends(init_container),
 ):
     """Создаёт платёж в Platega. Возвращает данные для отображения QR / крипто адреса."""
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
 
     if not config.platega_merchant_id or not config.platega_secret:
         raise HTTPException(status_code=503, detail="Platega не настроен")
@@ -420,7 +420,7 @@ async def get_payment_status(
     container: Container = Depends(init_container),
 ):
     """Проверяет статус транзакции — используется фронтендом для поллинга."""
-    config: Config = container.resolve(Config)
+    config = container.resolve(Config)
 
     headers = {
         "X-MerchantId": config.platega_merchant_id,
