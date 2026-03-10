@@ -31,12 +31,8 @@ function getOnlineStatus(lastSeen?: string | null): { label: string; color: stri
 }
 
 function getPhotoUrl(user: MatchUser): string {
-    if (user.photos && user.photos.length > 0) {
-        const p = user.photos[0];
-        return p.startsWith("http") ? p : `${BackEnd_URL}${p}`;
-    }
-    if (user.photo) return `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`;
-    return "/placeholder.svg";
+    // Всегда через API — он редиректит на presigned S3 URL
+    return `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo/0`;
 }
 
 // @ts-ignore

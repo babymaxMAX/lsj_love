@@ -69,28 +69,35 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
         }
     }, []);
 
+    // Конвертирует массив photos[] (S3-ключи) в URL через API-эндпоинт
+    const toApiUrls = useCallback((photos: string[], uid: string | number, mediaTypes?: string[]): string[] => {
+        const t = Date.now();
+        return photos.map((_, i) => {
+            const isVideo = mediaTypes?.[i] === "video";
+            // Видео — прямой API endpoint, изображения — cache-bust через timestamp
+            const base = `${BackEnd_URL}/api/v1/users/${uid}/photo/${i}`;
+            return isVideo ? base : `${base}?t=${t}`;
+        });
+    }, []);
+
     const loadUser = useCallback(() => {
         setLoading(true);
         fetch(`${BackEnd_URL}/api/v1/users/${userId}`)
             .then((r) => r.json())
             .then((data: UserProfile) => {
                 setUser(data);
-                const t = Date.now();
-                const urls = (data.photos ?? []).map((p) => {
-                    const base = p.startsWith("http") ? p : `${BackEnd_URL}${p}`;
-                    // cache-bust только для изображений
-                    if (/\.(mp4|mov|webm|avi)(\?|$)/i.test(base)) return base;
-                    const sep = base.includes("?") ? "&" : "?";
-                    return `${base}${sep}t=${t}`;
-                });
-                const types = data.media_types ?? urls.map(() => "image");
+                const rawPhotos = data.photos ?? [];
+                const types = data.media_types ?? rawPhotos.map(() => "image");
+                const urls = rawPhotos.length > 0
+                    ? toApiUrls(rawPhotos, userId, types)
+                    : [];
                 setMediaUrls(urls);
                 setMediaTypes(types);
                 setSliderIdx(0);
             })
             .catch(() => setUser(null))
             .finally(() => setLoading(false));
-    }, [userId]);
+    }, [userId, toApiUrls]);
 
     useEffect(() => { loadUser(); }, [loadUser]);
 
@@ -197,12 +204,11 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
                 return;
             }
-            const rawUrls = (data.photos as string[]).map((p) =>
-                p.startsWith("http") ? p : `${BackEnd_URL}${p}`
-            );
-            const newUrls = bustCache(rawUrls);
+            const rawPhotos = data.photos as string[];
+            const newTypes = rawPhotos.map((_, i) => (data.media_types?.[i] ?? "image"));
+            const newUrls = toApiUrls(rawPhotos, userId, newTypes);
             setMediaUrls(newUrls);
-            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
+            setMediaTypes(newTypes);
             setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
         } catch {
             setError("Ошибка соединения при загрузке видео");
@@ -237,12 +243,11 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
                 return;
             }
-            const rawUrls = (data.photos as string[]).map((p) =>
-                p.startsWith("http") ? p : `${BackEnd_URL}${p}`
-            );
-            const newUrls = bustCache(rawUrls);
+            const rawPhotos = data.photos as string[];
+            const newTypes = rawPhotos.map((_, i) => (data.media_types?.[i] ?? "image"));
+            const newUrls = toApiUrls(rawPhotos, userId, newTypes);
             setMediaUrls(newUrls);
-            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
+            setMediaTypes(newTypes);
             setSliderIdx(isReplace && slot !== null ? slot : newUrls.length - 1);
         } catch {
             setError("Ошибка соединения");
@@ -263,12 +268,11 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                 setError(data?.error || "Ошибка удаления");
                 return;
             }
-            const rawUrls = (data.photos as string[]).map((p) =>
-                p.startsWith("http") ? p : `${BackEnd_URL}${p}`
-            );
-            const newUrls = bustCache(rawUrls);
+            const rawPhotos = data.photos as string[];
+            const newTypes = rawPhotos.map((_, i) => (data.media_types?.[i] ?? "image"));
+            const newUrls = toApiUrls(rawPhotos, userId, newTypes);
             setMediaUrls(newUrls);
-            setMediaTypes(newUrls.map((u) => (/\.(mp4|mov|webm|avi)(\?|$)/i.test(u) ? "video" : "image")));
+            setMediaTypes(newTypes);
             if (sliderIdx >= newUrls.length) setSliderIdx(Math.max(0, newUrls.length - 1));
         } catch {
             setError("Ошибка соединения");

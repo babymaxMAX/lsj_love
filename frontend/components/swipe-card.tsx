@@ -409,18 +409,24 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
 
                 {/* Фото (слайдер) */}
                 {(() => {
-                    // Строим массив URL для фото
+                    // ВСЕГДА используем API-эндпоинт /photo/{index} — он сам редиректит на S3
+                    const photoCount = user.photos?.length || (user.photo ? 1 : 0);
                     const photoUrls: string[] = [];
-                    if (user.photos?.length) {
-                        user.photos.forEach((p) => {
-                            photoUrls.push(p.startsWith("http") ? p : `${BackEnd_URL}${p}`);
-                        });
-                    } else if (user.photo) {
-                        photoUrls.push(`${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`);
+                    if (photoCount > 0) {
+                        for (let i = 0; i < photoCount; i++) {
+                            photoUrls.push(`${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo/${i}`);
+                        }
                     } else {
-                        photoUrls.push("/placeholder.svg");
+                        photoUrls.push(`${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`);
                     }
+
                     const safeIdx = Math.min(currentPhotoIdx, photoUrls.length - 1);
+
+                    // Цвет аватара-заглушки по id пользователя
+                    const avatarColors = ["#c0392b","#8e44ad","#2980b9","#16a085","#d35400","#1a6b4a","#6c3483"];
+                    const avatarColor = avatarColors[Math.abs(user.telegram_id ?? 0) % avatarColors.length];
+                    const avatarLetter = (user.name || "?").charAt(0).toUpperCase();
+
                     return (
                         <div className="relative">
                             {/* Photo progress bars + counter */}
@@ -451,18 +457,31 @@ export function SwipeCard({ user, userId, onLike, onDislike }: SwipeCardProps) {
                                 </div>
                             )}
 
+                            {/* Слой-заглушка (всегда виден, пока картинка не загрузилась) */}
+                            <div
+                                className="w-full h-96 flex items-center justify-center"
+                                style={{
+                                    background: `linear-gradient(135deg, ${avatarColor}cc, ${avatarColor})`,
+                                }}
+                            >
+                                <span style={{ fontSize: 120, color: "rgba(255,255,255,0.7)", fontWeight: 700, userSelect: "none" }}>
+                                    {avatarLetter}
+                                </span>
+                            </div>
+
+                            {/* Картинка поверх заглушки — если загрузится, перекроет */}
                             <img
                                 src={photoUrls[safeIdx]}
                                 alt={user.name}
-                                className="w-full h-96 object-cover"
-                                style={{ background: "linear-gradient(135deg,#1e1e3a,#2d1b69)" }}
+                                className="absolute inset-0 w-full h-96 object-cover"
                                 draggable={false}
                                 onError={(e) => {
-                                    // Последний резерв: если даже SVG с сервера не пришёл
-                                    const img = e.target as HTMLImageElement;
-                                    if (!img.src.includes("photo-fallback")) {
-                                        img.src = `${BackEnd_URL}/api/v1/users/${user.telegram_id}/photo`;
-                                    }
+                                    // Не загрузилась — прячем, видна заглушка снизу
+                                    (e.target as HTMLImageElement).style.display = "none";
+                                }}
+                                onLoad={(e) => {
+                                    // Загрузилась — показываем
+                                    (e.target as HTMLImageElement).style.display = "block";
                                 }}
                             />
 

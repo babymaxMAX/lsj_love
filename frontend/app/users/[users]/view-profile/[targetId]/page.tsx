@@ -56,11 +56,11 @@ export default function ViewProfilePage() {
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
 
-    const photos: string[] = user?.photos?.length
-        ? user.photos.map((p) => p.startsWith("http") ? p : `${BackEnd_URL}${p}`)
-        : user?.photo
-            ? [`${BackEnd_URL}/api/v1/users/${targetId}/photo`]
-            : ["/placeholder.svg"];
+    // Всегда через API-эндпоинт — он редиректит на presigned S3 URL
+    const photos: string[] = user
+        ? Array.from({ length: Math.max(user.photos?.length || 0, 1) }, (_, i) =>
+              `${BackEnd_URL}/api/v1/users/${targetId}/photo/${i}`)
+        : [];
 
     // Загружаем профиль
     const loadUser = useCallback(async () => {

@@ -36,12 +36,8 @@ interface ChatMessage {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function getPhotoUrl(p: ProfileMatch): string {
-    if (p.photos?.length) {
-        const k = p.photos[0];
-        return k.startsWith("http") ? k : `${BackEnd_URL}${k}`;
-    }
-    if (p.photo) return `${BackEnd_URL}/api/v1/users/${p.telegram_id}/photo`;
-    return "/placeholder.svg";
+    // Всегда используем API-эндпоинт — он сам редиректит на S3 (presigned URL)
+    return `${BackEnd_URL}/api/v1/users/${p.telegram_id}/photo/0`;
 }
 
 function getOnlineDot(lastSeen?: string): string {

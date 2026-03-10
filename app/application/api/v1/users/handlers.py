@@ -198,59 +198,35 @@ async def get_user_photo_by_index(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     if not photos or index >= len(photos) or index < 0:
-        # Возвращаем SVG-аватар вместо 404
-        try:
-            user = await service.get_user(telegram_id=user_id)
-            name = str(getattr(user, "name", user_id) or user_id)
-        except Exception:
-            name = str(user_id)
-        return _svg_avatar(name, user_id)
-
-    s3_key = photos[index]
-    _ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-               "webp": "image/webp", "gif": "image/gif",
-               "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
-
-    # Если в photos[] хранится полный URL (старый формат) — скачиваем по URL
-    if s3_key.startswith("http"):
-        try:
-            body = await _stream_url(s3_key)
-            ext = s3_key.split("?")[0].rsplit(".", 1)[-1].lower()
-            ct = _ct_map.get(ext, "image/jpeg")
-            return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
-        except Exception:
-            pass
         return _svg_avatar(str(user_id), user_id)
 
-    # S3 ключ — стримим напрямую
-    ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
-    ct = _ct_map.get(ext, "image/jpeg")
+    s3_key = photos[index]
+
+    # Если в photos[] уже полный URL — редиректим напрямую (браузер скачает сам)
+    if s3_key.startswith("http"):
+        return RedirectResponse(url=s3_key, status_code=302, headers={"Cache-Control": "public, max-age=3600"})
+
+    # S3 ключ — генерируем presigned URL и редиректим (браузер скачает из S3 напрямую)
+    # Это работает: <img> теги не блокирует CORS, браузер скачает файл без проблем
+    try:
+        presigned_url = await uploader.get_presigned_url(s3_key, expires=3600)
+        return RedirectResponse(url=presigned_url, status_code=302,
+                                headers={"Cache-Control": "public, max-age=3500"})
+    except Exception as e:
+        _photo_logger.error(f"presigned URL failed for key={s3_key}: {e}")
+
+    # Presigned упал — последняя попытка: server-side stream
     try:
         body = await _stream_s3(uploader, s3_key)
-        return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+        ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
+        _ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                   "webp": "image/webp", "mp4": "video/mp4", "webm": "video/webm"}
+        return StreamingResponse(iter([body]), media_type=_ct_map.get(ext, "image/jpeg"),
+                                 headers=_CORS_HEADERS)
     except Exception:
         pass
 
-    # S3 упал — пробуем presigned URL
-    try:
-        async with uploader.get_client() as client:
-            url = await client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": uploader.bucket_name, "Key": s3_key},
-                ExpiresIn=3600,
-            )
-        body = await _stream_url(url)
-        return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
-    except Exception:
-        pass
-
-    # Все попытки провалились — SVG аватар
-    try:
-        user = await service.get_user(telegram_id=user_id)
-        name = str(getattr(user, "name", user_id) or user_id)
-    except Exception:
-        name = str(user_id)
-    return _svg_avatar(name, user_id)
+    return _svg_avatar(str(user_id), user_id)
 
 
 @router.get(
@@ -274,38 +250,25 @@ async def get_user_photo(
 
     user_name = str(getattr(user, "name", user_id) or user_id)
 
-    # 1) Пробуем photos[] — S3 ключи или URL-ы
+    # 1) photos[] — S3 ключи или URL-ы → redirect (браузер скачает напрямую из S3)
     photos = getattr(user, "photos", []) or []
     if photos:
         s3_key = photos[0]
-        _ct_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-                   "webp": "image/webp", "gif": "image/gif",
-                   "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
         if s3_key.startswith("http"):
-            try:
-                body = await _stream_url(s3_key)
-                ext = s3_key.split("?")[0].rsplit(".", 1)[-1].lower()
-                ct = _ct_map.get(ext, "image/jpeg")
-                return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
-            except Exception:
-                pass
+            # Уже полный URL — редиректим
+            return RedirectResponse(url=s3_key, status_code=302)
         else:
+            # S3 ключ → presigned URL redirect
             try:
-                body = await _stream_s3(uploader, s3_key)
-                ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
-                ct = _ct_map.get(ext, "image/jpeg")
-                return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
-            except Exception:
-                # S3 упал → пробуем presigned
+                presigned_url = await uploader.get_presigned_url(s3_key, expires=3600)
+                return RedirectResponse(url=presigned_url, status_code=302,
+                                        headers={"Cache-Control": "public, max-age=3500"})
+            except Exception as e:
+                _photo_logger.error(f"presigned URL failed for key={s3_key}: {e}")
+                # Последняя попытка — server-side stream
                 try:
-                    async with uploader.get_client() as client:
-                        url = await client.generate_presigned_url(
-                            "get_object",
-                            Params={"Bucket": uploader.bucket_name, "Key": s3_key},
-                            ExpiresIn=3600,
-                        )
-                    body = await _stream_url(url)
-                    return StreamingResponse(iter([body]), media_type=ct, headers=_CORS_HEADERS)
+                    body = await _stream_s3(uploader, s3_key)
+                    return StreamingResponse(iter([body]), media_type="image/jpeg", headers=_CORS_HEADERS)
                 except Exception:
                     pass
 
@@ -313,13 +276,9 @@ async def get_user_photo(
     photo = getattr(user, "photo", None)
     if photo:
         if photo.startswith("http"):
-            try:
-                body = await _stream_url(photo)
-                return StreamingResponse(iter([body]), media_type="image/jpeg", headers=_CORS_HEADERS)
-            except Exception:
-                pass
-        elif photo and not photo.startswith("http"):
-            # Telegram file_id
+            return RedirectResponse(url=photo, status_code=302)
+        else:
+            # Telegram file_id → скачиваем через Bot API на сервере
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
@@ -336,7 +295,7 @@ async def get_user_photo(
             except Exception:
                 pass
 
-    # 3) Всё провалилось — красивый SVG-аватар
+    # 3) Всё провалилось — SVG-аватар
     return _svg_avatar(user_name, user_id)
 
 
