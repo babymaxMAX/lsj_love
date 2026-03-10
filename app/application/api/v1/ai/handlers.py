@@ -1075,17 +1075,17 @@ async def ai_matchmaking(
     mm_filter = {"is_active": {"$ne": False}, "telegram_id": {"$ne": data.user_id}, "profile_hidden": {"$ne": True}}
     user_gender = str(getattr(current_user, "gender", "") or "")
     if user_gender:
-        gender_map = {
-            "Мужской": ["Женский", "Female", "female"],
-            "Man": ["Женский", "Female", "female"],
-            "man": ["Женский", "Female", "female"],
-            "Женский": ["Мужской", "Man", "man"],
-            "Female": ["Мужской", "Man", "man"],
-            "female": ["Мужской", "Man", "man"],
+        same_gender = {
+            "Мужской": ["Мужской", "Man", "man"],
+            "Man": ["Мужской", "Man", "man"],
+            "man": ["Мужской", "Man", "man"],
+            "Женский": ["Женский", "Female", "female"],
+            "Female": ["Женский", "Female", "female"],
+            "female": ["Женский", "Female", "female"],
         }
-        target = gender_map.get(user_gender)
-        if target:
-            mm_filter["gender"] = {"$in": target}
+        exclude = same_gender.get(user_gender)
+        if exclude:
+            mm_filter["gender"] = {"$nin": exclude}
 
     all_users_cursor = users_col.find(mm_filter)
     all_user_docs: list[dict] = []

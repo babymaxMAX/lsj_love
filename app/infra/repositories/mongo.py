@@ -423,17 +423,18 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         if hasattr(user, "gender") and user.gender:
             gender_str = str(user.gender)
-            gender_map = {
-                "Мужской": ["Женский", "Female", "female"],
-                "Man": ["Женский", "Female", "female"],
-                "man": ["Женский", "Female", "female"],
-                "Женский": ["Мужской", "Man", "man"],
-                "Female": ["Мужской", "Man", "man"],
-                "female": ["Мужской", "Man", "man"],
+            # Исключаем свой пол, показываем противоположный + тех у кого пол не указан
+            same_gender = {
+                "Мужской": ["Мужской", "Man", "man"],
+                "Man": ["Мужской", "Man", "man"],
+                "man": ["Мужской", "Man", "man"],
+                "Женский": ["Женский", "Female", "female"],
+                "Female": ["Женский", "Female", "female"],
+                "female": ["Женский", "Female", "female"],
             }
-            target_genders = gender_map.get(gender_str)
-            if target_genders:
-                query_filter["gender"] = {"$in": target_genders}
+            exclude_genders = same_gender.get(gender_str)
+            if exclude_genders:
+                query_filter["gender"] = {"$nin": exclude_genders}
 
         # Шаг 1: простой find без города (надёжный, без aggregation pipeline)
         import logging as _log
