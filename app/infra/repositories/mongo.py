@@ -435,75 +435,55 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             if target_genders:
                 query_filter["gender"] = {"$in": target_genders}
 
+        # Шаг 1: простой find без города (надёжный, без aggregation pipeline)
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+
+        base_filter = dict(query_filter)
         user_city = str(getattr(user, "city", "") or "").strip()
-        if user_city:
-            query_filter["city"] = user_city
 
-        # Приоритетная сортировка: boosted → VIP → Premium → бесплатные
-        pipeline = [
-            {"$match": query_filter},
-            {"$addFields": {
-                "_sort_priority": {
-                    "$switch": {
-                        "branches": [
-                            # Boost активен
-                            {
-                                "case": {"$and": [
-                                    {"$gt": ["$boost_until", now]},
-                                ]},
-                                "then": 0,
-                            },
-                            # VIP с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "vip"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 1,
-                            },
-                            # Premium с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "premium"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 2,
-                            },
-                        ],
-                        "default": 3,
-                    }
-                }
-            }},
-            {"$sort": {"_sort_priority": 1}},
-            {"$project": {"_sort_priority": 0}},
-        ]
-
+        # Сначала пробуем свой город
         result = []
-        try:
-            async for doc in self._collection.aggregate(pipeline):
-                result.append(convert_user_document_to_entity(user_document=doc))
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Aggregation failed, using simple find: {e}")
-            async for doc in self._collection.find(query_filter):
-                result.append(convert_user_document_to_entity(user_document=doc))
+        if user_city:
+            city_filter = dict(base_filter)
+            city_filter["city"] = user_city
+            async for doc in self._collection.find(city_filter):
+                try:
+                    result.append(convert_user_document_to_entity(user_document=doc))
+                except Exception as e:
+                    _logger.warning(f"Converter error for user {doc.get('telegram_id')}: {e}")
 
         # Если в своём городе никого — ищем в ближайших
         if not result and user_city:
             neighbors = _CITY_NEIGHBORS.get(user_city, [])
             if neighbors:
-                nb_filter = dict(query_filter)
+                nb_filter = dict(base_filter)
                 nb_filter["city"] = {"$in": neighbors}
                 async for doc in self._collection.find(nb_filter):
-                    result.append(convert_user_document_to_entity(user_document=doc))
+                    try:
+                        result.append(convert_user_document_to_entity(user_document=doc))
+                    except Exception as e:
+                        _logger.warning(f"Converter error: {e}")
 
-            # Если и в ближайших никого — ищем везде
-            if not result:
-                all_filter = dict(query_filter)
-                all_filter.pop("city", None)
-                async for doc in self._collection.find(all_filter):
+        # Если всё ещё никого — ищем везде (без фильтра города)
+        if not result:
+            async for doc in self._collection.find(base_filter):
+                try:
                     result.append(convert_user_document_to_entity(user_document=doc))
+                except Exception as e:
+                    _logger.warning(f"Converter error: {e}")
 
+        # Если даже без гендер-фильтра никого — убираем и гендер
+        if not result and "gender" in base_filter:
+            no_gender_filter = dict(base_filter)
+            no_gender_filter.pop("gender", None)
+            async for doc in self._collection.find(no_gender_filter):
+                try:
+                    result.append(convert_user_document_to_entity(user_document=doc))
+                except Exception as e:
+                    _logger.warning(f"Converter error: {e}")
+
+        _logger.info(f"best_result_for_user({telegram_id}): found {len(result)} profiles")
         return result
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:
