@@ -152,16 +152,29 @@ async def get_user_photo_by_index(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
     s3_key = photos[index]
+    ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
+    _ct = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+           "webp": "image/webp", "gif": "image/gif",
+           "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
+    content_type = _ct.get(ext, "image/jpeg")
+    _cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600"}
     try:
         async with uploader.get_client() as client:
-            url = await client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": uploader.bucket_name, "Key": s3_key},
-                ExpiresIn=3600,
-            )
-            return RedirectResponse(url=url)
+            resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
+            body = await resp["Body"].read()
+            return StreamingResponse(iter([body]), media_type=content_type, headers=_cors)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found in S3")
+        # Fallback: presigned URL
+        try:
+            async with uploader.get_client() as client:
+                url = await client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": uploader.bucket_name, "Key": s3_key},
+                    ExpiresIn=3600,
+                )
+                return RedirectResponse(url=url, headers=_cors)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found in S3")
 
 
 @router.get(
@@ -183,18 +196,22 @@ async def get_user_photo(
     except ApplicationException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Сначала пробуем photos[] (новый формат S3 ключей)
+    _cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600"}
+
+    # Сначала пробуем photos[] (новый формат S3 ключей) — стримим байты напрямую
     photos = getattr(user, "photos", []) or []
     if photos:
         s3_key = photos[0]
+        ext = s3_key.rsplit(".", 1)[-1].lower() if "." in s3_key else "jpg"
+        _ct = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+               "webp": "image/webp", "gif": "image/gif",
+               "mp4": "video/mp4", "mov": "video/mp4", "webm": "video/webm"}
+        ct = _ct.get(ext, "image/jpeg")
         try:
             async with uploader.get_client() as client:
-                url = await client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": uploader.bucket_name, "Key": s3_key},
-                    ExpiresIn=3600,
-                )
-                return RedirectResponse(url=url)
+                resp = await client.get_object(Bucket=uploader.bucket_name, Key=s3_key)
+                body = await resp["Body"].read()
+                return StreamingResponse(iter([body]), media_type=ct, headers=_cors)
         except Exception:
             pass
 
@@ -204,7 +221,7 @@ async def get_user_photo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo")
 
     if photo.startswith("http"):
-        return RedirectResponse(url=photo)
+        return RedirectResponse(url=photo, headers=_cors)
 
     # Это Telegram file_id
     try:

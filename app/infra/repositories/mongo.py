@@ -405,127 +405,119 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
     async def get_best_result_for_user(
         self, telegram_id: int, exclude_ids: list[int] | None = None
     ) -> Iterable[UserEntity]:
+        """
+        Возвращает ВСЕ подходящие анкеты, отсортированные по близости города:
+        1) Свой город → 2) Соседние города → 3) Весь мир
+        Внутри каждой группы: boost → VIP → Premium → бесплатные
+        Все варианты написания пола поддерживаются. Возраст ±15 лет (мягко).
+        """
         from datetime import datetime, timezone
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
             return []
 
-        user_age = user.age
-        age_min = int(user_age) - 5
-        age_max = int(user_age) + 5
-
         excluded = list(exclude_ids or [])
         excluded.append(telegram_id)
-
         now = datetime.now(timezone.utc)
 
-        query_filter: dict = {
-            "telegram_id": {"$nin": excluded},
-            "profile_hidden": {"$ne": True},
-            "$expr": {
-                "$and": [
-                    {"$gte": [{"$toInt": "$age"}, age_min]},
-                    {"$lte": [{"$toInt": "$age"}, age_max]},
-                ],
-            },
-        }
-
+        # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────────────
+        _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской"]
+        _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman"]
+        gender_filter: dict | None = None
         if hasattr(user, "gender") and user.gender:
-            gender_map = {"Мужской": "Женский", "Женский": "Мужской", "Man": "Female", "Female": "Man"}
-            target_gender = gender_map.get(str(user.gender))
-            if target_gender:
-                query_filter["gender"] = target_gender
+            g = str(user.gender).strip().lower()
+            if g in ("man", "male", "мужской"):
+                gender_filter = {"$in": _ALL_FEMALE}
+            elif g in ("female", "женский", "woman"):
+                gender_filter = {"$in": _ALL_MALE}
 
-        # Фильтр по городу: сначала только свой город
-        user_city = str(getattr(user, "city", "") or "").strip()
-        if user_city:
-            query_filter["city"] = user_city
-
-        # Приоритетная сортировка: boosted → VIP → Premium → бесплатные
-        pipeline = [
-            {"$match": query_filter},
-            {"$addFields": {
-                "_sort_priority": {
-                    "$switch": {
-                        "branches": [
-                            # Boost активен
-                            {
-                                "case": {"$and": [
-                                    {"$gt": ["$boost_until", now]},
-                                ]},
-                                "then": 0,
-                            },
-                            # VIP с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "vip"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 1,
-                            },
-                            # Premium с активной подпиской
-                            {
-                                "case": {"$and": [
-                                    {"$eq": ["$premium_type", "premium"]},
-                                    {"$gt": ["$premium_until", now]},
-                                ]},
-                                "then": 2,
-                            },
-                        ],
-                        "default": 3,
-                    }
+        # ── Возрастной фильтр (мягкий: ±15 лет, не ломается при None/объекте) ─
+        age_expr = None
+        try:
+            user_age_raw = user.age
+            if user_age_raw is not None:
+                age_val = int(
+                    user_age_raw.as_generic_type()
+                    if hasattr(user_age_raw, "as_generic_type")
+                    else user_age_raw
+                )
+                a_min, a_max = max(14, age_val - 15), age_val + 15
+                age_expr = {
+                    "$and": [
+                        {"$gte": [{"$convert": {"input": "$age", "to": "double",
+                                                "onError": a_min, "onNull": a_min}}, a_min]},
+                        {"$lte": [{"$convert": {"input": "$age", "to": "double",
+                                                "onError": a_max, "onNull": a_max}}, a_max]},
+                    ]
                 }
-            }},
-            {"$sort": {"_sort_priority": 1}},
-            {"$project": {"_sort_priority": 0}},
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+        # ── Базовый фильтр: только заполненные активные анкеты ──────────────
+        base: dict = {
+            "telegram_id":    {"$nin": excluded},
+            "is_active":      True,
+            "is_banned":      {"$ne": True},
+            "profile_hidden": {"$ne": True},
+            "photo":          {"$nin": [None, ""]},
+            "gender":         {"$nin": [None, ""]},
+            "age":            {"$nin": [None, ""]},
+        }
+        if gender_filter:
+            base["gender"] = gender_filter
+        if age_expr:
+            base["$expr"] = age_expr
+
+        # ── Пользовательский город и соседи ─────────────────────────────────
+        user_city = str(getattr(user, "city", "") or "").strip()
+        neighbors = _CITY_NEIGHBORS.get(user_city, []) if user_city else []
+
+        # ── Сортировка по приоритету подписки ───────────────────────────────
+        sub_sort = {"$addFields": {
+            "_sub": {"$switch": {
+                "branches": [
+                    {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
+                    {"case": {"$and": [{"$eq": ["$premium_type", "vip"]},
+                                       {"$gt": ["$premium_until", now]}]}, "then": 1},
+                    {"case": {"$and": [{"$eq": ["$premium_type", "premium"]},
+                                       {"$gt": ["$premium_until", now]}]}, "then": 2},
+                ],
+                "default": 3,
+            }}
+        }}
+
+        # ── Единый pipeline: добавляем "city_rank" для сортировки по расстоянию ──
+        city_rank_expr: dict
+        if user_city and neighbors:
+            city_rank_expr = {"$switch": {
+                "branches": [
+                    {"case": {"$eq": ["$city", user_city]}, "then": 0},
+                    {"case": {"$in": ["$city", neighbors]},  "then": 1},
+                ],
+                "default": 2,
+            }}
+        elif user_city:
+            city_rank_expr = {"$switch": {
+                "branches": [
+                    {"case": {"$eq": ["$city", user_city]}, "then": 0},
+                ],
+                "default": 1,
+            }}
+        else:
+            city_rank_expr = {"$literal": 0}
+
+        pipeline = [
+            {"$match": base},
+            sub_sort,
+            {"$addFields": {"_city_rank": city_rank_expr}},
+            # Сортируем: сначала ближе, внутри — по подписке
+            {"$sort": {"_city_rank": 1, "_sub": 1}},
+            {"$project": {"_sub": 0, "_city_rank": 0}},
         ]
 
         result = []
         async for doc in self._collection.aggregate(pipeline):
             result.append(convert_user_document_to_entity(user_document=doc))
-
-        # Если не нашли никого в своём городе — ищем в ближайших городах
-        if not result and user_city:
-            neighbors = _CITY_NEIGHBORS.get(user_city, [])
-            if neighbors:
-                fallback_filter = dict(query_filter)
-                fallback_filter.pop("city", None)
-                fallback_filter["city"] = {"$in": neighbors}
-                fallback_pipeline = [
-                    {"$match": fallback_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(fallback_pipeline):
-                    result.append(convert_user_document_to_entity(user_document=doc))
-
-            # Если и в ближайших городах никого — ищем по всей базе без фильтра города
-            if not result:
-                global_filter = dict(query_filter)
-                global_filter.pop("city", None)
-                global_pipeline = [
-                    {"$match": global_filter},
-                    {"$addFields": {"_sort_priority": {"$switch": {
-                        "branches": [
-                            {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "vip"]}, {"$gt": ["$premium_until", now]}]}, "then": 1},
-                            {"case": {"$and": [{"$eq": ["$premium_type", "premium"]}, {"$gt": ["$premium_until", now]}]}, "then": 2},
-                        ],
-                        "default": 3,
-                    }}}},
-                    {"$sort": {"_sort_priority": 1}},
-                    {"$project": {"_sort_priority": 0}},
-                ]
-                async for doc in self._collection.aggregate(global_pipeline):
-                    result.append(convert_user_document_to_entity(user_document=doc))
 
         return result
 

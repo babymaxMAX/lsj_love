@@ -344,3 +344,73 @@ async def handle_see_who_liked(
     else:
         await callback.message.answer("Тебя ещё никто не лайкнул 🙈\nСвайпай анкеты — и лайки придут!")
         await profile(callback)
+
+
+@callback_like_router.callback_query(lambda c: c.data and c.data.startswith("like_back_"))
+async def handle_like_back(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    """Ответный лайк из уведомления — только для VIP."""
+    from datetime import datetime, timezone
+    await callback.answer()
+
+    users_service: BaseUsersService = container.resolve(BaseUsersService)
+    likes_service: BaseLikesService = container.resolve(BaseLikesService)
+
+    try:
+        current_user = await users_service.get_user(telegram_id=callback.from_user.id)
+        pt    = getattr(current_user, "premium_type", None)
+        until = getattr(current_user, "premium_until", None)
+        if until and hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_vip = bool(pt == "vip" and until and datetime.now(timezone.utc) < until)
+    except Exception:
+        is_vip = False
+
+    if not is_vip:
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        gate_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💎 Получить VIP", callback_data="premium_info")],
+            [InlineKeyboardButton(text="🔙 Назад",       callback_data="profile_page")],
+        ])
+        try:
+            await callback.message.edit_text(
+                "💎 <b>Ответ на лайк — функция VIP</b>\n\n"
+                "Оформи подписку <b>VIP</b>, чтобы видеть кто тебя лайкает и отвечать взаимностью.",
+                parse_mode="HTML", reply_markup=gate_kb,
+            )
+        except Exception:
+            await callback.message.answer(
+                "💎 Эта функция доступна только с подпиской <b>VIP</b>.",
+                parse_mode="HTML", reply_markup=gate_kb,
+            )
+        return
+
+    try:
+        liker_id = int(callback.data.split("like_back_")[1])
+    except (ValueError, IndexError):
+        return
+
+    from_id = callback.from_user.id
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    try:
+        await likes_service.create_like(from_user_id=from_id, to_user_id=liker_id)
+    except Exception:
+        pass
+
+    try:
+        is_match = await likes_service.check_match(from_user_id=from_id, to_user_id=liker_id)
+        if is_match:
+            from app.bot.utils.notificator import send_match_message
+            liker_user = await users_service.get_user(telegram_id=liker_id)
+            await send_match_message(to_user_id=from_id, matched_user=liker_user, recipient_id=from_id)
+            await send_match_message(to_user_id=liker_id, matched_user=current_user, recipient_id=liker_id)
+        else:
+            await callback.message.answer("💗 Лайк отправлен! Ждём взаимности...")
+    except Exception:
+        await callback.message.answer("💗 Лайк отправлен!")

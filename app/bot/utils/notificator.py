@@ -86,18 +86,81 @@ async def _send_photo_or_text(chat_id: int, photo_raw, text: str, reply_markup, 
     )
 
 
-async def send_liked_message(to_user_id: int):
-    from app.bot.main import bot  # ленивый импорт
+async def send_liked_message(to_user_id: int, sender=None):
+    """
+    Уведомляет о новом лайке. Показывает фото лайкающего.
+    VIP-получатели могут лайкнуть в ответ или написать.
+    """
     from app.bot.keyboards.inline import liked_by_keyboard
     try:
-        await bot.send_message(
-            to_user_id,
-            text="<b>Кто-то поставил тебе лайк 💗</b>\nХочешь узнать кто?",
-            reply_markup=liked_by_keyboard(),
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
+        # Проверяем VIP у получателя
+        is_vip_recipient = False
+        try:
+            from app.logic.init import init_container as _ic
+            from app.logic.services.base import BaseUsersService as _BUS
+            from datetime import datetime, timezone
+            _container = _ic()
+            _svc: _BUS = _container.resolve(_BUS)
+            _recipient = await _svc.get_user(telegram_id=to_user_id)
+            _pt = getattr(_recipient, "premium_type", None)
+            _until = getattr(_recipient, "premium_until", None)
+            if _until and hasattr(_until, "tzinfo") and _until.tzinfo is None:
+                _until = _until.replace(tzinfo=timezone.utc)
+            is_vip_recipient = bool(_pt == "vip" and _until and datetime.now(timezone.utc) < _until)
+        except Exception:
+            pass
+
+        if sender:
+            sender_name = str(getattr(sender, "name", "Кто-то") or "Кто-то")
+            sender_id   = getattr(sender, "telegram_id", None)
+            sender_photo = getattr(sender, "photo", None)
+            sender_username = getattr(sender, "username", None) or None
+            gender_raw = str(getattr(sender, "gender", "") or "").lower()
+            is_male = gender_raw in ("man", "male", "мужской")
+            liked_verb = "лайкнул" if is_male else "лайкнула"
+
+            if is_vip_recipient:
+                text = (
+                    f"❤️ <b>{sender_name} {liked_verb} твою анкету!</b>\n\n"
+                    f"Хочешь ответить взаимностью?"
+                )
+                from aiogram.utils.keyboard import InlineKeyboardBuilder
+                from aiogram.types import InlineKeyboardButton
+                builder = InlineKeyboardBuilder()
+                builder.row(InlineKeyboardButton(
+                    text="💗 Лайкнуть в ответ",
+                    callback_data=f"like_back_{sender_id}",
+                ))
+                if sender_username and sender_username.strip():
+                    builder.row(InlineKeyboardButton(
+                        text="✍️ Написать",
+                        url=f"https://t.me/{sender_username.strip()}",
+                    ))
+                builder.row(InlineKeyboardButton(text="❌ Пропустить", callback_data="profile_page"))
+                kb = builder.as_markup()
+            else:
+                text = (
+                    f"❤️ <b>Кто-то лайкнул твою анкету!</b>\n\n"
+                    f"Оформи <b>VIP</b>, чтобы видеть кто и отвечать взаимностью 💎"
+                )
+                from aiogram.utils.keyboard import InlineKeyboardBuilder
+                from aiogram.types import InlineKeyboardButton
+                builder = InlineKeyboardBuilder()
+                builder.row(InlineKeyboardButton(text="💎 Получить VIP", callback_data="premium_info"))
+                builder.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="profile_page"))
+                kb = builder.as_markup()
+
+            await _send_photo_or_text(to_user_id, sender_photo, text, kb, user_id=sender_id)
+        else:
+            # Нет данных об отправителе
+            from app.bot.keyboards.inline import liked_by_keyboard as _lbk
+            await _send_photo_or_text(
+                to_user_id, None,
+                "<b>Кто-то поставил тебе лайк 💗</b>\nХочешь узнать кто?",
+                _lbk(),
+            )
+    except Exception as e:
+        logger.warning(f"send_liked_message failed: {e}")
 
 
 async def send_icebreaker_message(target_id: int, message: str, sender):

@@ -187,7 +187,7 @@ async def add_like_to_user(
                     pass
             else:
                 try:
-                    await send_liked_message(to_user_id=schema.to_user)
+                    await send_liked_message(to_user_id=schema.to_user, sender=from_user)
                 except Exception:
                     pass
 

@@ -127,7 +127,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                 </button>
 
                 {/* Центр — логотип */}
-                <h1 className="text-base font-bold" style={{ color: "#fff" }}>LSJLove 💕</h1>
+                <h1 className="text-base font-bold" style={{ color: "#fff" }}>Kupidon AI 💕</h1>
 
                 {/* Правая кнопка — Вопрос дня */}
                 <button
