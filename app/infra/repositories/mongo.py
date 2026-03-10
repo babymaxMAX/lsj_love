@@ -419,6 +419,8 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             "telegram_id": {"$nin": excluded},
             "is_active": {"$ne": False},
             "profile_hidden": {"$ne": True},
+            "gender": {"$ne": None},      # только заполнившие анкету
+            "photos": {"$ne": []},         # только с фото
         }
 
         # Гендер-фильтр: используем looking_for (кого ищет) для определения

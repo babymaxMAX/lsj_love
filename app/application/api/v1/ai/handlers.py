@@ -1072,7 +1072,13 @@ async def ai_matchmaking(
     users_col = db[config.mongodb_users_collection]
 
     # Фильтр по противоположному полу
-    mm_filter = {"is_active": {"$ne": False}, "telegram_id": {"$ne": data.user_id}, "profile_hidden": {"$ne": True}}
+    mm_filter = {
+        "is_active": {"$ne": False},
+        "telegram_id": {"$ne": data.user_id},
+        "profile_hidden": {"$ne": True},
+        "gender": {"$ne": None},
+        "photos": {"$ne": []},
+    }
     user_gender = str(getattr(current_user, "gender", "") or "")
     if user_gender:
         same_exact = {
