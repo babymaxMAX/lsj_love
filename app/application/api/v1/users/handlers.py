@@ -559,6 +559,49 @@ async def get_user_handler(
 
 
 @router.get(
+    "/debug/photo/{user_id}",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def debug_photo(user_id: int, container: Container = Depends(init_container)):
+    """Диагностический эндпоинт: показывает что хранится в MongoDB и генерирует presigned URL."""
+    service: BaseUsersService = container.resolve(BaseUsersService)
+    uploader: BaseS3Storage = container.resolve(BaseS3Storage)
+    try:
+        user = await service.get_user(telegram_id=user_id)
+    except Exception as e:
+        return {"error": f"User not found: {e}"}
+    photos_raw = getattr(user, "photos", []) or []
+    photo_field = getattr(user, "photo", None)
+    result = {
+        "telegram_id": user_id,
+        "photos_in_db": photos_raw,
+        "photo_field": photo_field,
+        "s3_bucket": uploader.bucket_name,
+        "s3_endpoint": uploader.endpoint_url,
+        "s3_region": uploader.region_name,
+        "presigned_urls": [],
+    }
+    for i, key in enumerate(photos_raw):
+        try:
+            url = await uploader.get_presigned_url(key, expires=3600)
+            result["presigned_urls"].append({"index": i, "key": key, "url": url})
+        except Exception as e:
+            result["presigned_urls"].append({"index": i, "key": key, "error": str(e)})
+    # Проверяем доступность S3 через aiohttp
+    for item in result["presigned_urls"]:
+        if "url" in item:
+            try:
+                async with aiohttp.ClientSession() as sess:
+                    async with sess.head(item["url"], timeout=aiohttp.ClientTimeout(total=5)) as r:
+                        item["http_status"] = r.status
+                        item["content_type"] = r.headers.get("Content-Type", "?")
+            except Exception as e:
+                item["http_error"] = str(e)
+    return result
+
+
+@router.get(
     "/best_result/{user_id}",
     status_code=status.HTTP_200_OK,
     description="Get best result for user (excludes already-liked profiles).",
