@@ -68,10 +68,6 @@ async def profile(
     keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=not profile_hidden)
 
     if isinstance(update, Message):
-        try:
-            await update.delete()
-        except Exception:
-            pass
         target = update
     else:
         try:

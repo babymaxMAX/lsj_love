@@ -56,11 +56,6 @@ async def _notify_referrer_registration(bot, referrer_id: int, new_user: Message
 async def start(message: Message, state: FSMContext, container: Container = init_container()):
     await state.clear()
 
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
     service: BaseUsersService = container.resolve(BaseUsersService)
 
     # Парсим реферальный параметр: /start ref_12345678
