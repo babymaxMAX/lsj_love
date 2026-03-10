@@ -353,7 +353,7 @@ async def choose_vip(callback: CallbackQuery, container: Container = init_contai
 async def stars_premium(callback: CallbackQuery, container: Container = init_container()):
     config = container.resolve(Config)
     await callback.message.answer_invoice(
-        title="LSJLove Premium",
+        title="Kupidon AI Premium",
         description="Безлимитные лайки, просмотр кто лайкнул, откат свайпа, 1 суперлайк/день",
         payload="premium_monthly",
         currency="XTR",
@@ -366,7 +366,7 @@ async def stars_premium(callback: CallbackQuery, container: Container = init_con
 async def stars_vip(callback: CallbackQuery, container: Container = init_container()):
     config = container.resolve(Config)
     await callback.message.answer_invoice(
-        title="LSJLove VIP",
+        title="Kupidon AI VIP",
         description="AI Icebreaker ×10/день, буст профиля, приоритет в выдаче + всё из Premium",
         payload="vip_monthly",
         currency="XTR",
@@ -596,10 +596,13 @@ async def successful_payment(message: Message, container: Container = init_conta
             service = container.resolve(BaseUsersService)
             user = await service.get_user(telegram_id=user_id)
             now = datetime.now(timezone.utc)
-            current_until = getattr(user, "premium_until", None) or now
-            if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
-                current_until = current_until.replace(tzinfo=None)
-            base = max(current_until, now)
+            current_until = getattr(user, "premium_until", None)
+            if current_until is None:
+                base = now
+            else:
+                if hasattr(current_until, "tzinfo") and current_until.tzinfo is None:
+                    current_until = current_until.replace(tzinfo=timezone.utc)
+                base = max(current_until, now)
             until = base + timedelta(days=7)
             await service.update_user_info_after_reg(
                 telegram_id=user_id,
@@ -609,7 +612,7 @@ async def successful_payment(message: Message, container: Container = init_conta
             days_left = (until - now).days
             await message.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"Активирован <b>LSJLove {label}</b>.\n"
+                f"Активирован <b>Kupidon AI {label}</b>.\n"
                 f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b> ({days_left} дн.)\n\n"
                 f"Открой приложение и наслаждайся! ✨",
                 parse_mode="HTML",

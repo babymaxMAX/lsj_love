@@ -82,6 +82,7 @@ async def toggle_photo_like(
                 liker = await service.get_user(telegram_id=body.from_user)
                 owner = await service.get_user(telegram_id=body.owner_id)
                 liker_name = str(getattr(liker, "name", "Кто-то") or "Кто-то")
+                liker_gender = str(getattr(liker, "gender", "") or "")
                 owner_is_premium = _is_premium_active(owner)
                 from app.bot.utils.notificator import send_photo_liked_notification
                 await send_photo_liked_notification(
@@ -89,6 +90,7 @@ async def toggle_photo_like(
                     liker_name=liker_name,
                     photo_idx=body.photo_index,
                     owner_is_premium=owner_is_premium,
+                    liker_gender=liker_gender,
                 )
             except Exception as e:
                 logger.warning(f"Photo like notification failed: {e}")

@@ -8,6 +8,8 @@ from aiogram.filters import Command
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     Message,
 )
 from punq import Container
@@ -65,7 +67,17 @@ async def profile(
     boosts_left = _compute_boosts_left(user, now) if is_vip else 0
 
     profile_hidden = bool(getattr(user, "profile_hidden", False))
-    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=not profile_hidden)
+    gender = str(getattr(user, "gender", "") or "")
+    allow_girls = bool(getattr(user, "allow_girls_write_first", False))
+    keyboard = profile_inline_kb(
+        user_id=update.from_user.id,
+        liked_by=False,
+        is_vip=is_vip,
+        boosts_left=boosts_left,
+        is_active=not profile_hidden,
+        gender=gender,
+        allow_girls_write_first=allow_girls,
+    )
 
     if isinstance(update, Message):
         target = update
@@ -135,7 +147,7 @@ async def referral_info(
         referred_line = f"\n📨 Ты пришёл по реферальной ссылке."
 
     text = (
-        f"🔗 <b>Реферальная программа LSJLove</b>\n\n"
+        f"🔗 <b>Реферальная программа Kupidon AI</b>\n\n"
         f"Приглашай друзей — зарабатывай <b>50%</b> с каждой их покупки!\n\n"
         f"<b>Твоя ссылка:</b>\n"
         f"<code>{referral_link}</code>\n\n"
@@ -280,3 +292,56 @@ async def boost_profile(
         parse_mode="HTML",
         reply_markup=back_kb,
     )
+
+
+@user_profile_router.callback_query(F.data == "toggle_girls_write_first")
+async def toggle_girls_write_first(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    service: BaseUsersService = container.resolve(BaseUsersService)
+
+    try:
+        user = await service.get_user(telegram_id=callback.from_user.id)
+    except Exception:
+        await callback.answer("Ошибка профиля", show_alert=True)
+        return
+
+    current = bool(getattr(user, "allow_girls_write_first", False))
+    new_val = not current
+
+    try:
+        await service.update_user_info_after_reg(
+            telegram_id=callback.from_user.id,
+            data={"allow_girls_write_first": new_val},
+        )
+    except Exception:
+        await callback.answer("Ошибка сохранения", show_alert=True)
+        return
+
+    status_text = "✅ Включено" if new_val else "❌ Отключено"
+    await callback.answer(f"Девушки пишут первыми: {status_text}", show_alert=False)
+
+    # Обновляем клавиатуру профиля — кнопка сразу меняет иконку
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        pt = getattr(user, "premium_type", None)
+        until = getattr(user, "premium_until", None)
+        if until and hasattr(until, "tzinfo") and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        is_vip = pt == "vip" and until and until > now
+        is_active = bool(getattr(user, "is_active", True))
+        boosts_left = _compute_boosts_left(user, now)
+        kb = profile_inline_kb(
+            user_id=callback.from_user.id,
+            liked_by=False,
+            is_vip=is_vip,
+            boosts_left=boosts_left,
+            is_active=is_active,
+            gender=str(getattr(user, "gender", "") or ""),
+            allow_girls_write_first=new_val,
+        )
+        await callback.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        pass

@@ -33,6 +33,11 @@ class UserEntity(BaseEntity):
     premium_until: Optional[datetime] = None
     # Суперлайки
     superlike_credits: int = 0
+    # Icebreaker кредиты (счётчик: <0 = накопленные, 0-4 = ещё есть бесплатные, >=5 = все исчерпаны)
+    icebreaker_used: int = 0
+    # Дата последней выдачи ежедневных бонусов (для Premium/VIP)
+    last_superlike_grant: Optional[datetime] = None
+    last_icebreaker_grant: Optional[datetime] = None
     # Буст профиля
     boost_until: Optional[datetime] = None
     boosts_this_week: int = 0
@@ -44,6 +49,10 @@ class UserEntity(BaseEntity):
     last_seen: Optional[datetime] = None    # последний раз онлайн
     # Ответы на вопросы профиля
     profile_answers: Optional[dict] = None
+    # Функция "Девушки пишут первыми" (только для мужчин)
+    allow_girls_write_first: bool = False
+    # Бан
+    is_banned: bool = False
 
     def __post_init__(self):
         if self.photos is None:

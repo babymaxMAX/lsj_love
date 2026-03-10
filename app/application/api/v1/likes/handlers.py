@@ -128,6 +128,10 @@ async def add_like_to_user(
 
     is_premium = _is_premium_active(from_user)
 
+    # Девушки лайкают без ограничений (всегда бесплатно)
+    user_gender = str(getattr(from_user, "gender", "") or "").lower()
+    is_female = user_gender in ("female", "женский")
+
     # Суперлайк: проверяем кредиты
     if schema.is_superlike:
         sl_credits = getattr(from_user, "superlike_credits", 0) or 0
@@ -137,8 +141,8 @@ async def add_like_to_user(
                 detail={"error": "Нет суперлайков. Купи суперлайк в разделе Premium."},
             )
 
-    # Дневной лимит для бесплатных пользователей
-    if not is_premium and not schema.is_superlike:
+    # Дневной лимит только для бесплатных мужчин (девушки и Premium — без лимита)
+    if not is_premium and not is_female and not schema.is_superlike:
         today_count = await service.count_likes_today(from_user_id=schema.from_user)
         if today_count >= config.daily_likes_free:
             raise HTTPException(

@@ -14,7 +14,15 @@ container: Container = init_container()
 config: Config = container.resolve(Config)
 
 
-def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int = 0, is_active: bool = True):
+def profile_inline_kb(
+    user_id,
+    liked_by,
+    is_vip: bool = False,
+    boosts_left: int = 0,
+    is_active: bool = True,
+    gender: str = "",
+    allow_girls_write_first: bool = False,
+):
     builder = InlineKeyboardBuilder()
     if liked_by:
         builder.row(
@@ -45,6 +53,15 @@ def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int 
             callback_data="toggle_visibility",
         ),
     )
+    # Тоггл для мужчин — девушки пишут первыми
+    if str(gender).lower() in ("male", "man", "мужской"):
+        icon = "✅" if allow_girls_write_first else "❌"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{icon} Девушки пишут первыми",
+                callback_data="toggle_girls_write_first",
+            ),
+        )
     builder.row(
         InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="referral_info"),
     )

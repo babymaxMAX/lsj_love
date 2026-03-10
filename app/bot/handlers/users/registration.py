@@ -193,6 +193,37 @@ async def user_reg(
     )
 
     await message.answer("✅ Анкета заполнена! Показываю твой профиль...")
+
+    # Специальное приветствие для девушек — рассказываем об их бесплатных преимуществах
+    registered_gender = str(data.get("gender", "") or "").lower()
+    if registered_gender in ("female", "женский"):
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+        from app.settings.config import Config
+        _cfg_container = init_container()
+        _config: Config = _cfg_container.resolve(Config)
+        app_url = f"{_config.front_end_url}/users/{message.from_user.id}"
+        girl_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="💕 Открыть приложение",
+                web_app=WebAppInfo(url=app_url),
+            )],
+        ])
+        await message.answer(
+            text=(
+                "🎁 <b>Добро пожаловать, красавица!</b>\n\n"
+                "В Kupidon AI у девушек особые привилегии — <b>абсолютно бесплатно</b>:\n\n"
+                "❤️ <b>Безлимитные лайки</b>\n"
+                "Ставь столько лайков, сколько хочешь — без ограничений навсегда.\n\n"
+                "👁 <b>Кто тебя лайкнул</b>\n"
+                "Видишь всех, кому ты понравилась — ещё до взаимного матча.\n\n"
+                "✉️ <b>Написать первой</b>\n"
+                "Если парень включил опцию «Девушки пишут первыми» — ты можешь написать ему сразу, без матча.\n\n"
+                "Всё это <b>без подписки</b> — только для девушек! 💕"
+            ),
+            parse_mode="HTML",
+            reply_markup=girl_kb,
+        )
+
     await profile(message)
 
 

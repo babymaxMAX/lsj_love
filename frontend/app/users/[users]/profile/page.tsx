@@ -35,6 +35,9 @@ interface UserProfile {
     is_active: boolean;
     referral_balance?: number;
     premium_type?: string | null;
+    allow_girls_write_first?: boolean;
+    superlike_credits?: number;
+    icebreaker_credits?: number;
 }
 
 const MAX_MEDIA = 6;
@@ -73,7 +76,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
 
     const loadUser = useCallback(() => {
         setLoading(true);
-        fetch(`${BackEnd_URL}/api/v1/users/${userId}`)
+        fetch(`${BackEnd_URL}/api/v1/users/${userId}?_t=${Date.now()}`, { cache: "no-store" })
             .then((r) => r.json())
             .then((data: UserProfile) => {
                 setUser(data);
@@ -95,6 +98,15 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
     }, [userId]);
 
     useEffect(() => { loadUser(); }, [loadUser]);
+
+    // Перезагружаем профиль когда пользователь возвращается в приложение (после бота)
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === "visible") loadUser();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+    }, [loadUser]);
 
     // Загружаем лайки для каждого фото
     useEffect(() => {
@@ -347,7 +359,7 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                             <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 100, background: "linear-gradient(135deg, #f59e0b, #eab308)", color: "#000" }}>VIP</span>
                         )}
                         {pt === "premium" && (
-                            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 100, background: "linear-gradient(135deg, #ef4444, #ec4899)", color: "#fff" }}>PRO</span>
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 100, background: "linear-gradient(135deg, #ef4444, #ec4899)", color: "#fff" }}>Premium</span>
                         )}
                     </div>
                     <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>До {MAX_MEDIA} фото и видео</p>
@@ -548,10 +560,43 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                             </div>
                         </div>
                     )}
+                    {/* Девушки пишут первыми — только для мужчин */}
+                    {(user.gender === "Man" || user.gender === "Мужской" || user.gender === "male" || user.gender === "man") && (
+                        <div
+                            className="flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer"
+                            style={{ background: user.allow_girls_write_first ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)", border: `1px solid ${user.allow_girls_write_first ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}` }}
+                            onClick={async () => {
+                                try {
+                                    const res = await fetch(`${BackEnd_URL}/api/v1/users/${userId}/toggle-girls-write-first`, { method: "POST" });
+                                    if (res.ok) {
+                                        const d = await res.json();
+                                        setUser(prev => prev ? { ...prev, allow_girls_write_first: d.allow_girls_write_first } : prev);
+                                    }
+                                } catch {}
+                            }}
+                        >
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">💬</span>
+                                <div>
+                                    <p className="text-sm font-medium">Девушки пишут первыми</p>
+                                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>Девушки смогут написать до матча</p>
+                                </div>
+                            </div>
+                            <div
+                                className="w-11 h-6 rounded-full transition-all relative flex-shrink-0"
+                                style={{ background: user.allow_girls_write_first ? "#22c55e" : "rgba(255,255,255,0.2)" }}
+                            >
+                                <div
+                                    className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow"
+                                    style={{ left: user.allow_girls_write_first ? "calc(100% - 22px)" : "2px" }}
+                                />
+                            </div>
+                        </div>
+                    )}
                     {user.about && (
                         <div className="pt-2 border-t border-white/10">
                             <p className="text-xs text-white/40 mb-1">✍️ О себе</p>
-                            <p className="text-sm text-white/80 leading-relaxed">{user.about}</p>
+                            <p className="text-sm text-white/80 leading-relaxed">{user.about.replace(/^["']+|["']+$/g, "").trim()}</p>
                         </div>
                     )}
                 </div>
@@ -786,6 +831,25 @@ export default function ProfilePage({ params }: { params: { users: string } }) {
                     </div>
                 </div>
             )}
+
+            {/* Ссылки на документы */}
+            <div className="flex justify-center gap-4 mt-6 pb-8">
+                <button
+                    onClick={() => router.push("/privacy")}
+                    className="text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                    Политика конфиденциальности
+                </button>
+                <span style={{ color: "rgba(255,255,255,0.15)", fontSize: 12 }}>·</span>
+                <button
+                    onClick={() => router.push("/terms")}
+                    className="text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                    Пользовательское соглашение
+                </button>
+            </div>
         </div>
     );
 }

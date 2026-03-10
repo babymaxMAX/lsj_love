@@ -20,7 +20,7 @@ LOOKING_FOR_RU = {
 
 def first_welcome_message(user: User) -> str:
     message: str = (
-        f"Добро пожаловать в <b>LSJLove</b> 💕\n\n"
+        f"Добро пожаловать в <b>Kupidon AI</b> 💕\n\n"
         f"Привет, <b>{user.first_name}</b>! Здесь ты найдёшь свою вторую половинку."
     )
     return message
@@ -45,7 +45,7 @@ def user_profile_text_message(user: UserEntity) -> str:
     username_str = f"  ·  @{user.username}" if user.username else ""
 
     lines = [
-        "✨ <b>LSJLove — Моя анкета</b>",
+        "✨ <b>Kupidon AI — Моя анкета</b>",
         "━━━━━━━━━━━━━━━━━━━━",
         f"👤  <b>{name_line}{age_str}</b>{username_str}",
         f"📍  {user.city or '—'}",
@@ -81,8 +81,27 @@ def user_profile_text_message(user: UserEntity) -> str:
 
     # Суперлайки
     sl_credits = getattr(user, "superlike_credits", 0) or 0
-    sl_str = f"  ·  ⭐ Суперлайки: {sl_credits}" if sl_credits > 0 else ""
+    sl_str = f"  ·  ⭐ ×{sl_credits}" if sl_credits > 0 else ""
     lines.append(f"{badge}{sl_str}")
+
+    # Icebreaker кредиты
+    ice_used = int(getattr(user, "icebreaker_used", 0) or 0)
+    if ice_used < 0:
+        ice_left = abs(ice_used)
+    elif ice_used < 5:
+        ice_left = 5 - ice_used
+    else:
+        ice_left = 0
+    if ice_left > 0:
+        lines.append(f"💌  AI Icebreaker: <b>{ice_left} шт.</b>")
+
+    # Функция "Девушки пишут первыми" — только для мужчин
+    gender_val = str(getattr(user, "gender", "") or "").lower()
+    is_man = gender_val in ("man", "male", "мужской")
+    allow_girls = bool(getattr(user, "allow_girls_write_first", False))
+    if is_man:
+        girls_status = "✅ Вкл" if allow_girls else "❌ Выкл"
+        lines.append(f"💬  Девушки пишут первыми: <b>{girls_status}</b>")
 
     # Реферальный баланс (только если > 0)
     ref_balance = float(getattr(user, "referral_balance", 0) or 0)
@@ -125,7 +144,7 @@ def match_text_message(user: UserEntity) -> str:
 
 def premium_info_message() -> str:
     return (
-        "💎 <b>LSJLove Premium</b>\n\n"
+        "💎 <b>Kupidon AI Premium</b>\n\n"
         "Выбери тариф:\n\n"
 
         "⭐ <b>Premium — 350 ₽ / 150 Stars в неделю</b>\n"

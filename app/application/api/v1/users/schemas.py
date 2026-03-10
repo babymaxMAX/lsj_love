@@ -41,6 +41,9 @@ class UserDetailSchema(BaseModel):
     last_seen: Optional[str] = None   # ISO-строка UTC
     profile_answers: Optional[dict] = None
     premium_type: Optional[str] = None  # "premium" | "vip" | None
+    allow_girls_write_first: bool = False
+    superlike_credits: int = 0         # оставшиеся суперлайк кредиты
+    icebreaker_credits: int = 0        # оставшиеся icebreaker кредиты
 
     @classmethod
     def from_entity(cls, user: UserEntity) -> "UserDetailSchema":
@@ -61,6 +64,16 @@ class UserDetailSchema(BaseModel):
             photos_urls = []
             media_types = []
 
+        # icebreaker_credits: если icebreaker_used < 0 — это накопленные кредиты
+        # если icebreaker_used < 5 — ещё есть бесплатные
+        icebreaker_used = int(getattr(user, "icebreaker_used", 0) or 0)
+        if icebreaker_used < 0:
+            ice_credits = abs(icebreaker_used)
+        elif icebreaker_used < 5:
+            ice_credits = 5 - icebreaker_used
+        else:
+            ice_credits = 0
+
         return UserDetailSchema(
             telegram_id=uid,
             name=user.name,
@@ -78,6 +91,9 @@ class UserDetailSchema(BaseModel):
             last_seen=_to_utc_iso(user.last_seen),
             profile_answers=getattr(user, "profile_answers", None),
             premium_type=getattr(user, "premium_type", None) if _is_sub_active(user) else None,
+            allow_girls_write_first=bool(getattr(user, "allow_girls_write_first", False)),
+            superlike_credits=int(getattr(user, "superlike_credits", 0) or 0),
+            icebreaker_credits=ice_credits,
         )
 
 

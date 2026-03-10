@@ -92,6 +92,19 @@ def _get_users_collection(container: Container):
     return client[config.mongodb_dating_database]["users"]
 
 
+async def _notify_user(telegram_id: int, text: str):
+    """Отправляет уведомление пользователю в Telegram."""
+    try:
+        from aiogram import Bot
+        _container = init_container()
+        _cfg: Config = _container.resolve(Config)
+        _bot = Bot(token=_cfg.token)
+        await _bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+        await _bot.session.close()
+    except Exception as e:
+        logger.warning(f"User notify failed for {telegram_id}: {e}")
+
+
 async def _activate_icebreaker_pack(container: Container, telegram_id: int):
     """Атомарно добавляет 5 icebreaker-кредитов (уменьшает счётчик использований на 5)."""
     col = _get_users_collection(container)
@@ -192,10 +205,14 @@ async def _activate_subscription(
     service = container.resolve(BaseUsersService)
     user = await service.get_user(telegram_id=telegram_id)
     now = datetime.now(timezone.utc)
-    current_until = getattr(user, "premium_until", None) or now
-    if hasattr(current_until, "tzinfo") and current_until.tzinfo is not None:
-        current_until = current_until.replace(tzinfo=None)
-    base = max(current_until, now)
+    current_until = getattr(user, "premium_until", None)
+    if current_until is None:
+        base = now
+    else:
+        # Приводим к tz-aware UTC чтобы избежать TypeError при сравнении
+        if hasattr(current_until, "tzinfo") and current_until.tzinfo is None:
+            current_until = current_until.replace(tzinfo=timezone.utc)
+        base = max(current_until, now)
     until = base + timedelta(days=days)
     await service.update_user_info_after_reg(
         telegram_id=telegram_id,
@@ -319,12 +336,13 @@ async def create_platega_payment(
     amount = prices[body.product]
     product_info = PRODUCTS[body.product]
 
+    frontend_url = config.front_end_url.rstrip("/")
     request_body = {
         "paymentMethod": PAYMENT_METHODS[body.method],
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": product_info["name"],
-        "return": f"[REDACTED]/users/{body.telegram_id}/premium?status=success",
-        "failedUrl": f"[REDACTED]/users/{body.telegram_id}/premium?status=failed",
+        "return": f"{frontend_url}/users/{body.telegram_id}/premium?status=success",
+        "failedUrl": f"{frontend_url}/users/{body.telegram_id}/premium?status=failed",
         "payload": f"{body.telegram_id}:{body.product}",
     }
 
@@ -447,36 +465,54 @@ async def get_payment_status(
 
         if tx and tx.get("status") != "CONFIRMED":
             product_info = PRODUCTS.get(tx["product"], {})
+            uid = tx["telegram_id"]
 
             if product_info.get("premium_type"):
                 try:
-                    await _activate_subscription(
+                    until = await _activate_subscription(
                         container,
-                        telegram_id=tx["telegram_id"],
+                        telegram_id=uid,
                         premium_type=product_info["premium_type"],
                         days=product_info["days"],
                     )
                     premium_activated = True
+                    label = "⭐ Premium" if product_info["premium_type"] == "premium" else "💎 VIP"
+                    await _notify_user(uid,
+                        f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+                        f"Активирован <b>Kupidon AI {label}</b>.\n"
+                        f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b>\n\n"
+                        f"Открой приложение и наслаждайся! ✨"
+                    )
                 except Exception as e:
                     logger.error(f"Premium activation error: {e}")
 
             elif tx["product"] == "icebreaker_pack":
                 try:
-                    await _activate_icebreaker_pack(container, tx["telegram_id"])
+                    await _activate_icebreaker_pack(container, uid)
                     premium_activated = True
+                    await _notify_user(uid,
+                        "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
+                        "Открой приложение — кнопка ✨ AI Icebreaker снова доступна.\n"
+                        "Каждая покупка суммируется!"
+                    )
                 except Exception as e:
                     logger.error(f"Icebreaker pack activation error: {e}")
 
             elif tx["product"] == "superlike":
                 try:
-                    await _activate_superlike(container, tx["telegram_id"])
+                    await _activate_superlike(container, uid)
                     premium_activated = True
+                    await _notify_user(uid,
+                        "⭐ <b>Суперлайк активирован!</b>\n\n"
+                        "Открой приложение, найди анкету и нажми ⭐ — "
+                        "твой профиль появится первым!"
+                    )
                 except Exception as e:
                     logger.error(f"Superlike activation error: {e}")
 
-            # Начисляем реферальный бонус 10%
+            # Начисляем реферальный бонус
             try:
-                await _pay_referral_bonus(container, tx["telegram_id"], tx.get("amount", 0))
+                await _pay_referral_bonus(container, uid, tx.get("amount", 0))
             except Exception as e:
                 logger.warning(f"Referral bonus (polling) failed: {e}")
 
@@ -541,37 +577,55 @@ async def platega_webhook(
         return JSONResponse({"ok": True, "already_confirmed": True})
 
     product_info = PRODUCTS.get(tx["product"], {})
+    uid = tx["telegram_id"]
 
     if product_info.get("premium_type"):
         try:
-            await _activate_subscription(
+            until = await _activate_subscription(
                 container,
-                telegram_id=tx["telegram_id"],
+                telegram_id=uid,
                 premium_type=product_info["premium_type"],
                 days=product_info["days"],
             )
-            logger.info(f"Premium activated via webhook: user={tx['telegram_id']}")
+            logger.info(f"Premium activated via webhook: user={uid}")
+            label = "⭐ Premium" if product_info["premium_type"] == "premium" else "💎 VIP"
+            await _notify_user(uid,
+                f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+                f"Активирован <b>Kupidon AI {label}</b>.\n"
+                f"Подписка действует до: <b>{until.strftime('%d.%m.%Y')}</b>\n\n"
+                f"Открой приложение и наслаждайся! ✨"
+            )
         except Exception as e:
             logger.error(f"Premium activation failed: {e}")
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
     elif tx.get("product") == "icebreaker_pack":
         try:
-            await _activate_icebreaker_pack(container, tx["telegram_id"])
-            logger.info(f"Icebreaker pack (+5) activated via webhook: user={tx['telegram_id']}")
+            await _activate_icebreaker_pack(container, uid)
+            logger.info(f"Icebreaker pack (+5) activated via webhook: user={uid}")
+            await _notify_user(uid,
+                "🎉 <b>Пак AI Icebreaker ×5 активирован!</b>\n\n"
+                "Открой приложение — кнопка ✨ AI Icebreaker снова доступна.\n"
+                "Каждая покупка суммируется!"
+            )
         except Exception as e:
             logger.error(f"Icebreaker pack activation failed: {e}")
 
     elif tx.get("product") == "superlike":
         try:
-            await _activate_superlike(container, tx["telegram_id"])
-            logger.info(f"Superlike credit (+1) added via webhook: user={tx['telegram_id']}")
+            await _activate_superlike(container, uid)
+            logger.info(f"Superlike credit (+1) added via webhook: user={uid}")
+            await _notify_user(uid,
+                "⭐ <b>Суперлайк активирован!</b>\n\n"
+                "Открой приложение, найди анкету и нажми ⭐ — "
+                "твой профиль появится первым!"
+            )
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
 
-    # Начисляем реферальный бонус 10%
+    # Начисляем реферальный бонус
     try:
-        await _pay_referral_bonus(container, tx["telegram_id"], tx.get("amount", 0))
+        await _pay_referral_bonus(container, uid, tx.get("amount", 0))
     except Exception as e:
         logger.warning(f"Referral bonus (webhook) failed: {e}")
 

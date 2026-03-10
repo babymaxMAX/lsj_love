@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { BottomNav } from "@/components/bottom-nav";
 
-interface Answer { question_id: string; text: string; emoji: string; answer: string | string[]; }
+interface Answer { question_id: string; text: string; emoji: string; answer: string | string[]; category?: string; }
 interface ChatMsg { role: "user" | "assistant"; content: string; }
 
 export default function SettingsPage() {
@@ -20,6 +20,10 @@ export default function SettingsPage() {
     const [city, setCity] = useState("");
     const [saving, setSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState("");
+    const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null);
+    const [editingAnswerText, setEditingAnswerText] = useState("");
+    const [girlsWriteFirst, setGirlsWriteFirst] = useState(false);
+    const [togglingGirls, setTogglingGirls] = useState(false);
 
     // AI builder
     const [aiAccess, setAiAccess] = useState<any>(null);
@@ -36,6 +40,7 @@ export default function SettingsPage() {
             setAbout(d.about || "");
             setName(d.name || "");
             setCity(d.city || "");
+            setGirlsWriteFirst(d.allow_girls_write_first || false);
         }).catch(() => {});
         fetch(`${BackEnd_URL}/api/v1/profile/answers/${userId}`).then(r => r.json()).then(d => setAnswers(d.answers || [])).catch(() => {});
         fetch(`${BackEnd_URL}/api/v1/profile/ai-builder/status/${userId}`).then(r => r.json()).then(setAiAccess).catch(() => {});
@@ -64,6 +69,19 @@ export default function SettingsPage() {
         setAnswers(prev => prev.filter(a => a.question_id !== qid));
     };
 
+    const saveEditedAnswer = async (qid: string) => {
+        if (!editingAnswerText.trim()) return;
+        try {
+            await fetch(`${BackEnd_URL}/api/v1/profile/answers`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ telegram_id: parseInt(userId), question_id: qid, answer: editingAnswerText.trim() }),
+            });
+            setAnswers(prev => prev.map(a => a.question_id === qid ? { ...a, answer: editingAnswerText.trim() } : a));
+            setEditingAnswerId(null);
+            setEditingAnswerText("");
+        } catch {}
+    };
+
     const sendAiMessage = async () => {
         const text = aiInput.trim();
         if (!text || aiLoading) return;
@@ -85,45 +103,92 @@ export default function SettingsPage() {
     };
 
     const tabStyle = (t: string) => ({
-        flex: 1, padding: "10px 0", borderRadius: 12, fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer",
-        background: tab === t ? "linear-gradient(135deg, #7c3aed, #db2777)" : "rgba(255,255,255,0.06)",
-        color: tab === t ? "#fff" : "rgba(255,255,255,0.5)",
+        flex: 1, padding: "10px 4px", borderRadius: 12, fontWeight: 700, fontSize: 12, border: "none", cursor: "pointer",
+        background: tab === t ? "linear-gradient(135deg, #7c3aed, #db2777)" : "rgba(255,255,255,0.1)",
+        color: tab === t ? "#fff" : "rgba(255,255,255,0.75)",
+        whiteSpace: "nowrap" as const,
     });
 
     if (!user) return <div className="flex items-center justify-center h-screen" style={{ background: "#0f0f1a" }}><div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" /></div>;
 
     return (
         <div className="flex flex-col min-h-screen pb-24" style={{ background: "#0f0f1a", color: "#fff" }}>
-            <div className="sticky top-0 z-30 flex items-center gap-3 px-4" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingTop: 48, paddingBottom: 12 }}>
-                <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-                <h1 style={{ fontSize: 17, fontWeight: 700 }}>⚙️ Настройки профиля</h1>
+            <div className="sticky top-0 z-30" style={{ background: "rgba(15,15,26,0.97)", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingTop: 44 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 16px 6px" }}>
+                    <button onClick={() => router.back()} style={{ width: 34, height: 34, borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>←</button>
+                    <h1 style={{ fontSize: 16, fontWeight: 700 }}>⚙️ Настройки профиля</h1>
+                </div>
+                <div style={{ display: "flex", gap: 6, padding: "0 16px 8px" }}>
+                    <button onClick={() => setTab("info")} style={tabStyle("info")}>📝 Профиль</button>
+                    <button onClick={() => setTab("answers")} style={tabStyle("answers")}>💬 Вопросы</button>
+                    <button onClick={() => setTab("ai")} style={tabStyle("ai")}>🤖 AI анкета</button>
+                </div>
             </div>
 
-            {/* Tabs */}
-            <div style={{ display: "flex", gap: 6, padding: "12px 16px 0" }}>
-                <button onClick={() => setTab("info")} style={tabStyle("info")}>📝 Профиль</button>
-                <button onClick={() => setTab("answers")} style={tabStyle("answers")}>💬 Обо мне</button>
-                <button onClick={() => setTab("ai")} style={tabStyle("ai")}>🤖 AI</button>
-            </div>
-
-            <div style={{ padding: "16px", flex: 1 }}>
+            <div style={{ padding: "20px 16px 16px", flex: 1 }}>
                 {tab === "info" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>Имя</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>Имя</label>
                             <input value={name} onChange={e => setName(e.target.value)} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none" }} />
                         </div>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>Город</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>Город</label>
                             <input value={city} onChange={e => setCity(e.target.value)} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none" }} />
                         </div>
                         <div>
-                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 4, display: "block" }}>О себе</label>
+                            <label style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginBottom: 6, display: "block", fontWeight: 600 }}>О себе</label>
                             <textarea value={about} onChange={e => setAbout(e.target.value)} rows={4} style={{ width: "100%", padding: "12px 14px", borderRadius: 14, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 15, outline: "none", resize: "none" }} />
                         </div>
-                        <button onClick={() => router.push(`/users/${userId}/profile`)} style={{ padding: "12px", borderRadius: 14, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>📷 Изменить фото</button>
-                        <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳" : "Сохранить изменения"}</button>
+                        <button onClick={saveProfile} disabled={saving} style={{ padding: "14px", borderRadius: 16, background: "linear-gradient(135deg, #7c3aed, #db2777)", color: "#fff", fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "⏳ Сохраняем..." : "Сохранить изменения"}</button>
                         {saveMsg && <p style={{ textAlign: "center", fontSize: 14, color: "#86efac" }}>{saveMsg}</p>}
+
+                        {/* Toggle for men only */}
+                        {user && (user.gender === "male" || user.gender === "мужской") && (
+                            <div style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between",
+                                padding: "14px 16px", borderRadius: 16,
+                                background: "rgba(255,255,255,0.06)",
+                                border: `1px solid ${girlsWriteFirst ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.1)"}`,
+                            }}>
+                                <div>
+                                    <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
+                                        💬 Девушки пишут первыми
+                                    </p>
+                                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 1.4 }}>
+                                        {girlsWriteFirst
+                                            ? "Включено — девушки могут написать без матча"
+                                            : "Выключено — переписка только после матча"}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        setTogglingGirls(true);
+                                        try {
+                                            const r = await fetch(`${BackEnd_URL}/api/v1/users/${userId}/toggle-girls-write-first`, { method: "POST" });
+                                            const d = await r.json();
+                                            setGirlsWriteFirst(d.allow_girls_write_first);
+                                        } catch {}
+                                        setTogglingGirls(false);
+                                    }}
+                                    disabled={togglingGirls}
+                                    style={{
+                                        width: 52, height: 28, borderRadius: 14, border: "none", cursor: "pointer",
+                                        background: girlsWriteFirst
+                                            ? "linear-gradient(135deg, #22c55e, #16a34a)"
+                                            : "rgba(255,255,255,0.15)",
+                                        position: "relative", transition: "background 0.3s",
+                                        flexShrink: 0, marginLeft: 12,
+                                    }}
+                                >
+                                    <div style={{
+                                        position: "absolute", top: 3, width: 22, height: 22, borderRadius: "50%",
+                                        background: "#fff", transition: "left 0.3s",
+                                        left: girlsWriteFirst ? 27 : 3,
+                                    }} />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -132,13 +197,31 @@ export default function SettingsPage() {
                         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>Ответы на вопросы — отображаются в профиле как теги "Обо мне"</p>
                         {answers.length === 0 && <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "20px 0" }}>Нет ответов. Нажми ❓ на главном экране чтобы ответить на вопросы.</p>}
                         {answers.map(a => (
-                            <div key={a.question_id} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                                <span style={{ fontSize: 20 }}>{a.emoji}</span>
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{a.text}</p>
-                                    <p style={{ fontSize: 14, fontWeight: 600 }}>{Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}</p>
+                            <div key={a.question_id} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 16, padding: "12px 14px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: editingAnswerId === a.question_id ? 8 : 0 }}>
+                                    <span style={{ fontSize: 20 }}>{a.emoji}</span>
+                                    <div style={{ flex: 1 }}>
+                                        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{a.text}</p>
+                                        {editingAnswerId !== a.question_id && (
+                                            <p style={{ fontSize: 14, fontWeight: 600 }}>{Array.isArray(a.answer) ? a.answer.join(", ") : a.answer}</p>
+                                        )}
+                                    </div>
+                                    {editingAnswerId !== a.question_id && (
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                            <button onClick={() => { setEditingAnswerId(a.question_id); setEditingAnswerText(Array.isArray(a.answer) ? a.answer.join(", ") : a.answer); }} style={{ padding: "4px 10px", borderRadius: 8, background: "rgba(124,58,237,0.25)", border: "none", color: "#c084fc", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Изменить</button>
+                                            <button onClick={() => deleteAnswer(a.question_id)} style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(239,68,68,0.2)", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer" }}>✕</button>
+                                        </div>
+                                    )}
                                 </div>
-                                <button onClick={() => deleteAnswer(a.question_id)} style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(239,68,68,0.2)", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer" }}>✕</button>
+                                {editingAnswerId === a.question_id && (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                        <textarea value={editingAnswerText} onChange={e => setEditingAnswerText(e.target.value)} rows={2} autoFocus style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(124,58,237,0.5)", background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 14, outline: "none", resize: "none" }} />
+                                        <div style={{ display: "flex", gap: 8 }}>
+                                            <button onClick={() => { setEditingAnswerId(null); setEditingAnswerText(""); }} style={{ flex: 1, padding: "9px", borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 13, cursor: "pointer" }}>Отмена</button>
+                                            <button onClick={() => saveEditedAnswer(a.question_id)} disabled={!editingAnswerText.trim()} style={{ flex: 1, padding: "9px", borderRadius: 12, background: "linear-gradient(135deg, #7c3aed, #db2777)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: editingAnswerText.trim() ? 1 : 0.4 }}>Сохранить</button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

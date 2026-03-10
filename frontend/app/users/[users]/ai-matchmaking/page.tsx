@@ -17,6 +17,9 @@ interface ProfileMatch {
     photo?: string;
     username?: string;
     last_seen?: string;
+    allow_girls_write_first?: boolean;
+    gender?: string;
+    premium_type?: string;
 }
 
 type CardState = "idle" | "liked" | "skipped";
@@ -62,11 +65,13 @@ function ProfileCard({
     userId,
     onLike,
     onSkip,
+    viewerIsGirl,
 }: {
     card: MatchCard;
     userId: string;
     onLike: () => void;
     onSkip: () => void;
+    viewerIsGirl: boolean;
 }) {
     const { profile, state } = card;
     const [imgError, setImgError] = useState(false);
@@ -180,6 +185,24 @@ function ProfileCard({
                 </div>
             )}
 
+            {/* Girl can write first indicator */}
+            {viewerIsGirl && profile.allow_girls_write_first && (
+                <div
+                    style={{
+                        margin: "0 12px 4px",
+                        padding: "5px 10px",
+                        borderRadius: 8,
+                        background: "rgba(34,197,94,0.15)",
+                        border: "1px solid rgba(34,197,94,0.3)",
+                        fontSize: 11,
+                        color: "#86efac",
+                        textAlign: "center",
+                    }}
+                >
+                    ✉️ Можно написать этому парню сразу
+                </div>
+            )}
+
             {/* Actions */}
             <div className="flex gap-2 px-3 pb-3 pt-1">
                 <button
@@ -208,11 +231,13 @@ function ChatBubble({
     userId,
     onLike,
     onSkip,
+    viewerIsGirl,
 }: {
     msg: ChatMessage;
     userId: string;
     onLike: (msgId: string, profileId: number) => void;
     onSkip: (msgId: string, profileId: number) => void;
+    viewerIsGirl: boolean;
 }) {
     const isUser = msg.role === "user";
 
@@ -281,6 +306,7 @@ function ChatBubble({
                                 key={card.profile.telegram_id}
                                 card={card}
                                 userId={userId}
+                                viewerIsGirl={viewerIsGirl}
                                 onLike={() => onLike(msg.id, card.profile.telegram_id)}
                                 onSkip={() => onSkip(msg.id, card.profile.telegram_id)}
                             />
@@ -317,6 +343,7 @@ export default function AiMatchmakingPage() {
     const userId = params.users as string;
 
     const [shownIds, setShownIds] = useState<number[]>([]);
+    const [viewerIsGirl, setViewerIsGirl] = useState(false);
     const [accessStatus, setAccessStatus] = useState<{
         access: boolean; is_vip: boolean; trial_active: boolean;
         trial_hours_left: number | null; trial_expired: boolean;
@@ -329,6 +356,17 @@ export default function AiMatchmakingPage() {
 
     const bottomRef = useRef<HTMLDivElement>(null);
     const textRef = useRef<HTMLTextAreaElement>(null);
+
+    // Определяем пол текущего пользователя
+    useEffect(() => {
+        fetch(`${BackEnd_URL}/api/v1/users/${userId}`)
+            .then((r) => r.json())
+            .then((d) => {
+                const g = (d?.gender || "").toLowerCase();
+                setViewerIsGirl(g === "female" || g === "женский");
+            })
+            .catch(() => {});
+    }, [userId]);
 
     useEffect(() => {
         fetch(`${BackEnd_URL}/api/v1/ai/matchmaking/status/${userId}`)
@@ -603,6 +641,7 @@ export default function AiMatchmakingPage() {
                         key={msg.id}
                         msg={msg}
                         userId={userId}
+                        viewerIsGirl={viewerIsGirl}
                         onLike={handleLike}
                         onSkip={handleSkip}
                     />
