@@ -80,10 +80,6 @@ async def profile(
     )
 
     if isinstance(update, Message):
-        try:
-            await update.delete()
-        except Exception:
-            pass
         target = update
     else:
         try:

@@ -247,10 +247,6 @@ async def create_payment_via_backend(
 @premium_router.message(Command("premium"))
 async def premium_command(message: Message, container: Container = init_container()):
     config: Config = container.resolve(Config)
-    try:
-        await message.delete()
-    except Exception:
-        pass
     await message.answer(
         text=premium_info_message(),
         parse_mode="HTML",
