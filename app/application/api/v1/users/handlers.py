@@ -711,6 +711,91 @@ async def get_users_best_result(
 
 
 @router.get(
+    "/debug/swipe/{user_id}",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def debug_swipe(user_id: int, container: Container = Depends(init_container)):
+    """Диагностика: показывает что видит фильтр свайпов для пользователя."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from app.settings.config import Config
+    cfg: Config = container.resolve(Config)
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    col = client[cfg.mongodb_dating_database][cfg.mongodb_users_collection]
+
+    # Данные запрашивающего пользователя
+    me = await col.find_one({"telegram_id": user_id})
+    if not me:
+        return {"error": "user not found"}
+
+    me_gender = (me.get("gender") or "").strip()
+    me_active = me.get("is_active")
+
+    _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской"]
+    _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman"]
+
+    g_lower = me_gender.lower()
+    if g_lower in ("man", "male", "мужской"):
+        gender_filter = {"$in": _ALL_FEMALE}
+        want = "female"
+    elif g_lower in ("female", "женский", "woman"):
+        gender_filter = {"$in": _ALL_MALE}
+        want = "male"
+    else:
+        gender_filter = None
+        want = "unknown"
+
+    # Всего пользователей
+    total = await col.count_documents({})
+    active = await col.count_documents({"is_active": True})
+    active_not_banned = await col.count_documents({"is_active": True, "is_banned": {"$ne": True}})
+
+    # С фото
+    with_photo_arr = await col.count_documents({"is_active": True, "photos.0": {"$exists": True}})
+    with_photo_str = await col.count_documents({"is_active": True, "photo": {"$nin": [None, ""]}})
+
+    # Противоположный пол
+    base = {
+        "telegram_id": {"$ne": user_id},
+        "is_active": True,
+        "is_banned": {"$ne": True},
+        "profile_hidden": {"$ne": True},
+        "$or": [
+            {"photos.0": {"$exists": True}},
+            {"photo": {"$nin": [None, ""]}},
+        ],
+    }
+    if gender_filter:
+        base["gender"] = gender_filter
+
+    candidates = await col.count_documents(base)
+
+    # Уникальные значения gender у активных пользователей
+    genders = await col.distinct("gender", {"is_active": True})
+
+    return {
+        "me": {
+            "telegram_id": user_id,
+            "gender": me_gender,
+            "is_active": me_active,
+            "city": me.get("city"),
+            "has_photos": bool(me.get("photos")),
+            "photo_field": bool(me.get("photo")),
+        },
+        "want_gender": want,
+        "db_stats": {
+            "total_users": total,
+            "active_users": active,
+            "active_not_banned": active_not_banned,
+            "active_with_photos_array": with_photo_arr,
+            "active_with_photo_string": with_photo_str,
+        },
+        "candidates_for_swipe": candidates,
+        "all_gender_values_in_db": genders,
+    }
+
+
+@router.get(
     "/from/{user_id}",
     status_code=status.HTTP_200_OK,
     description="Get all users that the user liked.",
