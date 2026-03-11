@@ -65,6 +65,7 @@ class BaseUsersRepository(ABC):
         age_min: int | None = None,
         age_max: int | None = None,
         city: str | None = None,
+        city_include_neighbors: bool = False,
         limit: int = 300,
     ) -> list[UserEntity]:
         """Кандидаты для AI-подбора по жестким фильтрам. По умолчанию — заглушка."""

@@ -346,6 +346,11 @@ _CITY_NEIGHBORS: dict[str, list[str]] = {
     "Ухта": ["Сыктывкар", "Воркута"],
     "Воркута": ["Сыктывкар", "Ухта"],
 }
+# ё/е алиасы для совпадения с CITY_COORDS (Королев vs Королёв)
+for _k in list(_CITY_NEIGHBORS.keys()):
+    _alt = _k.replace("ё", "е").replace("Ё", "Е")
+    if _alt != _k and _alt not in _CITY_NEIGHBORS:
+        _CITY_NEIGHBORS[_alt] = _CITY_NEIGHBORS[_k]
 
 
 @dataclass
@@ -574,10 +579,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         age_min: int | None = None,
         age_max: int | None = None,
         city: str | None = None,
+        city_include_neighbors: bool = False,
         limit: int = 300,
     ) -> list[UserEntity]:
-        """Кандидаты для AI-подбора: противоположный пол + опциональные age, city."""
-        from app.infra.repositories.cities import get_city_coords, haversine_km
+        """Кандидаты для AI-подбора. HARD фильтры: пол, город, возраст, активность, фото."""
+        from app.infra.repositories.cities import get_city_coords, get_city_filter_values, haversine_km, resolve_to_canonical_city
 
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
@@ -586,8 +592,14 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         excluded = set(exclude_ids or [])
         excluded.add(telegram_id)
 
-        _ALL_MALE = ["Man", "man", "Male", "male", "Мужской", "мужской", "м", "m"]
-        _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman", "ж", "f"]
+        _ALL_MALE = [
+            "Man", "man", "Male", "male", "Мужской", "мужской", "м", "m",
+            "мужчина", "парень", "male", "men",
+        ]
+        _ALL_FEMALE = [
+            "Female", "female", "Женский", "женский", "Woman", "woman", "ж", "f",
+            "женщина", "девушка", "girl", "women",
+        ]
         gender_filter = {"$in": _ALL_FEMALE} if target_gender == "female" else {"$in": _ALL_MALE}
 
         base: dict = {
@@ -616,10 +628,14 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 base["age"] = age_q
 
         if city:
-            neighbors = _CITY_NEIGHBORS.get(city, [])
-            allowed_cities = [city] + [c for c in neighbors if c and c not in (city,)]
+            canonical_city = resolve_to_canonical_city(city)
+            city_values = list(get_city_filter_values(city))
+            if city_include_neighbors:
+                for nb in _CITY_NEIGHBORS.get(canonical_city, []):
+                    city_values.extend(get_city_filter_values(nb))
+            city_values = list(dict.fromkeys(city_values))
             base["$and"] = list(base.get("$and", []))
-            base["$and"].append({"city": {"$in": allowed_cities}})
+            base["$and"].append({"city": {"$in": city_values}})
 
         docs: list[dict] = []
         async for doc in self._collection.find(base).limit(limit * 2):
@@ -655,15 +671,16 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 _coord_cache[c] = get_city_coords(c)
             return _coord_cache[c]
 
-        query_city_lower = (city or "").strip().lower()
+        canonical_city_for_sort = resolve_to_canonical_city(city or "") if city else ""
         user_city_lower = user_city.lower()
 
         def _ai_sort_key(d: dict) -> tuple:
-            doc_city = (d.get("city") or "").strip().lower()
-            city_match = 0 if query_city_lower and doc_city == query_city_lower else 1
-            if city_match == 1 and query_city_lower:
-                neighbors_lower = [c.lower() for c in _CITY_NEIGHBORS.get(city or "", [])]
-                if doc_city in neighbors_lower:
+            doc_raw = (d.get("city") or "").strip()
+            doc_canonical = resolve_to_canonical_city(doc_raw) if doc_raw else ""
+            city_match = 0 if canonical_city_for_sort and doc_canonical == canonical_city_for_sort else 1
+            if city_match == 1 and canonical_city_for_sort:
+                neighbors = _CITY_NEIGHBORS.get(canonical_city_for_sort, [])
+                if doc_canonical in neighbors:
                     city_match = 0.5
             dist = 999999.0
             if user_lat is not None and user_lon is not None:

@@ -291,6 +291,79 @@ def get_city_coords(city: str) -> tuple[float, float] | None:
     return None
 
 
+def _fold_yo(s: str) -> str:
+    """ё → е для сопоставления Королёв/Королев и т.п."""
+    return s.replace("ё", "е").replace("Ё", "Е") if s else ""
+
+
+def resolve_to_canonical_city(raw: str) -> str:
+    """
+    Приводит любое написание города к каноническому (Москва, Казань и т.д).
+    Нужно для единообразного поиска в _CITY_NEIGHBORS и get_city_filter_values.
+    """
+    if not raw or not str(raw).strip():
+        return ""
+    s = _normalize_city(str(raw).strip())
+    if not s:
+        return ""
+    s_lower = _fold_yo(s.lower())
+    if s_lower in REGION_ALIASES:
+        return REGION_ALIASES[s_lower]
+    if s_lower in CITY_ALIASES:
+        return CITY_ALIASES[s_lower]
+    if s in CITY_COORDS:
+        return s
+    for k in CITY_COORDS:
+        if _fold_yo(k.lower()) == s_lower:
+            return k
+    if len(s_lower) >= 3:
+        for k in CITY_COORDS:
+            kl = _fold_yo(k.lower())
+            if kl.startswith(s_lower) or s_lower.startswith(kl):
+                return k
+    return s
+
+
+def get_city_filter_values(city_input: str) -> list[str]:
+    """
+    Возвращает все варианты написания города для hard filter в MongoDB.
+    city_input может быть любым (Москва, moscow, Moscow, Москва и т.д).
+    """
+    if not city_input or not str(city_input).strip():
+        return []
+    canon = resolve_to_canonical_city(str(city_input).strip())
+    if not canon:
+        raw = str(city_input).strip()
+        return list({raw, raw.lower(), raw.upper()})
+    result: set[str] = {canon, canon.lower(), canon.upper()}
+    # ё/е варианты для совпадения с разными записями в БД
+    if "е" in canon or "ё" in canon:
+        alt = canon.replace("е", "ё").replace("ё", "е")
+        if alt != canon:
+            result.add(alt)
+            result.add(alt.lower())
+    coords = CITY_COORDS.get(canon)
+    if coords:
+        for key, val in CITY_COORDS.items():
+            if val == coords:
+                result.add(key)
+                result.add(key.lower())
+    for alias, target in CITY_ALIASES.items():
+        if target == canon:
+            result.add(alias)
+            result.add(alias.lower())
+    for reg, target in REGION_ALIASES.items():
+        if target == canon:
+            result.add(reg)
+            result.add(reg.lower())
+    canon_lower = canon.lower()
+    result.add(f"{canon}, Россия")
+    result.add(f"{canon}, РФ")
+    result.add(f"г. {canon}")
+    result.add(f"город {canon}")
+    return list(result)
+
+
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Расстояние в км между двумя точками (Haversine formula)."""
     R = 6371.0

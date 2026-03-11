@@ -788,6 +788,7 @@ async def ai_matchmaking(
         current_gender = g
 
     from app.logic.ai_matchmaking import get_ai_candidates, parse_user_query, score_candidates
+    from app.logic.ai_matchmaking.query_parser import ParsedQuery
 
     parsed = await parse_user_query(
         text=data.message,
@@ -802,37 +803,80 @@ async def ai_matchmaking(
         telegram_id=data.user_id,
         parsed_query=parsed,
         exclude_ids=exclude_ids,
+        city_include_neighbors=False,
         limit=300,
     )
 
-    if not candidates:
-        relaxed = await parse_user_query(
-            text="покажи кого-нибудь",
-            current_user_gender=current_gender,
-            api_key=config.openai_api_key,
+    if not candidates and parsed.city:
+        candidates = await get_ai_candidates(
+            repository=service.user_repository,
+            telegram_id=data.user_id,
+            parsed_query=parsed,
+            exclude_ids=exclude_ids,
+            city_include_neighbors=True,
+            limit=300,
         )
-        relaxed.city = None
-        relaxed.age_min = relaxed.age_max = None
-        relaxed.appearance_tags = []
-        relaxed.skills_tags = []
-        relaxed.traits_tags = []
+        if candidates:
+            reply = f"По {parsed.city} никого не нашла. Показываю из ближайших городов."
+        else:
+            relaxed = ParsedQuery(
+                target_gender=parsed.target_gender,
+                city=None,
+                age_min=None,
+                age_max=None,
+                appearance_tags=[],
+                skills_tags=[],
+                traits_tags=[],
+                negative_tags=[],
+                raw_semantic_query=parsed.raw_semantic_query,
+            )
+            candidates = await get_ai_candidates(
+                repository=service.user_repository,
+                telegram_id=data.user_id,
+                parsed_query=relaxed,
+                exclude_ids=liked_ids,
+                city_include_neighbors=False,
+                limit=100,
+            )
+            if candidates:
+                reply = f"Точно по {parsed.city} никого не нашла. Показываю из других городов."
+            else:
+                return MatchmakingResponse(
+                    reply=f"Точно по запросу «{parsed_summary}» никого не нашла. Попробуй изменить критерии.",
+                    parsed_summary=parsed_summary,
+                    matches=[],
+                    has_more=False,
+                )
+    elif not candidates:
+        relaxed = ParsedQuery(
+            target_gender=parsed.target_gender,
+            city=None,
+            age_min=None,
+            age_max=None,
+            appearance_tags=[],
+            skills_tags=[],
+            traits_tags=[],
+            negative_tags=[],
+            raw_semantic_query=parsed.raw_semantic_query,
+        )
         candidates = await get_ai_candidates(
             repository=service.user_repository,
             telegram_id=data.user_id,
             parsed_query=relaxed,
             exclude_ids=liked_ids,
+            city_include_neighbors=False,
             limit=100,
         )
         if not candidates:
             return MatchmakingResponse(
-                reply="Точно по всем критериям никого не нашёл. Показать похожие варианты?",
+                reply="Пока подходящих анкет нет. Зайди позже.",
                 parsed_summary=parsed_summary,
                 matches=[],
                 has_more=False,
             )
-        reply = "Точно по критериям никого не нашёл. Вот похожие анкеты:"
+        reply = "Показываю подходящие анкеты."
     else:
-        reply = "Нашёл несколько подходящих анкет. Показываю первые 3."
+        reply = f"Нашла несколько подходящих. Показываю первые 3."
 
     scored = score_candidates(candidates, parsed)
     shown_set = set(shown_ids)

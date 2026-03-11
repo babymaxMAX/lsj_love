@@ -11,11 +11,12 @@ async def get_ai_candidates(
     telegram_id: int,
     parsed_query: ParsedQuery,
     exclude_ids: list[int] | None = None,
+    city_include_neighbors: bool = False,
     limit: int = 300,
 ) -> list[UserEntity]:
     """
     Возвращает кандидатов для ранжирования.
-    Использует target_gender, age_min/max, city из parsed_query.
+    HARD фильтры: target_gender, age_min/max, city (с нормализацией).
     """
     candidates = await repository.get_ai_matchmaking_candidates(
         telegram_id=telegram_id,
@@ -24,6 +25,7 @@ async def get_ai_candidates(
         age_min=parsed_query.age_min,
         age_max=parsed_query.age_max,
         city=parsed_query.city,
+        city_include_neighbors=city_include_neighbors,
         limit=limit,
     )
     return candidates if isinstance(candidates, list) else list(candidates)
