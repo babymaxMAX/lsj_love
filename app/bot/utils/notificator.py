@@ -58,7 +58,7 @@ async def _resolve_photo(photo: str, user_id: int | None = None) -> str | bytes 
 
 async def _send_photo_or_text(chat_id: int, photo_raw, text: str, reply_markup, user_id: int | None = None):
     """Отправляет фото с caption или текст, правильно обрабатывая S3-ключи."""
-    from app.bot.main import bot  # ленивый импорт во избежание цикла
+    from app.bot.main import bot
     if photo_raw:
         resolved = await _resolve_photo(photo_raw, user_id)
         if resolved:

@@ -1,12 +1,13 @@
-from app.bot.main import (
-    bot,
-    dp,
-)
-from app.settings.config import Config
+"""Lifespan: webhook при старте и остановке."""
+from app.bot.main import bot, config, dp
 from app.settings.logger import setup_logging
 
 
-async def set_bot_webhook(config: Config = Config()):
+def start_logger():
+    setup_logging()
+
+
+async def set_bot_webhook():
     await bot.set_webhook(
         url=config.full_webhook_url,
         allowed_updates=dp.resolve_used_update_types(),
@@ -16,7 +17,3 @@ async def set_bot_webhook(config: Config = Config()):
 
 async def delete_bot_webhook():
     await bot.delete_webhook()
-
-
-def start_logger():
-    setup_logging()

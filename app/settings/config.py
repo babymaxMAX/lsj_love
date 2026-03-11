@@ -73,7 +73,14 @@ class Config(BaseSettings):
 
     front_end_url: str = Field(alias="FRONT_END_URL", default="https://lsjlove.duckdns.org")
 
-    # Секретный ключ для доступа к админ-панели
-    admin_secret_key: str = Field(default="kupidon_admin_2026", alias="ADMIN_SECRET_KEY")
+    # Геокодер (Nominatim)
+    geocoder_url: str = Field(
+        default="https://nominatim.openstreetmap.org",
+        alias="GEOCODER_URL",
+    )
+    geocode_cache_ttl_days: int = Field(default=90, alias="GEOCODE_CACHE_TTL_DAYS")
+
+    # Секретный ключ для доступа к админ-панели (обязательно задать в проде!)
+    admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")
     # Telegram ID администраторов (через запятую)
     admin_telegram_ids: str = Field(default="", alias="ADMIN_TELEGRAM_IDS")

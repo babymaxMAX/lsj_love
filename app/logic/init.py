@@ -6,6 +6,8 @@ from punq import (
     Scope,
 )
 
+from app.infra.geocoding import CachedGeocoder, NominatimGeocoder
+from app.infra.geocoding.base import BaseGeocoder
 from app.infra.repositories.base import (
     BaseDislikesRepository,
     BaseLikesRepository,
@@ -175,6 +177,21 @@ def _init_container() -> Container:
     container.register(
         MongoDBPhotoCommentsRepository,
         factory=init_photo_comments_repo,
+        scope=Scope.singleton,
+    )
+
+    def init_geocoder() -> BaseGeocoder:
+        nominatim = NominatimGeocoder(base_url=config.geocoder_url)
+        cache_col = client[config.mongodb_dating_database]["geocode_cache"]
+        return CachedGeocoder(
+            delegate=nominatim,
+            collection=cache_col,
+            ttl_days=config.geocode_cache_ttl_days,
+        )
+
+    container.register(
+        BaseGeocoder,
+        factory=init_geocoder,
         scope=Scope.singleton,
     )
 

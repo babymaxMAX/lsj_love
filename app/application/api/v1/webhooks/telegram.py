@@ -3,11 +3,7 @@ from fastapi.requests import Request
 
 from aiogram.types import Update
 
-from app.bot.main import (
-    bot,
-    dp,
-)
-
+from app.bot.main import bot, dp
 
 router = APIRouter(
     tags=["Telegram"],

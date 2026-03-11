@@ -21,17 +21,20 @@ async def lifespan(app: FastAPI):
 
 
 def create_app():
+    import os
     app = FastAPI(
         title="Dating Telegram Bot API",
         description="API for creating, updating, and deleting dating profiles",
         version="1.0.0",
         lifespan=lifespan,
         docs_url="/api/docs",
-        debug=True,
+        debug=os.getenv("DEBUG", "false").lower() in ("1", "true", "yes"),
     )
+    # CORS: в проде ограничьте allow_origins списком доверенных доменов
+    cors_origins = os.getenv("CORS_ORIGINS", "*")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[o.strip() for o in cors_origins.split(",") if o.strip()] if cors_origins != "*" else ["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

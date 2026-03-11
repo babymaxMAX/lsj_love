@@ -22,8 +22,8 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 def _check_admin(x_admin_key: str = Header(None), container: Container = Depends(init_container)):
     config: Config = container.resolve(Config)
-    secret = getattr(config, "admin_secret_key", None) or "kupidon_admin_2026"
-    if x_admin_key != secret:
+    secret = (getattr(config, "admin_secret_key", None) or "").strip()
+    if not secret or x_admin_key != secret:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid admin key")
 
 
