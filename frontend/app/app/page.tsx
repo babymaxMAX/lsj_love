@@ -8,7 +8,7 @@ import { BottomNavApp } from "@/components/bottom-nav-app";
 
 export default function AppPage() {
   const router = useRouter();
-  const userId = useCurrentUser();
+  const { userId, loading: authLoading } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -121,7 +121,7 @@ export default function AppPage() {
           </div>
         )}
       </div>
-      <BottomNavApp userId={userId} />
+      {userId && <BottomNavApp userId={userId} />}
     </div>
   );
 }
