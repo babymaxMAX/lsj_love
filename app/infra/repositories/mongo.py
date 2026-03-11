@@ -492,6 +492,17 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 _coord_cache[city] = get_city_coords(city)
             return _coord_cache[city]
 
+        # ── Безопасное сравнение datetime (naive/aware) ────────────────
+        def _is_future(dt) -> bool:
+            if not dt:
+                return False
+            try:
+                if getattr(dt, "tzinfo", None) is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt > now
+            except (TypeError, ValueError):
+                return False
+
         # ── Ключ сортировки ───────────────────────────────────────────
         def _sort_key(doc: dict) -> tuple:
             # Расстояние в км (0 если нет координат пользователя)
@@ -511,11 +522,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             pt = doc.get("premium_type")
             pu = doc.get("premium_until")
             bu = doc.get("boost_until")
-            if bu and bu > now:
+            if _is_future(bu):
                 sub = 0
-            elif pt == "vip" and pu and pu > now:
+            elif pt == "vip" and _is_future(pu):
                 sub = 1
-            elif pt == "premium" and pu and pu > now:
+            elif pt == "premium" and _is_future(pu):
                 sub = 2
             else:
                 sub = 3
