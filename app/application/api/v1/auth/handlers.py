@@ -43,6 +43,15 @@ class ExchangeTokenResponse(BaseModel):
     telegram_id: Optional[int] = None
 
 
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    """Нормализует datetime к UTC для сравнения. MongoDB возвращает naive datetimes."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _get_auth_tokens_collection(container: Container):
     config: Config = container.resolve(Config)
     client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
@@ -114,7 +123,7 @@ async def exchange_token_for_session(
     doc = await col.find_one({"token": body.token, "used": False})
     if not doc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Токен недействителен или уже использован")
-    expires_at = doc.get("expires_at")
+    expires_at = _ensure_utc(doc.get("expires_at"))
     if expires_at and datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Токен истёк")
     telegram_id = doc["telegram_id"]
