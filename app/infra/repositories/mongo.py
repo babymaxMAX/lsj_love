@@ -424,35 +424,44 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         now = datetime.now(timezone.utc)
 
         # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────
-        _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской"]
-        _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman"]
+        _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской", "м", "m"]
+        _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman", "ж", "f"]
 
         user_gender = str(getattr(user, "gender", "") or "").strip().lower()
         gender_filter: dict | None = None
-        if user_gender in ("man", "male", "мужской"):
+        if user_gender in ("man", "male", "мужской", "м", "m"):
             gender_filter = {"$in": _ALL_FEMALE}
-        elif user_gender in ("female", "женский", "woman"):
+        elif user_gender in ("female", "женский", "woman", "ж", "f"):
             gender_filter = {"$in": _ALL_MALE}
 
-        # ── Базовый фильтр — МИНИМАЛЬНО строгий чтобы не терять анкеты ─
+        # ── Базовый фильтр — МИНИМАЛЬНО строгий ─────────────────────
+        # telegram_id, активность, не забанен, не скрыт
         base: dict = {
             "telegram_id": {"$nin": list(excluded)},
-            "is_active":   True,
             "is_banned":   {"$ne": True},
             "profile_hidden": {"$ne": True},
-            # Хотя бы одно фото: photos[0] или legacy photo строка
-            "$or": [
-                {"photos.0": {"$exists": True}},
-                {"photo":    {"$nin": [None, ""]}},
+            "$and": [
+                {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                {"$or": [
+                    {"photos.0": {"$exists": True}},
+                    {"photo": {"$nin": [None, ""]}},
+                ]},
             ],
         }
         if gender_filter:
             base["gender"] = gender_filter
 
-        # ── Загружаем все подходящие документы из MongoDB ────────────
+        # ── Загружаем документы ─────────────────────────────────────
         docs: list[dict] = []
         async for doc in self._collection.find(base):
             docs.append(doc)
+
+        # Fallback: если с гендером 0 — пробуем без него (некорректные значения в БД)
+        if not docs and gender_filter:
+            base.pop("gender", None)
+            docs = []
+            async for doc in self._collection.find(base):
+                docs.append(doc)
 
         if not docs:
             return []
