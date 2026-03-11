@@ -107,6 +107,32 @@ curl https://lsjlove.duckdns.org/api/docs
 
 ---
 
+## Перезапуск бота (после git pull)
+
+Бот работает через webhook внутри API. Чтобы применить изменения после `git pull`:
+
+```bash
+cd /opt/lsjlove   # или путь к проекту
+docker compose up -d --build api
+```
+
+Или полный перезапуск всего стека:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+Локальная разработка (без Docker):
+
+```bash
+cd temp_project
+poetry install
+poetry run uvicorn --factory app.application.api.main:create_app --reload --host 0.0.0.0 --port 8000
+```
+
+---
+
 ## Настройка автодеплоя (GitHub Actions)
 
 1. Залей проект на GitHub (создай репозиторий)
