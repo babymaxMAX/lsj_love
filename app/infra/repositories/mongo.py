@@ -408,19 +408,19 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
     ) -> Iterable[UserEntity]:
         """
         Возвращает ВСЕ подходящие анкеты противоположного пола,
-        отсортированные по расстоянию (Haversine).
-        Порядок: сначала близкие города, потом дальние → никогда не заканчиваются.
-        Внутри группы: boost → VIP → Premium → бесплатные.
+        отсортированные по расстоянию от пользователя (Haversine, Python).
+        Порядок: ближе → дальше → анкеты никогда не заканчиваются.
+        Внутри одной дистанционной группы: boost → VIP → Premium → бесплатные.
         """
         from datetime import datetime, timezone
-        from app.infra.repositories.cities import get_city_coords
+        from app.infra.repositories.cities import get_city_coords, haversine_km
 
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
             return []
 
-        excluded = list(exclude_ids or [])
-        excluded.append(telegram_id)
+        excluded = set(exclude_ids or [])
+        excluded.add(telegram_id)
         now = datetime.now(timezone.utc)
 
         # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────
@@ -436,120 +436,95 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         # ── Базовый фильтр — МИНИМАЛЬНО строгий чтобы не терять анкеты ─
         base: dict = {
-            "telegram_id":    {"$nin": excluded},
-            "is_active":      True,
-            "is_banned":      {"$ne": True},
+            "telegram_id": {"$nin": list(excluded)},
+            "is_active":   True,
+            "is_banned":   {"$ne": True},
             "profile_hidden": {"$ne": True},
-            # Хотя бы одно фото: photos[0] или legacy photo
+            # Хотя бы одно фото: photos[0] или legacy photo строка
             "$or": [
                 {"photos.0": {"$exists": True}},
-                {"photo": {"$nin": [None, ""]}},
+                {"photo":    {"$nin": [None, ""]}},
             ],
         }
-        # Гендер — только если определён, иначе показываем всех
         if gender_filter:
             base["gender"] = gender_filter
 
-        # ── Координаты пользователя для Haversine ────────────────────
-        user_city = str(getattr(user, "city", "") or "").strip()
-        user_lat = getattr(user, "lat", None)
-        user_lon = getattr(user, "lon", None)
+        # ── Загружаем все подходящие документы из MongoDB ────────────
+        docs: list[dict] = []
+        async for doc in self._collection.find(base):
+            docs.append(doc)
 
-        # Если координат нет — берём из словаря
+        if not docs:
+            return []
+
+        # ── Координаты пользователя ───────────────────────────────────
+        user_city = str(getattr(user, "city", "") or "").strip()
+        user_lat: float | None = None
+        user_lon: float | None = None
+
+        raw_lat = getattr(user, "lat", None)
+        raw_lon = getattr(user, "lon", None)
+        try:
+            if raw_lat is not None and raw_lon is not None:
+                user_lat = float(raw_lat)
+                user_lon = float(raw_lon)
+        except (TypeError, ValueError):
+            pass
+
         if (user_lat is None or user_lon is None) and user_city:
             coords = get_city_coords(user_city)
             if coords:
                 user_lat, user_lon = coords
 
-        # ── Сортировка по приоритету подписки ────────────────────────
-        DEG = 0.017453292519943295  # π/180
+        # ── Кэш координат кандидата ────────────────────────────────────
+        _coord_cache: dict[str, tuple[float, float] | None] = {}
 
-        sub_sort_fields = {
-            "_sub": {"$switch": {
-                "branches": [
-                    {"case": {"$gt": ["$boost_until", now]}, "then": 0},
-                    {"case": {"$and": [
-                        {"$eq": ["$premium_type", "vip"]},
-                        {"$gt": ["$premium_until", now]},
-                    ]}, "then": 1},
-                    {"case": {"$and": [
-                        {"$eq": ["$premium_type", "premium"]},
-                        {"$gt": ["$premium_until", now]},
-                    ]}, "then": 2},
-                ],
-                "default": 3,
-            }},
-        }
+        def _candidate_coords(doc: dict) -> tuple[float, float] | None:
+            try:
+                d_lat = doc.get("lat")
+                d_lon = doc.get("lon")
+                if d_lat is not None and d_lon is not None:
+                    return float(d_lat), float(d_lon)
+            except (TypeError, ValueError):
+                pass
+            city = doc.get("city") or ""
+            if city not in _coord_cache:
+                _coord_cache[city] = get_city_coords(city)
+            return _coord_cache[city]
 
-        # ── Расстояние через Haversine (MongoDB trig — работает с 4.2+) ─
-        if user_lat is not None and user_lon is not None:
-            lat1_r = user_lat * DEG
-            lon1_r = user_lon * DEG
-            # Вычисляем расстояние в км для каждого кандидата
-            dist_expr = {"$cond": {
-                "if": {"$and": [
-                    {"$gt": ["$lat", None]},
-                    {"$gt": ["$lon", None]},
-                ]},
-                "then": {"$multiply": [
-                    12742,
-                    {"$asin": {"$sqrt": {
-                        "$add": [
-                            {"$pow": [
-                                {"$sin": {"$divide": [
-                                    {"$subtract": [
-                                        {"$multiply": [{"$toDouble": "$lat"}, DEG]},
-                                        lat1_r,
-                                    ]},
-                                    2,
-                                ]}},
-                                2,
-                            ]},
-                            {"$multiply": [
-                                {"$cos": {"$literal": lat1_r}},
-                                {"$cos": {"$multiply": [{"$toDouble": "$lat"}, DEG]}},
-                                {"$pow": [
-                                    {"$sin": {"$divide": [
-                                        {"$subtract": [
-                                            {"$multiply": [{"$toDouble": "$lon"}, DEG]},
-                                            lon1_r,
-                                        ]},
-                                        2,
-                                    ]}},
-                                    2,
-                                ]},
-                            ]},
-                        ]
-                    }}},
-                ]},
-                "else": 999999,  # нет координат — в конец
-            }}
-            sort_fields = {"_dist": 1, "_sub": 1}
-            add_fields = {**sub_sort_fields, "_dist": dist_expr}
-            project_out = {"_sub": 0, "_dist": 0}
-        else:
-            # Запасной вариант: точное совпадение города = 0, остальные = 1
-            city_rank = {"$cond": {
-                "if": {"$eq": ["$city", user_city]} if user_city else {"$literal": False},
-                "then": 0,
-                "else": 1,
-            }}
-            sort_fields = {"_city_rank": 1, "_sub": 1}
-            add_fields = {**sub_sort_fields, "_city_rank": city_rank}
-            project_out = {"_sub": 0, "_city_rank": 0}
+        # ── Ключ сортировки ───────────────────────────────────────────
+        def _sort_key(doc: dict) -> tuple:
+            # Расстояние в км (0 если нет координат пользователя)
+            dist = 999999.0
+            if user_lat is not None and user_lon is not None:
+                crd = _candidate_coords(doc)
+                if crd:
+                    try:
+                        dist = haversine_km(user_lat, user_lon, crd[0], crd[1])
+                    except Exception:
+                        dist = 999999.0
 
-        pipeline = [
-            {"$match": base},
-            {"$addFields": add_fields},
-            {"$sort": sort_fields},
-            {"$project": project_out},
-        ]
+            # Дистанционный «бакет» по 50 км (внутри → сортируем по подписке)
+            bucket = int(dist / 50)
 
-        result = []
-        async for doc in self._collection.aggregate(pipeline, allowDiskUse=True):
-            result.append(convert_user_document_to_entity(user_document=doc))
+            # Приоритет подписки
+            pt = doc.get("premium_type")
+            pu = doc.get("premium_until")
+            bu = doc.get("boost_until")
+            if bu and bu > now:
+                sub = 0
+            elif pt == "vip" and pu and pu > now:
+                sub = 1
+            elif pt == "premium" and pu and pu > now:
+                sub = 2
+            else:
+                sub = 3
 
-        return result
+            return (bucket, sub)
+
+        docs.sort(key=_sort_key)
+
+        return [convert_user_document_to_entity(doc) for doc in docs]
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:
         users_documents = self._collection.find(
