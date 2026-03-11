@@ -46,6 +46,19 @@ router = APIRouter(
 
 
 @router.get(
+    "/bot-username",
+    status_code=status.HTTP_200_OK,
+    description="Bot username for relay chat (matches without @username).",
+)
+async def get_bot_username(
+    container: Container = Depends(init_container),
+):
+    config: Config = container.resolve(Config)
+    from app.application.api.lifespan import get_bot_username as _get
+    return {"bot_username": config.bot_username or _get()}
+
+
+@router.get(
     "/matches/{user_id}",
     status_code=status.HTTP_200_OK,
     description="Get mutual matches for user (no premium required).",
@@ -57,6 +70,7 @@ async def get_matches(
     """Возвращает список взаимных матчей (mutual likes) — доступно всем пользователям."""
     service: BaseLikesService = container.resolve(BaseLikesService)
     users_service: BaseUsersService = container.resolve(BaseUsersService)
+    config: Config = container.resolve(Config)
 
     try:
         liked_by_me = set(await service.get_telegram_id_liked_from(user_id=user_id))
@@ -70,7 +84,12 @@ async def get_matches(
         )
 
     from app.application.api.v1.users.schemas import UserDetailSchema
-    return {"items": [UserDetailSchema.from_entity(u) for u in users]}
+    from app.application.api.lifespan import get_bot_username
+    bot_username = config.bot_username or get_bot_username()
+    return {
+        "items": [UserDetailSchema.from_entity(u) for u in users],
+        "bot_username": bot_username,
+    }
 
 
 @router.get(

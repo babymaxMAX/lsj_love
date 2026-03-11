@@ -214,16 +214,28 @@ async def handle_like_user(
         # Отправляем матч обоим
         username = getattr(user_liked, "username", None)
         match_caption = match_text_message(user_liked)
+        from_id = callback.from_user.id
+        to_id = user_liked.telegram_id
+        bot_username = ""
+        try:
+            from app.application.api.lifespan import get_bot_username
+            from app.logic.init import init_container as _ic
+            from app.settings.config import Config
+            cfg = _ic().resolve(Config)
+            bot_username = getattr(cfg, "bot_username", None) or get_bot_username()
+        except Exception:
+            pass
+        kb = match_keyboard(username=username, to_user_id=from_id, matched_user_id=to_id, bot_username=bot_username)
         try:
             await callback.message.answer_photo(
                 photo=user_liked.photo,
                 caption=match_caption,
-                reply_markup=match_keyboard(username),
+                reply_markup=kb,
             )
         except Exception:
             await callback.message.answer(
                 text=match_caption,
-                reply_markup=match_keyboard(username),
+                reply_markup=kb,
             )
 
         # Уведомляем второго участника если он ещё не знает

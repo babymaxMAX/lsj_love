@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Config(BaseSettings):
     token: str = Field(alias="BOT_TOKEN")
+    bot_username: str = Field(default="", alias="BOT_USERNAME")
     url_webhook: str = Field(alias="WEBHOOK_URL", default="https://lsjlove.duckdns.org")
 
     mongodb_connection_uri: str = Field(alias="MONGO_DB_CONNECTION_URI")

@@ -111,10 +111,17 @@ def profile_text_message(user: UserEntity) -> str:
 
 
 def match_text_message(user: UserEntity) -> str:
+    parts = [f"<b>{user.name}</b>"]
+    if user.username and str(user.username).strip():
+        parts.append(f"@{user.username}")
+    if user.age:
+        parts.append(f"{user.age} лет")
+    if user.city:
+        parts.append(str(user.city))
+    line = " | ".join(parts) if parts else user.name
     formatted_text = (
         f"<b>Взаимная симпатия!</b> 💕\n"
-        f"Начни общение прямо сейчас 👇\n\n"
-        f"<b>{user.name}</b> | @{user.username}, {user.age} лет, {user.city}"
+        f"Начни общение прямо сейчас 👇\n\n{line}"
     )
 
     if user.about:

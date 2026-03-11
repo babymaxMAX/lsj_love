@@ -38,6 +38,7 @@ function getPhotoUrl(user: MatchUser): string {
 // @ts-ignore
 export default function MatchesPage({ params }: { params: { users: string } }) {
     const [matches, setMatches] = useState<MatchUser[]>([]);
+    const [botUsername, setBotUsername] = useState<string>("");
     const [loading, setLoading] = useState(true);
     const [imgErrors, setImgErrors] = useState<Record<number, boolean>>({});
     const [navigating, setNavigating] = useState<number | null>(null);
@@ -62,6 +63,7 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
             if (!res.ok) { setMatches([]); return; }
             const data = await res.json();
             setMatches(data.items ?? []);
+            setBotUsername(typeof data.bot_username === "string" ? data.bot_username : "");
             setImgErrors({});
         } catch (e: any) {
             if (e?.name !== "AbortError") setMatches([]);
@@ -211,7 +213,7 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                     >
                                         {isNavigating ? "..." : "👤 Профиль"}
                                     </button>
-                                    {user.username ? (
+                                    {(user.username && user.username.trim()) ? (
                                         <a
                                             href={`https://t.me/${user.username}`}
                                             target="_blank"
@@ -221,13 +223,23 @@ export default function MatchesPage({ params }: { params: { users: string } }) {
                                         >
                                             ✉️ Написать
                                         </a>
-                                    ) : (
-                                        <div
-                                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-center whitespace-nowrap"
-                                            style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.25)" }}
+                                    ) : botUsername ? (
+                                        <a
+                                            href={`https://t.me/${botUsername}?start=chat_${userId}_${user.telegram_id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-center transition-all active:scale-95 whitespace-nowrap"
+                                            style={{ background: "linear-gradient(135deg, #ec4899, #ef4444)", color: "#fff" }}
                                         >
-                                            Нет @
-                                        </div>
+                                            ✉️ Написать
+                                        </a>
+                                    ) : (
+                                        <span
+                                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-center whitespace-nowrap"
+                                            style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" }}
+                                        >
+                                            Чат в боте
+                                        </span>
                                     )}
                                 </div>
                             </div>

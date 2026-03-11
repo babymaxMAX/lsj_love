@@ -52,6 +52,7 @@ export default function ViewProfilePage() {
     const [profileLikeLoading, setProfileLikeLoading] = useState(false);
     const [isMatch, setIsMatch] = useState(false);
     const [likeAnim, setLikeAnim] = useState(false);
+    const [botUsername, setBotUsername] = useState<string>("");
 
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
@@ -82,6 +83,13 @@ export default function ViewProfilePage() {
     }, [targetId]);
 
     useEffect(() => { loadUser(); }, [loadUser]);
+
+    useEffect(() => {
+        fetch(`${BackEnd_URL}/api/v1/likes/bot-username`)
+            .then((r) => r.ok ? r.json() : {})
+            .then((d) => setBotUsername(typeof d?.bot_username === "string" ? d.bot_username : ""))
+            .catch(() => {});
+    }, []);
 
     // Пинг: обновляем last_seen текущего пользователя
     useEffect(() => {
@@ -471,8 +479,23 @@ export default function ViewProfilePage() {
                     </button>
                 )}
 
-                {/* Написать (если есть username) */}
-                {user.username && user.username.trim() && !isMatch && (
+                {/* Написать — при матче всегда (Telegram или relay-чат), иначе только если есть username */}
+                {isMatch && (user.username?.trim() || botUsername) && (
+                    <a
+                        href={
+                            user.username?.trim()
+                                ? `https://t.me/${user.username.trim()}`
+                                : `https://t.me/${botUsername}?start=chat_${userId}_${targetId}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full py-3.5 rounded-2xl font-semibold text-sm text-center transition-all active:scale-95"
+                        style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.85)" }}
+                    >
+                        💬 {user.username?.trim() ? "Написать в Telegram" : "Написать (чат)"}
+                    </a>
+                )}
+                {!isMatch && user.username && user.username.trim() && (
                     <a
                         href={`https://t.me/${user.username.trim()}`}
                         target="_blank"

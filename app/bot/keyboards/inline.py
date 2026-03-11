@@ -179,15 +179,32 @@ def icebreaker_keyboard(sender_id: int):
     )
 
 
-def match_keyboard(username: str | None = None, to_user_id: int | None = None, matched_user_id: int | None = None):
+def match_keyboard(
+    username: str | None = None,
+    to_user_id: int | None = None,
+    matched_user_id: int | None = None,
+    bot_username: str | None = None,
+):
     buttons = []
     if username and username.strip():
         buttons.append([
             InlineKeyboardButton(
-                text="💬 Написать",
+                text="💬 Написать в Telegram",
                 url=f"https://t.me/{username.strip()}",
             ),
         ])
+    # Всегда кнопка "Написать" — через relay-чат если нет username
+    if to_user_id and matched_user_id:
+        if username and username.strip():
+            pass  # уже есть кнопка Telegram выше
+        elif bot_username and bot_username.strip():
+            relay_url = f"https://t.me/{bot_username.strip()}?start=chat_{to_user_id}_{matched_user_id}"
+            buttons.append([
+                InlineKeyboardButton(
+                    text="💬 Написать (чат)",
+                    url=relay_url,
+                ),
+            ])
     # Кнопка просмотра профиля в Mini App
     if to_user_id and matched_user_id:
         buttons.append([

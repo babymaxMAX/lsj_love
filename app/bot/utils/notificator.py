@@ -258,7 +258,15 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
     recipient_id — telegram_id получателя (для кнопки "Посмотреть профиль")
     """
     from app.bot.keyboards.inline import match_keyboard
+    from app.logic.init import init_container
+    from app.settings.config import Config
     try:
+        from app.application.api.lifespan import get_bot_username
+        container = init_container()
+        config: Config = container.resolve(Config)
+        bot_username = getattr(config, "bot_username", None) or get_bot_username()
+    except Exception:
+        bot_username = ""
         name = str(getattr(matched_user, "name", "") or "")
         username = getattr(matched_user, "username", None) or None
         age = str(getattr(matched_user, "age", "") or "")
@@ -278,6 +286,7 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
             username=username,
             to_user_id=recipient_id or to_user_id,
             matched_user_id=matched_id,
+            bot_username=bot_username,
         )
 
         photo = getattr(matched_user, "photo", None)
