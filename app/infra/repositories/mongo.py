@@ -423,23 +423,33 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         excluded.add(telegram_id)
         now = datetime.now(timezone.utc)
 
-        # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────
+        # ── Гендерный фильтр: СТРОГО противоположный пол ─────────────
         _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской", "м", "m"]
         _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman", "ж", "f"]
 
-        user_gender = str(getattr(user, "gender", "") or "").strip().lower()
+        raw_gender = getattr(user, "gender", None)
+        user_gender = ""
+        if raw_gender is not None:
+            user_gender = str(
+                raw_gender.as_generic_type() if hasattr(raw_gender, "as_generic_type") else raw_gender
+            ).strip().lower()
+
         gender_filter: dict | None = None
         if user_gender in ("man", "male", "мужской", "м", "m"):
             gender_filter = {"$in": _ALL_FEMALE}
         elif user_gender in ("female", "женский", "woman", "ж", "f"):
             gender_filter = {"$in": _ALL_MALE}
 
-        # ── Базовый фильтр — МИНИМАЛЬНО строгий ─────────────────────
-        # telegram_id, активность, не забанен, не скрыт
+        # Без определённого пола — не показываем никого (не угадываем)
+        if not gender_filter:
+            return []
+
+        # ── Базовый фильтр ───────────────────────────────────────────
         base: dict = {
             "telegram_id": {"$nin": list(excluded)},
             "is_banned":   {"$ne": True},
             "profile_hidden": {"$ne": True},
+            "gender":      gender_filter,
             "$and": [
                 {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
                 {"$or": [
@@ -448,26 +458,21 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                 ]},
             ],
         }
-        if gender_filter:
-            base["gender"] = gender_filter
 
-        # ── Загружаем документы ─────────────────────────────────────
         docs: list[dict] = []
         async for doc in self._collection.find(base):
             docs.append(doc)
-
-        # Fallback: если с гендером 0 — пробуем без него (некорректные значения в БД)
-        if not docs and gender_filter:
-            base.pop("gender", None)
-            docs = []
-            async for doc in self._collection.find(base):
-                docs.append(doc)
 
         if not docs:
             return []
 
         # ── Координаты пользователя ───────────────────────────────────
-        user_city = str(getattr(user, "city", "") or "").strip()
+        raw_city = getattr(user, "city", None)
+        user_city = ""
+        if raw_city is not None:
+            user_city = str(
+                raw_city.as_generic_type() if hasattr(raw_city, "as_generic_type") else raw_city
+            ).strip()
         user_lat: float | None = None
         user_lon: float | None = None
 
@@ -512,9 +517,15 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             except (TypeError, ValueError):
                 return False
 
-        # ── Ключ сортировки ───────────────────────────────────────────
+        # ── Ключ сортировки: 1) свой город 2) по расстоянию 3) подписка ─
+        user_city_lower = user_city.lower() if user_city else ""
+
         def _sort_key(doc: dict) -> tuple:
-            # Расстояние в км (0 если нет координат пользователя)
+            # 1) Свой город — всегда первые
+            doc_city = (doc.get("city") or "").strip().lower()
+            city_match = 0 if doc_city and user_city_lower and doc_city == user_city_lower else 1
+
+            # 2) Расстояние в км
             dist = 999999.0
             if user_lat is not None and user_lon is not None:
                 crd = _candidate_coords(doc)
@@ -523,11 +534,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                         dist = haversine_km(user_lat, user_lon, crd[0], crd[1])
                     except Exception:
                         dist = 999999.0
+            # Свой город без координат — считаем 0 км
+            if city_match == 0 and dist > 100:
+                dist = 0.0
 
-            # Дистанционный «бакет» по 50 км (внутри → сортируем по подписке)
-            bucket = int(dist / 50)
-
-            # Приоритет подписки
+            # 3) Приоритет подписки
             pt = doc.get("premium_type")
             pu = doc.get("premium_until")
             bu = doc.get("boost_until")
@@ -540,7 +551,7 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             else:
                 sub = 3
 
-            return (bucket, sub)
+            return (city_match, dist, sub)
 
         docs.sort(key=_sort_key)
 
