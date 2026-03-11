@@ -23,6 +23,7 @@ class UserEntity(BaseEntity):
     age: Optional[Age] = None
     city: Optional[City] = None
     looking_for: Optional[Gender] = None
+    intention: Optional[str] = None  # serious/casual/friendship/exploring
     about: Optional[AboutText] = None
     photo: Optional[str] = None
     photos: list = None  # S3 ключи вида {telegram_id}_{index}.png
@@ -33,6 +34,8 @@ class UserEntity(BaseEntity):
     premium_until: Optional[datetime] = None
     # Суперлайки
     superlike_credits: int = 0
+    # Пакеты свайпов (40/80) — расходуются после исчерпания daily_likes_free
+    swipe_credits: int = 0
     # Буст профиля
     boost_until: Optional[datetime] = None
     boosts_this_week: int = 0

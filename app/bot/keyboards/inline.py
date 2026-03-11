@@ -23,10 +23,25 @@ def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int 
                 callback_data="see_who_liked",
             ),
         )
+    enable_webapp = getattr(config, "enable_webapp", False)
+    if enable_webapp:
+        builder.row(
+            InlineKeyboardButton(
+                text="💗 Смотреть анкеты",
+                web_app=WebAppInfo(url=f"{config.front_end_url}/users/{user_id}"),
+            ),
+        )
+    else:
+        builder.row(
+            InlineKeyboardButton(
+                text="💗 Смотреть анкеты",
+                callback_data="match_start",
+            ),
+        )
     builder.row(
         InlineKeyboardButton(
-            text="💗 Смотреть анкеты",
-            web_app=WebAppInfo(url=f"{config.front_end_url}/users/{user_id}"),
+            text="🌐 Открыть сайт",
+            callback_data="open_site",
         ),
     )
     builder.row(
@@ -205,16 +220,25 @@ def match_keyboard(
                     url=relay_url,
                 ),
             ])
-    # Кнопка просмотра профиля в Mini App
+    # Кнопка просмотра профиля (WebApp если включён, иначе URL)
+    enable_webapp = getattr(config, "enable_webapp", False)
     if to_user_id and matched_user_id:
-        buttons.append([
-            InlineKeyboardButton(
-                text="👤 Посмотреть профиль",
-                web_app=WebAppInfo(
-                    url=f"{config.front_end_url}/users/{to_user_id}/view-profile/{matched_user_id}",
+        if enable_webapp:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="👤 Посмотреть профиль",
+                    web_app=WebAppInfo(
+                        url=f"{config.front_end_url}/users/{to_user_id}/view-profile/{matched_user_id}",
+                    ),
                 ),
-            ),
-        ])
+            ])
+        else:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="👤 Посмотреть профиль",
+                    url=f"{config.front_end_url}/app/view-profile/{matched_user_id}",
+                ),
+            ])
     buttons.append([
         InlineKeyboardButton(
             text="💗 Смотреть анкеты",
@@ -242,6 +266,22 @@ def like_dislike_keyboard(user_id: int):
         ],
     )
     return keyboard
+
+
+def swipe_card_keyboard(user_id: int):
+    """Клавиатура карточки в /match: Like, Skip, Message, Report."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user_id}"),
+                InlineKeyboardButton(text="❌ Skip", callback_data=f"dislike_{user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="✍️ Message", callback_data=f"message_{user_id}"),
+                InlineKeyboardButton(text="🚨 Report", callback_data=f"report_{user_id}"),
+            ],
+        ],
+    )
 
 
 def premium_keyboard(stars_premium: int, stars_vip: int):

@@ -4,11 +4,14 @@ from aiogram.types import CallbackQuery
 from punq import Container
 
 from app.bot.handlers.users.profile import profile
-from app.bot.keyboards.inline import like_dislike_keyboard, match_keyboard
+from app.bot.keyboards.inline import like_dislike_keyboard, match_keyboard, swipe_card_keyboard
 from app.bot.utils.constants import match_text_message, profile_text_message
+from app.bot.utils.states import MessageCompose, ReportForm
 from app.domain.entities.users import UserEntity
+from app.infra.repositories.base import BaseDislikesRepository
 from app.logic.init import init_container
 from app.logic.services.base import BaseLikesService, BaseUsersService
+from app.logic.use_cases.like_action import LikeActionUseCase
 
 
 callback_like_router = Router()
@@ -106,9 +109,10 @@ async def handle_icebreaker_skip(callback: CallbackQuery):
 
 
 class UserSession:
-    def __init__(self, users):
+    def __init__(self, users, use_swipe_card: bool = False):
         self.users = users
         self.current_index = 0
+        self.use_swipe_card = use_swipe_card  # /match: Like, Skip, Message, Report
 
     def has_more_users(self):
         return self.current_index < len(self.users)
@@ -121,29 +125,49 @@ class UserSession:
         return None
 
 
-async def send_user_profile(callback: CallbackQuery, user: UserEntity):
-    """Отправляет профиль пользователя с клавиатурой лайк/дизлайк, удаляет предыдущее сообщение."""
+async def send_user_profile(callback: CallbackQuery, user: UserEntity, use_swipe_card: bool = False):
+    """Отправляет профиль пользователя. use_swipe_card=True — клавиатура с Message, Report."""
     try:
         await callback.message.delete()
+    except Exception:
+        pass
+    kb = swipe_card_keyboard(user.telegram_id) if use_swipe_card else like_dislike_keyboard(user.telegram_id)
+    try:
+        from app.bot.utils.notificator import _resolve_photo
+        photo_raw = getattr(user, "photos", []) or []
+        photo_raw = photo_raw[0] if photo_raw else (user.photo or "")
+        resolved = await _resolve_photo(photo_raw, user.telegram_id) if photo_raw else None
+        if resolved:
+            from aiogram.types import BufferedInputFile
+            photo_input = BufferedInputFile(resolved, "photo.jpg") if isinstance(resolved, bytes) else resolved
+            await callback.message.answer_photo(
+                photo=photo_input,
+                caption=profile_text_message(user),
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            return
     except Exception:
         pass
     try:
         await callback.message.answer_photo(
             photo=user.photo,
             caption=profile_text_message(user),
-            reply_markup=like_dislike_keyboard(user_id=user.telegram_id),
+            reply_markup=kb,
+            parse_mode="HTML",
         )
     except Exception:
         await callback.message.answer(
             text=profile_text_message(user),
-            reply_markup=like_dislike_keyboard(user_id=user.telegram_id),
+            reply_markup=kb,
+            parse_mode="HTML",
         )
 
 
 async def process_next_user(callback: CallbackQuery, session: UserSession):
     next_user = session.get_next_user()
     if next_user:
-        await send_user_profile(callback, next_user)
+        await send_user_profile(callback, next_user, use_swipe_card=session.use_swipe_card)
     else:
         try:
             await callback.message.delete()
@@ -162,7 +186,7 @@ async def handle_like_user(
     state: FSMContext,
     container: Container = init_container(),
 ):
-    likes_service: BaseLikesService = container.resolve(BaseLikesService)
+    use_case: LikeActionUseCase = container.resolve(LikeActionUseCase)
     users_service: BaseUsersService = container.resolve(BaseUsersService)
 
     await callback.answer()
@@ -173,45 +197,34 @@ async def handle_like_user(
         await callback.message.answer("⚠️ Ошибка: неверный формат данных")
         return
 
-    try:
-        user_liked = await users_service.get_user(liked_user_id)
-        user_who_liked = await users_service.get_user(callback.from_user.id)
-    except Exception:
-        data = await state.get_data()
-        session = data.get("session")
-        if session:
-            await process_next_user(callback, session)
+    result = await use_case.execute(
+        from_user_id=callback.from_user.id,
+        to_user_id=liked_user_id,
+        is_superlike=False,
+    )
+
+    if not result.success:
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        cta_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info")],
+            [InlineKeyboardButton(text="💗 Смотреть анкеты", callback_data="profile_page")],
+        ])
+        await callback.message.answer(
+            f"⚠️ {result.error_message}",
+            reply_markup=cta_kb,
+        )
         return
 
-    # Проверяем: не лайкали ли мы уже этого пользователя
-    already_liked = await likes_service.check_like_is_exists(
-        from_user_id=user_who_liked.telegram_id,
-        to_user_id=user_liked.telegram_id,
-    )
+    try:
+        user_liked = await users_service.get_user(liked_user_id)
+    except Exception:
+        user_liked = None
 
-    if not already_liked:
-        try:
-            await likes_service.create_like(
-                from_user_id=user_who_liked.telegram_id,
-                to_user_id=user_liked.telegram_id,
-            )
-        except Exception:
-            pass
-
-    # Проверяем взаимный лайк (матч)
-    is_match = await likes_service.check_match(
-        from_user_id=user_who_liked.telegram_id,
-        to_user_id=user_liked.telegram_id,
-    )
-
-    if is_match:
-        # Удаляем текущее сообщение с анкетой
+    if result.is_match and user_liked:
         try:
             await callback.message.delete()
         except Exception:
             pass
-
-        # Отправляем матч обоим
         username = getattr(user_liked, "username", None)
         match_caption = match_text_message(user_liked)
         from_id = callback.from_user.id
@@ -227,28 +240,24 @@ async def handle_like_user(
             pass
         kb = match_keyboard(username=username, to_user_id=from_id, matched_user_id=to_id, bot_username=bot_username)
         try:
-            await callback.message.answer_photo(
-                photo=user_liked.photo,
-                caption=match_caption,
-                reply_markup=kb,
-            )
+            from app.bot.utils.notificator import _resolve_photo
+            photo_raw = getattr(user_liked, "photos", []) or []
+            photo_raw = photo_raw[0] if photo_raw else (getattr(user_liked, "photo", None) or "")
+            resolved = await _resolve_photo(photo_raw, to_id) if photo_raw else None
+            if resolved:
+                from aiogram.types import BufferedInputFile
+                photo_input = BufferedInputFile(resolved, "photo.jpg") if isinstance(resolved, bytes) else resolved
+                await callback.message.answer_photo(
+                    photo=photo_input,
+                    caption=match_caption,
+                    reply_markup=kb,
+                    parse_mode="HTML",
+                )
+            else:
+                await callback.message.answer(text=match_caption, reply_markup=kb, parse_mode="HTML")
         except Exception:
-            await callback.message.answer(
-                text=match_caption,
-                reply_markup=kb,
-            )
-
-        # Уведомляем второго участника если он ещё не знает
-        try:
-            from app.bot.utils.notificator import send_match_message
-            await send_match_message(
-                to_user_id=user_liked.telegram_id,
-                matched_user=user_who_liked,
-            )
-        except Exception:
-            pass
+            await callback.message.answer(text=match_caption, reply_markup=kb, parse_mode="HTML")
     else:
-        # Просто переходим к следующей анкете
         data = await state.get_data()
         session = data.get("session")
         if session:
@@ -265,9 +274,20 @@ async def handle_dislike_user(
 ):
     await callback.answer()
 
+    try:
+        disliked_user_id = int(callback.data[len("dislike_"):])
+    except (ValueError, IndexError):
+        disliked_user_id = None
+
+    if disliked_user_id:
+        dislikes_repo: BaseDislikesRepository = container.resolve(BaseDislikesRepository)
+        await dislikes_repo.add_dislike(
+            from_user=callback.from_user.id,
+            to_user=disliked_user_id,
+        )
+
     data = await state.get_data()
     session = data.get("session")
-
     if session:
         await process_next_user(callback, session)
 
@@ -361,6 +381,120 @@ async def handle_see_who_liked(
     else:
         await callback.message.answer("Тебя ещё никто не лайкнул 🙈\nСвайпай анкеты — и лайки придут!")
         await profile(callback)
+
+
+# ─── Message (counts as like) ─────────────────────────────────────────────────
+
+@callback_like_router.callback_query(lambda c: c.data and c.data.startswith("message_"))
+async def handle_message_button(
+    callback: CallbackQuery,
+    state: FSMContext,
+    container: Container = init_container(),
+):
+    """Кнопка ✍️ Message: запрос текста → like + send_icebreaker."""
+    await callback.answer()
+    try:
+        target_id = int(callback.data[len("message_"):])
+    except (ValueError, IndexError):
+        return
+    await state.set_state(MessageCompose.text)
+    await state.update_data(message_target_id=target_id)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(
+        "✍️ Напиши первое сообщение для этого человека (или /cancel чтобы отменить):",
+    )
+
+
+# ─── Report ───────────────────────────────────────────────────────────────────
+
+REPORT_CATEGORIES = [
+    ("spam", "Спам"),
+    ("inappropriate", "Неприемлемый контент"),
+    ("scam", "Мошенничество"),
+    ("fake", "Фейковый профиль"),
+    ("other", "Другое"),
+]
+
+
+@callback_like_router.callback_query(
+    lambda c: c.data and c.data.startswith("report_cat_"),
+)
+async def handle_report_category(
+    callback: CallbackQuery,
+    state: FSMContext,
+    container: Container = init_container(),
+):
+    """Выбор категории репорта → переход к вводу текста."""
+    await callback.answer()
+    cat = callback.data[len("report_cat_"):].strip()
+    data = await state.get_data()
+    target_id = data.get("report_target_id")
+    if not target_id:
+        await state.clear()
+        return
+    await state.set_state(ReportForm.text)
+    await state.update_data(report_category=cat)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer(
+        "📝 Опиши ситуацию (или /cancel чтобы отменить):",
+    )
+
+
+@callback_like_router.callback_query(
+    lambda c: c.data and c.data.startswith("report_") and not c.data.startswith("report_cat_") and c.data != "report_cancel",
+)
+async def handle_report_button(
+    callback: CallbackQuery,
+    state: FSMContext,
+    container: Container = init_container(),
+):
+    """Кнопка 🚨 Report: выбор категории → текст → запись в reports."""
+    await callback.answer()
+    try:
+        target_id = int(callback.data[len("report_"):])
+    except (ValueError, IndexError):
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    btns = [
+        [InlineKeyboardButton(text=label, callback_data=f"report_cat_{key}")]
+        for key, label in REPORT_CATEGORIES
+    ]
+    btns.append([InlineKeyboardButton(text="🔙 Отмена", callback_data="report_cancel")])
+    await state.set_state(ReportForm.category)
+    await state.update_data(report_target_id=target_id)
+    try:
+        await callback.message.edit_caption(
+            caption=(callback.message.caption or "") + "\n\n🚨 Выбери причину репорта:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=btns),
+        )
+    except Exception:
+        try:
+            await callback.message.edit_text(
+                (callback.message.text or "") + "\n\n🚨 Выбери причину репорта:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=btns),
+            )
+        except Exception:
+            await callback.message.answer(
+                "🚨 Выбери причину репорта:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=btns),
+            )
+
+
+@callback_like_router.callback_query(F.data == "report_cancel")
+async def handle_report_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer("Отменено")
+    data = await state.get_data()
+    session = data.get("session")
+    await state.clear()
+    if session:
+        from app.bot.callbacks.users.likes import process_next_user
+        await process_next_user(callback, session)
 
 
 @callback_like_router.callback_query(lambda c: c.data and c.data.startswith("like_back_"))

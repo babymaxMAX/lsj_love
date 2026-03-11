@@ -290,6 +290,112 @@ async def admin_toggle_active(user_id: int, active: bool = True, container: Cont
 
 # ── Рассылка ───────────────────────────────────────────────────────────────────
 
+# ── Репорты ──────────────────────────────────────────────────────────────────
+
+class ResolveReportRequest(BaseModel):
+    action: str  # "ban" | "unban" | "hide_profile" | "delete" | "dismiss"
+    reason: str = ""
+
+
+@router.get("/reports", dependencies=[Depends(_check_admin)])
+async def admin_list_reports(
+    page: int = 1,
+    limit: int = 20,
+    status: str = "",
+    container: Container = Depends(init_container),
+):
+    """Список репортов с фильтром по статусу."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config: Config = container.resolve(Config)
+    col = client[config.mongodb_dating_database]["reports"]
+
+    query = {}
+    if status in ("pending", "resolved", "dismissed"):
+        query["status"] = status
+    total = await col.count_documents(query)
+    skip = (page - 1) * limit
+    cursor = col.find(query).sort("created_at", -1).skip(skip).limit(limit)
+    items = []
+    async for doc in cursor:
+        doc["id"] = str(doc.pop("_id", ""))
+        items.append(doc)
+    return {"total": total, "page": page, "limit": limit, "items": items}
+
+
+@router.get("/reports/{report_id}", dependencies=[Depends(_check_admin)])
+async def admin_get_report(
+    report_id: str,
+    container: Container = Depends(init_container),
+):
+    """Детали репорта."""
+    from bson import ObjectId
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config: Config = container.resolve(Config)
+    col = client[config.mongodb_dating_database]["reports"]
+    try:
+        doc = await col.find_one({"_id": ObjectId(report_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid report id")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Report not found")
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+@router.put("/reports/{report_id}/resolve", dependencies=[Depends(_check_admin)])
+async def admin_resolve_report(
+    report_id: str,
+    body: ResolveReportRequest,
+    container: Container = Depends(init_container),
+):
+    """Обработать репорт: ban/unban, hide_profile, delete, dismiss."""
+    from bson import ObjectId
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    config: Config = container.resolve(Config)
+    col = client[config.mongodb_dating_database]["reports"]
+    users_col = client[config.mongodb_dating_database][config.mongodb_users_collection]
+    likes_col = client[config.mongodb_dating_database][config.mongodb_likes_collection]
+    try:
+        doc = await col.find_one({"_id": ObjectId(report_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid report id")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Report not found")
+    target_id = doc.get("to_user")
+    from_user = doc.get("from_user")
+
+    if body.action == "ban" and target_id:
+        await users_col.update_one(
+            {"telegram_id": target_id},
+            {"$set": {"is_banned": True, "is_active": False, "ban_reason": body.reason}},
+        )
+    elif body.action == "unban" and target_id:
+        await users_col.update_one(
+            {"telegram_id": target_id},
+            {"$set": {"is_banned": False, "is_active": True}, "$unset": {"ban_reason": ""}},
+        )
+    elif body.action == "hide_profile" and target_id:
+        await users_col.update_one(
+            {"telegram_id": target_id},
+            {"$set": {"profile_hidden": True}},
+        )
+    elif body.action == "delete" and target_id:
+        await users_col.delete_one({"telegram_id": target_id})
+        await likes_col.delete_many({"$or": [{"from_user": target_id}, {"to_user": target_id}]})
+    # dismiss = только закрыть репорт без действий
+
+    await col.update_one(
+        {"_id": ObjectId(report_id)},
+        {"$set": {"status": "resolved" if body.action != "dismiss" else "dismissed", "resolved_action": body.action, "resolved_reason": body.reason}},
+    )
+    return {"ok": True, "action": body.action, "target_id": target_id}
+
+
+# ── Рассылка ───────────────────────────────────────────────────────────────────
+
 @router.post("/broadcast", dependencies=[Depends(_check_admin)])
 async def admin_broadcast(body: BroadcastRequest, container: Container = Depends(init_container)):
     """Массовая рассылка сообщений через Telegram бот."""

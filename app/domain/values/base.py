@@ -13,6 +13,9 @@ class BaseValueObject[VT: Any](ABC):
     def __post_init__(self):
         self.validate()
 
+    def __str__(self) -> str:
+        return str(self.value)
+
     @abstractmethod
     def validate(self): ...
 

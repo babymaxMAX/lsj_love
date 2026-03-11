@@ -31,6 +31,7 @@ from app.logic.services.base import (
 )
 from app.logic.services.likes import LikesService
 from app.logic.services.users import UsersService
+from app.logic.use_cases.like_action import LikeActionUseCase
 from app.settings.config import Config
 
 
@@ -148,6 +149,19 @@ def _init_container() -> Container:
     container.register(
         BaseDislikesRepository,
         factory=init_dislikes_repo,
+        scope=Scope.singleton,
+    )
+
+    def init_like_action_use_case() -> LikeActionUseCase:
+        return LikeActionUseCase(
+            likes_service=container.resolve(BaseLikesService),
+            users_service=container.resolve(BaseUsersService),
+            config=config,
+        )
+
+    container.register(
+        LikeActionUseCase,
+        factory=init_like_action_use_case,
         scope=Scope.singleton,
     )
 

@@ -17,6 +17,7 @@ from app.bot.utils.constants import user_profile_text_message
 from app.bot.utils.notificator import _resolve_photo
 from app.logic.init import init_container
 from app.logic.services.base import BaseUsersService
+from app.settings.config import Config
 
 
 def _compute_boosts_left(user, now) -> int:
@@ -101,6 +102,27 @@ async def profile(
         reply_markup=keyboard,
         parse_mode="HTML",
     )
+
+
+@user_profile_router.callback_query(F.data == "open_site")
+async def open_site(
+    callback: CallbackQuery,
+    container: Container = init_container(),
+):
+    """Генерирует токен и отправляет ссылку на сайт для входа."""
+    from app.application.api.v1.auth.handlers import create_login_token_internal
+    await callback.answer()
+    try:
+        token = await create_login_token_internal(callback.from_user.id, container)
+        config: Config = container.resolve(Config)
+        url = f"{config.front_end_url.rstrip('/')}/app?token={token}"
+        await callback.message.answer(
+            f"🌐 <b>Ссылка для входа на сайт:</b>\n\n{url}\n\n"
+            f"Ссылка действует 5 минут. Открой её в браузере для входа.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        await callback.message.answer("Ошибка генерации ссылки. Попробуй позже.")
 
 
 @user_profile_router.callback_query(F.data == "referral_info")

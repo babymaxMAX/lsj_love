@@ -47,6 +47,8 @@ PRODUCTS = {
     "vip":             {"name": "VIP (1 месяц)",     "days": 30, "premium_type": "vip"},
     "superlike":       {"name": "Суперлайк",         "days": 0,  "premium_type": None},
     "icebreaker_pack": {"name": "Пак Icebreaker ×5", "days": 0,  "premium_type": None},
+    "swipe_pack_40":   {"name": "Пак свайпов 40",   "days": 0,  "swipe_credits": 40},
+    "swipe_pack_80":   {"name": "Пак свайпов 80",   "days": 0,  "swipe_credits": 80},
 }
 
 
@@ -54,7 +56,7 @@ PRODUCTS = {
 
 class CreatePaymentRequest(BaseModel):
     telegram_id: int
-    product: Literal["premium", "vip", "superlike", "icebreaker_pack"]
+    product: Literal["premium", "vip", "superlike", "icebreaker_pack", "swipe_pack_40", "swipe_pack_80"]
     method: Literal["sbp", "crypto"] = "sbp"
 
 
@@ -107,6 +109,15 @@ async def _activate_superlike(container: Container, telegram_id: int):
     await col.update_one(
         {"telegram_id": telegram_id},
         {"$inc": {"superlike_credits": 1}},
+    )
+
+
+async def _activate_swipe_pack(container: Container, telegram_id: int, credits: int):
+    """Атомарно добавляет N свайп-кредитов (используются после daily_likes_free)."""
+    col = _get_users_collection(container)
+    await col.update_one(
+        {"telegram_id": telegram_id},
+        {"$inc": {"swipe_credits": credits}},
     )
 
 
@@ -315,6 +326,8 @@ async def create_platega_payment(
         "vip":             config.platega_vip_price,
         "superlike":       config.platega_superlike_price,
         "icebreaker_pack": config.platega_icebreaker_pack_price,
+        "swipe_pack_40":   getattr(config, "platega_swipe_pack_40_price", 99.0),
+        "swipe_pack_80":   getattr(config, "platega_swipe_pack_80_price", 149.0),
     }
     amount = prices[body.product]
     product_info = PRODUCTS[body.product]
@@ -474,6 +487,14 @@ async def get_payment_status(
                 except Exception as e:
                     logger.error(f"Superlike activation error: {e}")
 
+            elif tx["product"] in ("swipe_pack_40", "swipe_pack_80"):
+                credits = 40 if tx["product"] == "swipe_pack_40" else 80
+                try:
+                    await _activate_swipe_pack(container, tx["telegram_id"], credits)
+                    premium_activated = True
+                except Exception as e:
+                    logger.error(f"Swipe pack activation error: {e}")
+
             # Начисляем реферальный бонус 10%
             try:
                 await _pay_referral_bonus(container, tx["telegram_id"], tx.get("amount", 0))
@@ -568,6 +589,14 @@ async def platega_webhook(
             logger.info(f"Superlike credit (+1) added via webhook: user={tx['telegram_id']}")
         except Exception as e:
             logger.error(f"Superlike activation failed: {e}")
+
+    elif tx.get("product") in ("swipe_pack_40", "swipe_pack_80"):
+        credits = 40 if tx.get("product") == "swipe_pack_40" else 80
+        try:
+            await _activate_swipe_pack(container, tx["telegram_id"], credits)
+            logger.info(f"Swipe pack (+{credits}) activated via webhook: user={tx['telegram_id']}")
+        except Exception as e:
+            logger.error(f"Swipe pack activation failed: {e}")
 
     # Начисляем реферальный бонус 10%
     try:

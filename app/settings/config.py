@@ -46,6 +46,8 @@ class Config(BaseSettings):
     platega_vip_price: float = Field(default=799.0, alias="PLATEGA_VIP_PRICE")
     platega_superlike_price: float = Field(default=49.0, alias="PLATEGA_SUPERLIKE_PRICE")
     platega_icebreaker_pack_price: float = Field(default=49.0, alias="PLATEGA_ICEBREAKER_PACK_PRICE")
+    platega_swipe_pack_40_price: float = Field(default=99.0, alias="PLATEGA_SWIPE_PACK_40_PRICE")
+    platega_swipe_pack_80_price: float = Field(default=149.0, alias="PLATEGA_SWIPE_PACK_80_PRICE")
 
     # OpenAI для AI-фич
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
@@ -61,7 +63,7 @@ class Config(BaseSettings):
     stars_icebreaker_pack: int = Field(default=100, alias="STARS_ICEBREAKER_PACK")
 
     # Лимиты (бесплатный тариф)
-    daily_likes_free: int = Field(default=10, alias="DAILY_LIKES_FREE")
+    daily_likes_free: int = Field(default=20, alias="DAILY_LIKES_FREE")
     # Всего бесплатных Icebreaker для новых пользователей (не в день, а всего)
     icebreaker_free_total: int = Field(default=5, alias="ICEBREAKER_FREE_TOTAL")
     # Дневные лимиты для подписчиков (VIP/Premium)
@@ -80,6 +82,12 @@ class Config(BaseSettings):
         alias="GEOCODER_URL",
     )
     geocode_cache_ttl_days: int = Field(default=90, alias="GEOCODE_CACHE_TTL_DAYS")
+
+    # Feature flags (миграция без жёсткого обрыва)
+    enable_webapp: bool = Field(default=False, alias="ENABLE_WEBAPP")
+    enable_bot_match: bool = Field(default=True, alias="ENABLE_BOT_MATCH")
+    enable_site_auth_v2: bool = Field(default=True, alias="ENABLE_SITE_AUTH_V2")
+    enable_stars_in_bot: bool = Field(default=True, alias="ENABLE_STARS_IN_BOT")
 
     # Секретный ключ для доступа к админ-панели (обязательно задать в проде!)
     admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")

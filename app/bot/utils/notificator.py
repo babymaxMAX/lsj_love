@@ -267,14 +267,16 @@ async def send_match_message(to_user_id: int, matched_user, recipient_id: int | 
         bot_username = getattr(config, "bot_username", None) or get_bot_username()
     except Exception:
         bot_username = ""
-        name = str(getattr(matched_user, "name", "") or "")
-        username = getattr(matched_user, "username", None) or None
-        age = str(getattr(matched_user, "age", "") or "")
-        city = str(getattr(matched_user, "city", "") or "")
-        matched_id = getattr(matched_user, "telegram_id", None)
-        if username == "":
-            username = None
 
+    name = str(getattr(matched_user, "name", "") or "")
+    username = getattr(matched_user, "username", None) or None
+    age = str(getattr(matched_user, "age", "") or "")
+    city = str(getattr(matched_user, "city", "") or "")
+    matched_id = getattr(matched_user, "telegram_id", None)
+    if username == "":
+        username = None
+
+    try:
         text = (
             f"💕 <b>Взаимная симпатия!</b>\n\n"
             f"<b>{name}</b>{(', ' + age) if age else ''}{(', ' + city) if city else ''}\n"

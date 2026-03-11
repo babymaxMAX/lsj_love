@@ -20,3 +20,14 @@ class UserAboutUpdate(StatesGroup):
 
 class UserPhotoUpdate(StatesGroup):
     photo = State()
+
+
+class MessageCompose(StatesGroup):
+    """FSM для кнопки Message на карточке (отправка первого сообщения = лайк)."""
+    text = State()
+
+
+class ReportForm(StatesGroup):
+    """FSM для репорта профиля."""
+    category = State()
+    text = State()

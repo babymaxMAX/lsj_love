@@ -1,6 +1,8 @@
 from fastapi.routing import APIRouter
 
 from app.application.api.v1.admin.handlers import router as admin_router
+from app.application.api.v1.auth.handlers import router as auth_router
+from app.application.api.v1.me.handlers import router as me_router
 from app.application.api.v1.ai.handlers import router as ai_router
 from app.application.api.v1.gamification.handlers import router as gamification_router
 from app.application.api.v1.likes.handlers import router as likes_router
@@ -15,6 +17,8 @@ router = APIRouter(
     prefix="/v1",
 )
 
+router.include_router(auth_router)
+router.include_router(me_router)
 router.include_router(users_router)
 router.include_router(geocode_router)
 router.include_router(likes_router)
