@@ -4,6 +4,7 @@ POST /auth/token — создаёт одноразовый токен для tel
 POST /auth/exchange — обменивает токен на сессию (cookie).
 """
 import hashlib
+import logging
 import hmac
 import secrets
 from base64 import b64encode
@@ -20,6 +21,7 @@ from app.settings.config import Config
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = logging.getLogger(__name__)
 TOKEN_TTL_MINUTES = 5
 SESSION_COOKIE_NAME = "lsj_session"
 SESSION_DAYS = 30
@@ -122,9 +124,11 @@ async def exchange_token_for_session(
     col = _get_auth_tokens_collection(container)
     doc = await col.find_one({"token": body.token, "used": False})
     if not doc:
+        logger.debug("Auth exchange: token not found or already used")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Токен недействителен или уже использован")
     expires_at = _ensure_utc(doc.get("expires_at"))
     if expires_at and datetime.now(timezone.utc) > expires_at:
+        logger.debug("Auth exchange: token expired")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Токен истёк")
     telegram_id = doc["telegram_id"]
     await col.update_one({"token": body.token}, {"$set": {"used": True}})
@@ -139,6 +143,7 @@ async def exchange_token_for_session(
         samesite="lax",
         max_age=SESSION_DAYS * 24 * 3600,
     )
+    logger.info("Auth exchange: session created for telegram_id=%s", telegram_id)
     return ExchangeTokenResponse(ok=True, telegram_id=telegram_id)
 
 
@@ -152,9 +157,11 @@ async def get_me(
     secret = getattr(config, "admin_secret_key", None) or "lsj-auth-fallback-secret"
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not cookie:
+        logger.debug("Auth: no session cookie")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Не авторизован")
     tid = _parse_session_cookie(cookie, secret)
     if tid is None:
+        logger.debug("Auth: session validation failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия недействительна")
     return {"telegram_id": tid}
 
@@ -168,8 +175,10 @@ async def get_current_user(
     secret = getattr(config, "admin_secret_key", None) or "lsj-auth-fallback-secret"
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if not cookie:
+        logger.debug("Auth: no session cookie")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Не авторизован")
     tid = _parse_session_cookie(cookie, secret)
     if tid is None:
+        logger.debug("Auth: session validation failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия недействительна")
     return tid

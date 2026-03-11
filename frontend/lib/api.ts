@@ -23,6 +23,9 @@ export async function authExchangeToken(token: string): Promise<{ ok: boolean; t
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const detail = err?.detail;
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[auth] Exchange failed:", res.status, typeof detail === "string" ? detail : "invalid token");
+    }
     const message =
       typeof detail === "string"
         ? detail

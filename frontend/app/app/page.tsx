@@ -62,7 +62,13 @@ export default function AppPage() {
 
   const currentUser = users[currentIndex];
 
-  if (!userId && !authLoading) return null;
+  if (!userId && !authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0f0f1a" }}>
+        <div className="text-center text-white/50">Перенаправление...</div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
