@@ -618,12 +618,13 @@ async def migrate_user_coords(container: Container = Depends(init_container)):
 
     updated = 0
     skipped = 0
+    skipped_cities: dict[str, int] = {}
     cursor = col.find(
         {"$or": [{"lat": {"$exists": False}}, {"lat": None}]},
         {"telegram_id": 1, "city": 1},
     )
     async for doc in cursor:
-        city = doc.get("city") or ""
+        city = (doc.get("city") or "").strip()
         coords = get_city_coords(city)
         if coords:
             await col.update_one(
@@ -633,8 +634,15 @@ async def migrate_user_coords(container: Container = Depends(init_container)):
             updated += 1
         else:
             skipped += 1
+            if city:
+                skipped_cities[city] = skipped_cities.get(city, 0) + 1
 
-    return {"updated": updated, "skipped_unknown_city": skipped}
+    top_skipped = sorted(skipped_cities.items(), key=lambda x: -x[1])[:20]
+    return {
+        "updated": updated,
+        "skipped_unknown_city": skipped,
+        "top_skipped_cities": top_skipped,
+    }
 
 
 @router.post(

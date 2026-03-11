@@ -42,7 +42,8 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Волгоград": (48.7086, 44.5133), "Астрахань": (46.3500, 48.0333),
     "Пенза": (53.2007, 44.9997), "Ульяновск": (54.3167, 48.3667),
     "Тольятти": (53.5167, 49.4167), "Набережные Челны": (55.7235, 52.4056),
-    "Ижевск": (56.8527, 53.2114), "Чебоксары": (56.1439, 47.2489),
+    "Ижевск": (56.8527, 53.2114),     "Чебоксары": (56.1439, 47.2489),
+    "Йошкар-Ола": (56.6388, 47.8908),
     "Саранск": (54.1875, 45.1840), "Киров": (58.6035, 49.6680),
     "Оренбург": (51.7727, 55.0988), "Сызрань": (53.1556, 48.4739),
     "Балаково": (52.0333, 47.8000), "Энгельс": (51.4992, 46.1236),
@@ -219,29 +220,74 @@ REGION_ALIASES: dict[str, str] = {
     "подмосковье": "Москва",
 }
 
+# Латинские и разговорные названия → канонический город
+CITY_ALIASES: dict[str, str] = {
+    "moscow": "Москва", "moskva": "Москва", "msk": "Москва",
+    "spb": "Санкт-Петербург", "saint petersburg": "Санкт-Петербург",
+    "piter": "Санкт-Петербург", "питер": "Санкт-Петербург",
+    "minsk": "Минск", "минск": "Минск",
+    "kyiv": "Киев", "kiev": "Киев", "киев": "Киев",
+    "almaty": "Алматы", "astana": "Астана", "nur-sultan": "Астана",
+    "baku": "Баку", "tbilisi": "Тбилиси", "yerevan": "Ереван",
+    "tashkent": "Ташкент", "bishkek": "Бишкек", "dushanbe": "Душанбе",
+    "vilnius": "Вильнюс", "riga": "Рига", "tallinn": "Таллин",
+    "rostov": "Ростов-на-Дону", "rostov on don": "Ростов-на-Дону",
+    "sochi": "Сочи", "krasnodar": "Краснодар", "ekb": "Екатеринбург",
+    "yekaterinburg": "Екатеринбург", "nsk": "Новосибирск",
+    "novosibirsk": "Новосибирск", "nn": "Нижний Новгород",
+    "nizhny novgorod": "Нижний Новгород", "ufa": "Уфа", "kazan": "Казань",
+    "samara": "Самара", "volgograd": "Волгоград", "vladivostok": "Владивосток",
+}
+
+
+def _normalize_city(raw: str) -> str:
+    """Убирает префиксы г., город и т.п."""
+    if not raw:
+        return ""
+    s = raw.strip()
+    for prefix in ("г.", "г ", "город ", "гор. ", "гр. "):
+        if s.lower().startswith(prefix):
+            s = s[len(prefix):].strip()
+    if s.lower().endswith(", рф") or s.lower().endswith(", рб") or s.lower().endswith(", ru"):
+        s = s[:-4].strip().rstrip(",")
+    return s.strip()
+
 
 def get_city_coords(city: str) -> tuple[float, float] | None:
     """Возвращает (lat, lon) для города или None если не найдено."""
     if not city:
         return None
-    city = city.strip()
+    city = _normalize_city(city)
+    if not city:
+        return None
+    city_lower = city.lower()
+
+    # Латинские/разговорные алиасы
+    if city_lower in CITY_ALIASES:
+        canonical = CITY_ALIASES[city_lower]
+        return CITY_COORDS.get(canonical)
+
     # Точное совпадение
     if city in CITY_COORDS:
         return CITY_COORDS[city]
-    # Регистронезависимое совпадение
-    city_lower = city.lower()
-    # Проверяем региональные алиасы
+
+    # Региональные алиасы
     if city_lower in REGION_ALIASES:
         canonical = REGION_ALIASES[city_lower]
         return CITY_COORDS.get(canonical)
-    # Поиск без учёта регистра
+
+    # Без учёта регистра
     for k, v in CITY_COORDS.items():
         if k.lower() == city_lower:
             return v
-    # Поиск по началу строки (частичное совпадение)
-    for k, v in CITY_COORDS.items():
-        if k.lower().startswith(city_lower) or city_lower.startswith(k.lower()):
-            return v
+
+    # Частичное совпадение (≥3 символа, чтобы "го" не матчило)
+    if len(city_lower) >= 3:
+        for k, v in CITY_COORDS.items():
+            kl = k.lower()
+            if kl.startswith(city_lower) or city_lower.startswith(kl):
+                return v
+
     return None
 
 
