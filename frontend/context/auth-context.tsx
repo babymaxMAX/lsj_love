@@ -7,12 +7,14 @@ interface AuthContextValue {
   userId: string | null;
   loading: boolean;
   error: string | null;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   userId: null,
   loading: true,
   error: null,
+  clearError: () => {},
 });
 
 export function useCurrentUser() {
@@ -31,30 +33,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const clearError = () => setError(null);
+
   useEffect(() => {
     let cancelled = false;
     async function init() {
-      const token = searchParams.get("token");
-      if (token) {
-        try {
-          const data = await authExchangeToken(token);
-          if (cancelled) return;
-          if (data.ok && data.telegram_id) {
-            setUserId(String(data.telegram_id));
-            setLoading(false);
-            router.replace("/app");
+      try {
+        const token = searchParams.get("token");
+        if (token) {
+          try {
+            const data = await authExchangeToken(token);
+            if (cancelled) return;
+            if (data.ok && data.telegram_id) {
+              setUserId(String(data.telegram_id));
+              setLoading(false);
+              router.replace("/app");
+              return;
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setError(String(e));
+              setLoading(false);
+            }
             return;
           }
-        } catch (e) {
-          if (!cancelled) setError(String(e));
         }
+        const me = await authMe();
+        if (cancelled) return;
+        if (me?.telegram_id) {
+          setUserId(String(me.telegram_id));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      const me = await authMe();
-      if (cancelled) return;
-      if (me?.telegram_id) {
-        setUserId(String(me.telegram_id));
-      }
-      setLoading(false);
     }
     init();
     return () => {
@@ -63,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [searchParams, router]);
 
   return (
-    <AuthContext.Provider value={{ userId, loading, error }}>
+    <AuthContext.Provider value={{ userId, loading, error, clearError }}>
       {children}
     </AuthContext.Provider>
   );

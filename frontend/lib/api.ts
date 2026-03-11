@@ -22,7 +22,14 @@ export async function authExchangeToken(token: string): Promise<{ ok: boolean; t
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.detail || "Ошибка входа");
+    const detail = err?.detail;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? detail[0].msg
+          : detail?.message || "Ошибка входа";
+    throw new Error(message);
   }
   return res.json();
 }
