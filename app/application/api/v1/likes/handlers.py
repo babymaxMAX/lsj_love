@@ -20,6 +20,7 @@ from app.application.api.v1.likes.schemas import (
 )
 from app.bot.utils.notificator import send_liked_message, send_match_message, send_superlike_message
 from app.domain.exceptions.base import ApplicationException
+from app.infra.repositories.base import BaseDislikesRepository
 from app.logic.init import init_container
 from app.logic.services.base import BaseLikesService, BaseUsersService
 from app.settings.config import Config
@@ -198,6 +199,47 @@ async def add_like_to_user(
         )
 
     return CreateLikeResponseSchema.from_entity(like)
+
+
+@router.post(
+    "/dislike",
+    status_code=status.HTTP_200_OK,
+    description="Dislike (skip) a user. Persisted to DB so profile won't reappear.",
+)
+async def dislike_user(
+    schema: CreateLikeRequestSchema,
+    container: Container = Depends(init_container),
+):
+    dislikes_repo: BaseDislikesRepository = container.resolve(BaseDislikesRepository)
+    await dislikes_repo.add_dislike(from_user=schema.from_user, to_user=schema.to_user)
+    return {"ok": True}
+
+
+@router.delete(
+    "/dislike",
+    status_code=status.HTTP_200_OK,
+    description="Undo last dislike (Premium feature — rewind swipe).",
+)
+async def undo_dislike(
+    schema: DeleteLikeRequestSchema,
+    container: Container = Depends(init_container),
+):
+    """Откат дизлайка — Premium фича (перемотка свайпа)."""
+    users_service: BaseUsersService = container.resolve(BaseUsersService)
+    try:
+        from_user = await users_service.get_user(telegram_id=schema.from_user)
+    except ApplicationException:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"error": "User not found"})
+
+    if not _is_premium_active(from_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Откат свайпа доступен только с подпиской Premium."},
+        )
+
+    dislikes_repo: BaseDislikesRepository = container.resolve(BaseDislikesRepository)
+    await dislikes_repo.remove_dislike(from_user=schema.from_user, to_user=schema.to_user)
+    return {"ok": True}
 
 
 @router.delete(

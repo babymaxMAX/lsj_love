@@ -57,6 +57,9 @@ class BaseUsersRepository(ABC):
     async def get_icebreaker_count(self, telegram_id: int) -> int: ...
 
     @abstractmethod
+    async def get_icebreaker_total_count(self, telegram_id: int) -> int: ...
+
+    @abstractmethod
     async def increment_icebreaker_count(self, telegram_id: int) -> int: ...
 
     @abstractmethod
@@ -76,6 +79,18 @@ class BaseUsersRepository(ABC):
 
     @abstractmethod
     async def get_photos(self, telegram_id: int) -> list[str]: ...
+
+
+@dataclass
+class BaseDislikesRepository(ABC):
+    @abstractmethod
+    async def add_dislike(self, from_user: int, to_user: int) -> None: ...
+
+    @abstractmethod
+    async def get_disliked_ids(self, user_id: int) -> list[int]: ...
+
+    @abstractmethod
+    async def remove_dislike(self, from_user: int, to_user: int) -> None: ...
 
 
 @dataclass

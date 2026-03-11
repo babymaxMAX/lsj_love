@@ -74,22 +74,41 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         return () => document.removeEventListener("visibilitychange", onVisible);
     }, [loadUsers]);
 
+    const [likeError, setLikeError] = useState<string | null>(null);
+
     const handleLike = async (targetId: number) => {
         seenIds.add(targetId);
+        setLikeError(null);
         try {
-            await fetch(`${BackEnd_URL}/api/v1/likes/`, {
+            const res = await fetch(`${BackEnd_URL}/api/v1/likes/`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
             });
+            if (res.status === 403) {
+                const data = await res.json().catch(() => ({}));
+                const errMsg = data?.detail?.error || "Лимит лайков на сегодня исчерпан. Оформи Premium для безлимитных лайков.";
+                setLikeError(errMsg);
+                setTimeout(() => setLikeError(null), 5000);
+                // Не переходим к следующей анкете при лимите
+                return;
+            }
         } catch (e) {
             console.error(e);
         }
         nextUser();
     };
 
-    const handleDislike = (targetId: number) => {
-        seenIds.add(targetId); // не показывать снова в этой сессии
+    const handleDislike = async (targetId: number) => {
+        seenIds.add(targetId);
+        // Сохраняем дизлайк в БД — профиль не покажется снова даже после перезагрузки
+        try {
+            await fetch(`${BackEnd_URL}/api/v1/likes/dislike`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
+            });
+        } catch { /* не критично */ }
         nextUser();
     };
 
@@ -146,6 +165,18 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                     userId={params.users}
                     onClose={() => setShowQuestion(false)}
                 />
+            )}
+
+            {/* Сообщение об ошибке лайка */}
+            {likeError && (
+                <div style={{
+                    position: "fixed", top: 70, left: "50%", transform: "translateX(-50%)",
+                    background: "#7c3aed", color: "#fff", borderRadius: 12, padding: "10px 20px",
+                    fontSize: 13, fontWeight: 600, zIndex: 100, maxWidth: "90vw", textAlign: "center",
+                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                }}>
+                    ❤️ {likeError}
+                </div>
             )}
 
             {/* Свайп карточки */}

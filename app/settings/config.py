@@ -72,3 +72,8 @@ class Config(BaseSettings):
         return f"{self.url_webhook}/api/v1/webhook"
 
     front_end_url: str = Field(alias="FRONT_END_URL", default="https://lsjlove.duckdns.org")
+
+    # Секретный ключ для доступа к админ-панели
+    admin_secret_key: str = Field(default="kupidon_admin_2026", alias="ADMIN_SECRET_KEY")
+    # Telegram ID администраторов (через запятую)
+    admin_telegram_ids: str = Field(default="", alias="ADMIN_TELEGRAM_IDS")

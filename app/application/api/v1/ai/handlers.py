@@ -284,8 +284,11 @@ async def generate_icebreaker(
     premium_type = _get_active_premium_type(sender)
     is_premium = premium_type in ("premium", "vip")
 
-    # Получаем использованное количество
-    used = await service.get_icebreaker_count(telegram_id=data.sender_id)
+    # Для Premium/VIP — дневной лимит; для бесплатных — тотальный
+    if is_premium:
+        used = await service.get_icebreaker_count(telegram_id=data.sender_id)
+    else:
+        used = await service.get_icebreaker_total_count(telegram_id=data.sender_id)
     limit = _get_limit(premium_type, config)
 
     if used >= limit:
@@ -397,7 +400,9 @@ async def get_icebreaker_status(
 
     premium_type = _get_active_premium_type(user)
     is_premium = premium_type in ("premium", "vip")
-    used = await service.get_icebreaker_count(telegram_id=user_id)
+    used = (await service.get_icebreaker_count(telegram_id=user_id)
+            if is_premium
+            else await service.get_icebreaker_total_count(telegram_id=user_id))
     limit = _get_limit(premium_type, config)
     uses_left = _get_uses_left(used, limit)
 
@@ -748,6 +753,7 @@ async def _matchmaking_text_screen(
     conversation: list[dict],
     shown_ids: list[int],
     api_key: str,
+    query_city: str | None = None,
 ) -> list[int]:
     """
     Шаг 1: Текстовый скрининг — GPT-4o-mini выбирает топ-10 ID по критериям пользователя.
@@ -757,6 +763,9 @@ async def _matchmaking_text_screen(
     client = AsyncOpenAI(api_key=api_key)
 
     shown_note = f"\nУже показанные пользователю (не повторяй): {shown_ids}" if shown_ids else ""
+    city_note = (f"\n⚠️ ВАЖНО: пользователь ищет ТОЛЬКО из города «{query_city}». "
+                 f"Выбирай ТОЛЬКО анкеты с городом «{query_city}». "
+                 "Если нет таких — верни пустой список.") if query_city else ""
 
     system = (
         "Ты — умный помощник по подбору пар в приложении знакомств Kupidon AI. "
@@ -770,11 +779,11 @@ async def _matchmaking_text_screen(
         "- стройная/худая/тонкая/субтильная → стройное телосложение\n"
         "- спортивная/подтянутая/атлетичная → спортивное телосложение\n\n"
         "Правила:\n"
-        "- Совпадение города — большой плюс\n"
+        "- Если указан город — ОБЯЗАТЕЛЬНО выбирай только из этого города\n"
         "- Учитывай возраст, описание, интересы\n"
         "- Понимай разговорный язык и неточные формулировки\n"
         "- Не повторяй уже показанные ID\n"
-        "Выбери до 10 анкет. Ответь ТОЛЬКО JSON: {\"selected\": [id1, id2, ...]}"
+        f"Выбери до 10 анкет.{city_note} Ответь ТОЛЬКО JSON: {{\"selected\": [id1, id2, ...]}}"
     )
 
     messages: list[dict] = [{"role": "system", "content": system}]
@@ -940,13 +949,31 @@ async def ai_matchmaking(
     except Exception:
         liked_ids = []
 
-    # Загружаем кандидатов (только лайкнутых исключаем всегда)
+    msg_lower = data.message.lower()
+
+    # ── Парсим город из запроса пользователя ─────────────────────────────
+    # Паттерны: "из Москвы", "в Казани", "из Казани", "живёт в Питере" и т.д.
+    import re as _re
+    _CITY_QUERY_RE = _re.compile(
+        r'(?:из|в|во|живёт\s+в|живет\s+в|город\s*[:=]?\s*|жительниц[аыу]\s+|житель\s+)'
+        r'([А-ЯЁа-яёA-Za-z][А-ЯЁа-яёA-Za-z\s\-]{1,30}?)(?:\s|,|\.|$)',
+        _re.IGNORECASE,
+    )
+    query_city: str | None = None
+    for m in _CITY_QUERY_RE.finditer(data.message):
+        city_candidate = m.group(1).strip().rstrip(".,;:!?")
+        if len(city_candidate) >= 2:
+            query_city = city_candidate
+            break
+
+    # Загружаем кандидатов — если указан город, делаем два прохода:
+    # 1) строго из нужного города, 2) все остальные как дополнение
     try:
         candidates_iter = await service.get_best_result_for_user(
             telegram_id=data.user_id,
             exclude_ids=liked_ids,
         )
-        candidates_raw = list(candidates_iter)[:60]
+        candidates_all = list(candidates_iter)  # убрали лимит [:60]
     except Exception as e:
         logger.error(f"matchmaking: failed to get candidates: {e}")
         raise HTTPException(
@@ -954,20 +981,30 @@ async def ai_matchmaking(
             detail={"error": "Не удалось загрузить анкеты. Попробуй позже."},
         )
 
-    if not candidates_raw:
+    if not candidates_all:
         return MatchmakingResponse(
             reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
             matches=[],
         )
+
+    # Если запрошен конкретный город — ставим его кандидатов первыми
+    if query_city:
+        q_lower = query_city.lower()
+        city_first = [u for u in candidates_all
+                      if str(getattr(u, "city", "") or "").lower() == q_lower]
+        city_rest  = [u for u in candidates_all
+                      if str(getattr(u, "city", "") or "").lower() != q_lower]
+        candidates_all = city_first + city_rest
+
+    candidates_raw = candidates_all[:200]  # разумный лимит для AI
 
     # shown_ids фильтруем ТОЛЬКО при запросе "следующую/другую"
     # При новом поиске — ищем по всем доступным
     if is_next_request and shown_ids:
         candidates = [u for u in candidates_raw if u.telegram_id not in shown_ids]
         if not candidates:
-            # Все показаны — начинаем сначала
             candidates = candidates_raw
-            shown_ids = []  # сбрасываем чтобы AI видел всех
+            shown_ids = []
     else:
         candidates = candidates_raw
 
@@ -980,19 +1017,16 @@ async def ai_matchmaking(
     id_to_user = {u.telegram_id: u for u in candidates_raw}
 
     # ── Определяем: есть ли визуальные критерии ────────────────────────────
-    # Если пользователь описывает внешность (цвет волос, татуировки и т.д.)
-    # — пропускаем текстовый скрининг и сразу отдаём всех на vision-анализ
     VISUAL_KEYWORDS = [
         "рыж", "блонд", "брюнет", "волос", "татуир", "пирсинг",
         "строй", "пухл", "толст", "высок", "низк", "спортивн",
         "глаз", "карие", "голуб", "зелён", "кожа", "темнокож",
     ]
-    msg_lower = data.message.lower()
     has_visual = any(kw in msg_lower for kw in VISUAL_KEYWORDS)
 
     top_candidates: list
     if has_visual:
-        # Визуальные критерии — берём всех кандидатов сразу на vision
+        # Визуальные критерии — берём первых кандидатов (уже отсортировано по городу)
         top_candidates = candidates[:12]
     else:
         # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────
@@ -1014,6 +1048,7 @@ async def ai_matchmaking(
                 conversation=data.conversation,
                 shown_ids=shown_ids,
                 api_key=config.openai_api_key,
+                query_city=query_city,
             )
         except Exception as e:
             logger.error(f"matchmaking text screen error: {e}")

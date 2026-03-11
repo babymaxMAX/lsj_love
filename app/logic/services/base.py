@@ -53,6 +53,9 @@ class BaseUsersService(ABC):
     async def get_icebreaker_count(self, telegram_id: int) -> int: ...
 
     @abstractmethod
+    async def get_icebreaker_total_count(self, telegram_id: int) -> int: ...
+
+    @abstractmethod
     async def increment_icebreaker_count(self, telegram_id: int) -> int: ...
 
     @abstractmethod

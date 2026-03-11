@@ -8,6 +8,7 @@ from app.domain.entities.likes import LikesEntity
 from app.domain.entities.users import UserEntity
 from app.domain.values.users import AboutText
 from app.infra.repositories.base import (
+    BaseDislikesRepository,
     BaseLikesRepository,
     BaseUsersRepository,
 )
@@ -423,13 +424,23 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────────────
         _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской"]
         _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman"]
+
+        user_gender = str(getattr(user, "gender", "") or "").strip()
+        user_gender_lower = user_gender.lower()
+
+        # Пол кандидатов которых ищем (противоположный)
         gender_filter: dict | None = None
-        if hasattr(user, "gender") and user.gender:
-            g = str(user.gender).strip().lower()
-            if g in ("man", "male", "мужской"):
-                gender_filter = {"$in": _ALL_FEMALE}
-            elif g in ("female", "женский", "woman"):
-                gender_filter = {"$in": _ALL_MALE}
+        # looking_for кандидата — кого ищет кандидат (должен искать наш пол)
+        candidate_looking_for_filter: dict | None = None
+
+        if user_gender_lower in ("man", "male", "мужской"):
+            # Мы мужчина → ищем женщин, которые ищут мужчин
+            gender_filter = {"$in": _ALL_FEMALE}
+            candidate_looking_for_filter = {"$in": _ALL_MALE + [None, ""]}  # None = не указано (гибко)
+        elif user_gender_lower in ("female", "женский", "woman"):
+            # Мы женщина → ищем мужчин, которые ищут женщин
+            gender_filter = {"$in": _ALL_MALE}
+            candidate_looking_for_filter = {"$in": _ALL_FEMALE + [None, ""]}
 
         # ── Возрастной фильтр (мягкий: ±15 лет, не ломается при None/объекте) ─
         age_expr = None
@@ -459,12 +470,29 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             "is_active":      True,
             "is_banned":      {"$ne": True},
             "profile_hidden": {"$ne": True},
-            "photo":          {"$nin": [None, ""]},
-            "gender":         {"$nin": [None, ""]},
+            "gender":         gender_filter if gender_filter else {"$nin": [None, ""]},
             "age":            {"$nin": [None, ""]},
         }
-        if gender_filter:
-            base["gender"] = gender_filter
+
+        # Хотя бы одно фото (photos[] или legacy photo)
+        and_clauses: list[dict] = [
+            {"$or": [
+                {"photos": {"$exists": True, "$not": {"$size": 0}, "$type": "array"}},
+                {"photo": {"$nin": [None, ""]}},
+            ]},
+        ]
+
+        # looking_for кандидата — гибко: если не заполнено, всё равно показываем
+        if candidate_looking_for_filter:
+            and_clauses.append({"$or": [
+                {"looking_for": candidate_looking_for_filter},
+                {"looking_for": {"$in": [None, "", "не указано"]}},
+                {"looking_for": {"$exists": False}},
+            ]})
+
+        if and_clauses:
+            base["$and"] = and_clauses
+
         if age_expr:
             base["$expr"] = age_expr
 
@@ -556,24 +584,60 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         return result
 
     async def get_icebreaker_count(self, telegram_id: int) -> int:
+        """
+        Для бесплатных пользователей — тотальный счётчик (icebreaker_used).
+        Для Premium/VIP — суточный счётчик (icebreaker_daily_used, icebreaker_daily_date).
+        Handlers сами решают какой лимит применять по premium_type.
+        Здесь возвращаем объект-обёртку в виде числа: используем суточный если есть.
+        """
+        from datetime import date
+        doc = await self._collection.find_one(
+            filter={"telegram_id": telegram_id},
+            projection={"icebreaker_used": 1, "icebreaker_daily_used": 1, "icebreaker_daily_date": 1},
+        )
+        if not doc:
+            return 0
+        # Проверяем суточный счётчик
+        daily_date = doc.get("icebreaker_daily_date")
+        daily_used = doc.get("icebreaker_daily_used", 0)
+        today = str(date.today())
+        if daily_date == today:
+            return int(daily_used)
+        # Новый день — суточный счётчик обнулился
+        return 0
+
+    async def get_icebreaker_total_count(self, telegram_id: int) -> int:
+        """Тотальный счётчик для бесплатных пользователей."""
         doc = await self._collection.find_one(
             filter={"telegram_id": telegram_id},
             projection={"icebreaker_used": 1},
         )
-        if not doc:
-            return 0
-        return int(doc.get("icebreaker_used", 0))
+        return int((doc or {}).get("icebreaker_used", 0))
 
     async def increment_icebreaker_count(self, telegram_id: int) -> int:
+        """Инкрементирует ОБА счётчика: тотальный и суточный."""
+        from datetime import date
+        today = str(date.today())
+        # Атомарно сбрасываем суточный если новый день
+        existing = await self._collection.find_one(
+            {"telegram_id": telegram_id},
+            {"icebreaker_daily_date": 1},
+        )
+        if existing and existing.get("icebreaker_daily_date") != today:
+            await self._collection.update_one(
+                {"telegram_id": telegram_id},
+                {"$set": {"icebreaker_daily_used": 0, "icebreaker_daily_date": today}},
+            )
         result = await self._collection.find_one_and_update(
             filter={"telegram_id": telegram_id},
-            update={"$inc": {"icebreaker_used": 1}},
+            update={"$inc": {"icebreaker_used": 1, "icebreaker_daily_used": 1},
+                    "$set": {"icebreaker_daily_date": today}},
             return_document=True,
-            projection={"icebreaker_used": 1},
+            projection={"icebreaker_used": 1, "icebreaker_daily_used": 1},
         )
         if not result:
             return 1
-        return int(result.get("icebreaker_used", 1))
+        return int(result.get("icebreaker_daily_used", 1))
 
     async def get_advisor_trial_start(self, telegram_id: int):
         doc = await self._collection.find_one(
@@ -763,3 +827,24 @@ class MongoDBPhotoCommentsRepository(BaseMongoDBRepository):
                 "created_at": doc["created_at"].isoformat() if doc.get("created_at") else "",
             })
         return list(reversed(comments))
+
+
+@dataclass
+class MongoDBDislikesRepository(BaseDislikesRepository, BaseMongoDBRepository):
+    """Дизлайки (пропущенные анкеты) — хранятся в коллекции 'dislikes'."""
+
+    async def add_dislike(self, from_user: int, to_user: int) -> None:
+        from datetime import datetime, timezone
+        await self._collection.update_one(
+            {"from_user": from_user, "to_user": to_user},
+            {"$set": {"from_user": from_user, "to_user": to_user,
+                      "created_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+
+    async def get_disliked_ids(self, user_id: int) -> list[int]:
+        cursor = self._collection.find({"from_user": user_id}, {"to_user": 1})
+        return [doc["to_user"] async for doc in cursor]
+
+    async def remove_dislike(self, from_user: int, to_user: int) -> None:
+        await self._collection.delete_one({"from_user": from_user, "to_user": to_user})

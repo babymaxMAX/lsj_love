@@ -93,8 +93,9 @@ async def send_liked_message(to_user_id: int, sender=None):
     """
     from app.bot.keyboards.inline import liked_by_keyboard
     try:
-        # Проверяем VIP у получателя
-        is_vip_recipient = False
+        # Проверяем уровень подписки у получателя
+        is_premium_recipient = False  # Premium или VIP
+        is_vip_recipient = False      # только VIP
         try:
             from app.logic.init import init_container as _ic
             from app.logic.services.base import BaseUsersService as _BUS
@@ -106,7 +107,9 @@ async def send_liked_message(to_user_id: int, sender=None):
             _until = getattr(_recipient, "premium_until", None)
             if _until and hasattr(_until, "tzinfo") and _until.tzinfo is None:
                 _until = _until.replace(tzinfo=timezone.utc)
-            is_vip_recipient = bool(_pt == "vip" and _until and datetime.now(timezone.utc) < _until)
+            _sub_active = bool(_pt and _until and datetime.now(timezone.utc) < _until)
+            is_vip_recipient = _sub_active and _pt == "vip"
+            is_premium_recipient = _sub_active and _pt in ("vip", "premium")
         except Exception:
             pass
 
@@ -119,34 +122,41 @@ async def send_liked_message(to_user_id: int, sender=None):
             is_male = gender_raw in ("man", "male", "мужской")
             liked_verb = "лайкнул" if is_male else "лайкнула"
 
-            if is_vip_recipient:
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            from aiogram.types import InlineKeyboardButton
+
+            if is_premium_recipient:
+                # Premium / VIP: видят кто лайкнул, могут лайкнуть в ответ
                 text = (
                     f"❤️ <b>{sender_name} {liked_verb} твою анкету!</b>\n\n"
                     f"Хочешь ответить взаимностью?"
                 )
-                from aiogram.utils.keyboard import InlineKeyboardBuilder
-                from aiogram.types import InlineKeyboardButton
                 builder = InlineKeyboardBuilder()
                 builder.row(InlineKeyboardButton(
                     text="💗 Лайкнуть в ответ",
                     callback_data=f"like_back_{sender_id}",
                 ))
-                if sender_username and sender_username.strip():
+                if is_vip_recipient and sender_username and sender_username.strip():
+                    # Написать первым — только VIP
                     builder.row(InlineKeyboardButton(
                         text="✍️ Написать",
                         url=f"https://t.me/{sender_username.strip()}",
                     ))
+                elif not is_vip_recipient:
+                    builder.row(InlineKeyboardButton(
+                        text="💎 Написать (нужен VIP)",
+                        callback_data="premium_info",
+                    ))
                 builder.row(InlineKeyboardButton(text="❌ Пропустить", callback_data="profile_page"))
                 kb = builder.as_markup()
             else:
+                # Бесплатный: не видит кто лайкнул
                 text = (
                     f"❤️ <b>Кто-то лайкнул твою анкету!</b>\n\n"
-                    f"Оформи <b>VIP</b>, чтобы видеть кто и отвечать взаимностью 💎"
+                    f"Оформи <b>Premium</b>, чтобы видеть кто и отвечать взаимностью 💎"
                 )
-                from aiogram.utils.keyboard import InlineKeyboardBuilder
-                from aiogram.types import InlineKeyboardButton
                 builder = InlineKeyboardBuilder()
-                builder.row(InlineKeyboardButton(text="💎 Получить VIP", callback_data="premium_info"))
+                builder.row(InlineKeyboardButton(text="💎 Получить Premium", callback_data="premium_info"))
                 builder.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="profile_page"))
                 kb = builder.as_markup()
 

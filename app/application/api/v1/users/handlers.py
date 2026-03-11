@@ -601,6 +601,45 @@ async def debug_photo(user_id: int, container: Container = Depends(init_containe
     return result
 
 
+@router.post(
+    "/admin/migrate/looking-for",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def migrate_looking_for(container: Container = Depends(init_container)):
+    """Миграция: заполняет looking_for для пользователей где оно не указано.
+    Мужчины → looking_for='Female', Женщины → looking_for='Man'.
+    Вызвать один раз после деплоя."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    from app.settings.config import Config
+    cfg: Config = container.resolve(Config)
+    col = client[cfg.mongodb_dating_database][cfg.mongodb_users_collection]
+
+    male_variants = ["Man", "man", "Male", "male", "Мужской", "мужской"]
+    female_variants = ["Female", "female", "Женский", "женский", "Woman", "woman"]
+
+    result_m = await col.update_many(
+        {"gender": {"$in": male_variants}, "$or": [
+            {"looking_for": {"$exists": False}},
+            {"looking_for": {"$in": [None, ""]}},
+        ]},
+        {"$set": {"looking_for": "Female"}},
+    )
+    result_f = await col.update_many(
+        {"gender": {"$in": female_variants}, "$or": [
+            {"looking_for": {"$exists": False}},
+            {"looking_for": {"$in": [None, ""]}},
+        ]},
+        {"$set": {"looking_for": "Man"}},
+    )
+    return {
+        "males_updated": result_m.modified_count,
+        "females_updated": result_f.modified_count,
+        "message": "Migration complete",
+    }
+
+
 @router.get(
     "/best_result/{user_id}",
     status_code=status.HTTP_200_OK,
@@ -614,12 +653,16 @@ async def get_users_best_result(
     user_id: int,
     container: Container = Depends(init_container),
 ) -> GetUsersFromResponseSchema:
+    from app.infra.repositories.base import BaseDislikesRepository
     service_users: BaseUsersService = container.resolve(BaseUsersService)
     service_likes: BaseLikesService = container.resolve(BaseLikesService)
+    dislikes_repo: BaseDislikesRepository = container.resolve(BaseDislikesRepository)
 
     try:
         already_liked = await service_likes.get_telegram_id_liked_from(user_id=user_id)
-        users = await service_users.get_best_result_for_user(user_id, exclude_ids=already_liked)
+        already_disliked = await dislikes_repo.get_disliked_ids(user_id=user_id)
+        exclude_ids = list(set(already_liked) | set(already_disliked))
+        users = await service_users.get_best_result_for_user(user_id, exclude_ids=exclude_ids)
     except ApplicationException as exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

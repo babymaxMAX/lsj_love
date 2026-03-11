@@ -356,7 +356,7 @@ async def handle_like_back(
     callback: CallbackQuery,
     container: Container = init_container(),
 ):
-    """Ответный лайк из уведомления — только для VIP."""
+    """Ответный лайк из уведомления — доступен Premium и VIP."""
     from datetime import datetime, timezone
     await callback.answer()
 
@@ -369,25 +369,25 @@ async def handle_like_back(
         until = getattr(current_user, "premium_until", None)
         if until and hasattr(until, "tzinfo") and until.tzinfo is None:
             until = until.replace(tzinfo=timezone.utc)
-        is_vip = bool(pt == "vip" and until and datetime.now(timezone.utc) < until)
+        is_premium = bool(pt in ("vip", "premium") and until and datetime.now(timezone.utc) < until)
     except Exception:
-        is_vip = False
+        is_premium = False
 
-    if not is_vip:
+    if not is_premium:
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         gate_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Получить VIP", callback_data="premium_info")],
-            [InlineKeyboardButton(text="🔙 Назад",       callback_data="profile_page")],
+            [InlineKeyboardButton(text="💎 Получить Premium", callback_data="premium_info")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="profile_page")],
         ])
         try:
             await callback.message.edit_text(
-                "💎 <b>Ответ на лайк — функция VIP</b>\n\n"
-                "Оформи подписку <b>VIP</b>, чтобы видеть кто тебя лайкает и отвечать взаимностью.",
+                "💎 <b>Ответ на лайк — функция Premium</b>\n\n"
+                "Оформи подписку <b>Premium</b> или <b>VIP</b>, чтобы видеть кто тебя лайкает и отвечать взаимностью.",
                 parse_mode="HTML", reply_markup=gate_kb,
             )
         except Exception:
             await callback.message.answer(
-                "💎 Эта функция доступна только с подпиской <b>VIP</b>.",
+                "💎 Эта функция доступна только с подпиской <b>Premium</b> или <b>VIP</b>.",
                 parse_mode="HTML", reply_markup=gate_kb,
             )
         return

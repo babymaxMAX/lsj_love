@@ -7,10 +7,12 @@ from punq import (
 )
 
 from app.infra.repositories.base import (
+    BaseDislikesRepository,
     BaseLikesRepository,
     BaseUsersRepository,
 )
 from app.infra.repositories.mongo import (
+    MongoDBDislikesRepository,
     MongoDBLikesRepository,
     MongoDBPhotoCommentsRepository,
     MongoDBPhotoLikesRepository,
@@ -128,6 +130,25 @@ def _init_container() -> Container:
     container.register(
         BaseLikesService,
         factory=init_likes_service,
+        scope=Scope.singleton,
+    )
+
+    def init_dislikes_repo() -> MongoDBDislikesRepository:
+        return MongoDBDislikesRepository(
+            mongo_db_client=client,
+            mongo_db_name=config.mongodb_dating_database,
+            mongo_db_collection_name="dislikes",
+        )
+
+    container.register(
+        BaseDislikesRepository,
+        factory=init_dislikes_repo,
+        scope=Scope.singleton,
+    )
+
+    container.register(
+        MongoDBDislikesRepository,
+        factory=init_dislikes_repo,
         scope=Scope.singleton,
     )
 

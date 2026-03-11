@@ -1,5 +1,6 @@
 from fastapi.routing import APIRouter
 
+from app.application.api.v1.admin.handlers import router as admin_router
 from app.application.api.v1.ai.handlers import router as ai_router
 from app.application.api.v1.gamification.handlers import router as gamification_router
 from app.application.api.v1.likes.handlers import router as likes_router
@@ -20,3 +21,4 @@ router.include_router(ai_router)
 router.include_router(gamification_router)
 router.include_router(payments_router)
 router.include_router(photo_interactions_router)
+router.include_router(admin_router)
