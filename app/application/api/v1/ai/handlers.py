@@ -763,13 +763,20 @@ async def _matchmaking_text_screen(
     client = AsyncOpenAI(api_key=api_key)
 
     shown_note = f"\nУже показанные пользователю (не повторяй): {shown_ids}" if shown_ids else ""
-    city_note = (f"\n⚠️ ВАЖНО: пользователь ищет ТОЛЬКО из города «{query_city}». "
-                 f"Выбирай ТОЛЬКО анкеты с городом «{query_city}». "
-                 "Если нет таких — верни пустой список.") if query_city else ""
+    if query_city:
+        city_note = (
+            f"\n⚠️ ВАЖНО: пользователь ищет из «{query_city}». "
+            f"Учти, что {query_city} — это может быть республика или регион. "
+            f"Выбирай анкеты из этого города/региона (смотри поле 'город'). "
+            "Если таких нет среди первых — всё равно верни лучшие подходящие."
+        )
+    else:
+        city_note = ""
 
     system = (
         "Ты — умный помощник по подбору пар в приложении знакомств Kupidon AI. "
         "ВСЕ анкеты в списке уже отфильтрованы — они строго противоположного пола от пользователя. "
+        "Анкеты отсортированы по расстоянию от пользователя (ближние — первые). "
         "Пользователь описывает, кого ищет по внешности, характеру, городу. Выбери подходящих.\n\n"
         "Словарь внешности (считай синонимами):\n"
         "- рыжая/огненная/медная → рыжие волосы\n"
@@ -778,10 +785,15 @@ async def _matchmaking_text_screen(
         "- пышная/в теле/покрупнее/полная/с формами → телосложение пышное\n"
         "- стройная/худая/тонкая/субтильная → стройное телосложение\n"
         "- спортивная/подтянутая/атлетичная → спортивное телосложение\n\n"
+        "Знание регионов РФ:\n"
+        "- Дагестан = республика, города: Махачкала, Дербент, Хасавюрт, Каспийск, Буйнакск, Кизляр, Избербаш\n"
+        "- Чечня = республика, города: Грозный, Гудермес, Аргун, Шали\n"
+        "- КБР = Кабардино-Балкария, города: Нальчик, Прохладный\n\n"
         "Правила:\n"
-        "- Если указан город — ОБЯЗАТЕЛЬНО выбирай только из этого города\n"
+        "- Если указан город или регион — предпочитай анкеты оттуда (они уже первые в списке)\n"
         "- Учитывай возраст, описание, интересы\n"
         "- Понимай разговорный язык и неточные формулировки\n"
+        "- ВСЕГДА возвращай хоть что-то подходящее, даже если критерии неточные\n"
         "- Не повторяй уже показанные ID\n"
         f"Выбери до 10 анкет.{city_note} Ответь ТОЛЬКО JSON: {{\"selected\": [id1, id2, ...]}}"
     )
@@ -951,29 +963,56 @@ async def ai_matchmaking(
 
     msg_lower = data.message.lower()
 
-    # ── Парсим город из запроса пользователя ─────────────────────────────
-    # Паттерны: "из Москвы", "в Казани", "из Казани", "живёт в Питере" и т.д.
+    # ── Парсим город / регион из запроса пользователя ───────────────────
     import re as _re
+    from app.infra.repositories.cities import CITY_COORDS, REGION_ALIASES, get_city_coords
+
     _CITY_QUERY_RE = _re.compile(
-        r'(?:из|в|во|живёт\s+в|живет\s+в|город\s*[:=]?\s*|жительниц[аыу]\s+|житель\s+)'
-        r'([А-ЯЁа-яёA-Za-z][А-ЯЁа-яёA-Za-z\s\-]{1,30}?)(?:\s|,|\.|$)',
+        r'(?:'
+        r'из\s+города\s+|из\s+|с\s+|со\s+|в\s+городе\s+|в\s+|во\s+|'
+        r'живёт\s+в\s+|живет\s+в\s+|'
+        r'город\s*[:=]?\s*|жительниц[аыу]\s+|житель\s+|'
+        r'родом\s+из\s+|приехал[а]?\s+из\s+'
+        r')'
+        r'([А-ЯЁа-яёA-Za-z][А-ЯЁа-яёA-Za-z\s\-]{1,40}?)(?:\s|,|\.|!|\?|$)',
         _re.IGNORECASE,
     )
+
     query_city: str | None = None
+    query_city_canonical: str | None = None  # нормализованное название
+
     for m in _CITY_QUERY_RE.finditer(data.message):
-        city_candidate = m.group(1).strip().rstrip(".,;:!?")
-        if len(city_candidate) >= 2:
-            query_city = city_candidate
+        cand = m.group(1).strip().rstrip(".,;:!? ")
+        if len(cand) < 2:
+            continue
+        # Проверяем: это реальный город/регион?
+        cand_lower = cand.lower()
+        if cand_lower in REGION_ALIASES:
+            # Регион → переводим в центральный город
+            query_city_canonical = REGION_ALIASES[cand_lower]
+            query_city = cand  # исходное слово для промпта
+            break
+        if get_city_coords(cand):
+            query_city = cand
+            query_city_canonical = cand
+            break
+        # Частичное совпадение с городами (≥4 символа)
+        if len(cand) >= 4:
+            for city_key in CITY_COORDS:
+                if cand_lower in city_key.lower() or city_key.lower().startswith(cand_lower):
+                    query_city = cand
+                    query_city_canonical = city_key
+                    break
+        if query_city:
             break
 
-    # Загружаем кандидатов — если указан город, делаем два прохода:
-    # 1) строго из нужного города, 2) все остальные как дополнение
+    # Загружаем кандидатов
     try:
         candidates_iter = await service.get_best_result_for_user(
             telegram_id=data.user_id,
             exclude_ids=liked_ids,
         )
-        candidates_all = list(candidates_iter)  # убрали лимит [:60]
+        candidates_all = list(candidates_iter)
     except Exception as e:
         logger.error(f"matchmaking: failed to get candidates: {e}")
         raise HTTPException(
@@ -987,14 +1026,28 @@ async def ai_matchmaking(
             matches=[],
         )
 
-    # Если запрошен конкретный город — ставим его кандидатов первыми
-    if query_city:
-        q_lower = query_city.lower()
-        city_first = [u for u in candidates_all
-                      if str(getattr(u, "city", "") or "").lower() == q_lower]
-        city_rest  = [u for u in candidates_all
-                      if str(getattr(u, "city", "") or "").lower() != q_lower]
-        candidates_all = city_first + city_rest
+    # Если запрошен конкретный город/регион — ставим его кандидатов первыми.
+    # Для региона (Дагестан) — ищем по координатной близости к центру региона.
+    if query_city_canonical:
+        canon_lower = query_city_canonical.lower()
+        region_coords = get_city_coords(query_city_canonical)
+
+        def _city_score(u) -> int:
+            """0 = точное совпадение, 1 = близко к региону, 2 = всё остальное."""
+            c = str(getattr(u, "city", "") or "").lower()
+            if c == canon_lower or c == (query_city or "").lower():
+                return 0
+            if region_coords:
+                from app.infra.repositories.cities import haversine_km
+                u_lat = getattr(u, "lat", None)
+                u_lon = getattr(u, "lon", None)
+                if u_lat and u_lon:
+                    dist = haversine_km(region_coords[0], region_coords[1], u_lat, u_lon)
+                    if dist < 200:  # в радиусе 200 км от центра региона
+                        return 1
+            return 2
+
+        candidates_all = sorted(candidates_all, key=_city_score)
 
     candidates_raw = candidates_all[:200]  # разумный лимит для AI
 

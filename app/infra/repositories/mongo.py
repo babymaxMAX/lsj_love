@@ -407,12 +407,14 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         self, telegram_id: int, exclude_ids: list[int] | None = None
     ) -> Iterable[UserEntity]:
         """
-        Возвращает ВСЕ подходящие анкеты, отсортированные по близости города:
-        1) Свой город → 2) Соседние города → 3) Весь мир
-        Внутри каждой группы: boost → VIP → Premium → бесплатные
-        Все варианты написания пола поддерживаются. Возраст ±15 лет (мягко).
+        Возвращает ВСЕ подходящие анкеты противоположного пола,
+        отсортированные по расстоянию (Haversine).
+        Порядок: сначала близкие города, потом дальние → никогда не заканчиваются.
+        Внутри группы: boost → VIP → Premium → бесплатные.
         """
         from datetime import datetime, timezone
+        from app.infra.repositories.cities import get_city_coords
+
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
             return []
@@ -421,130 +423,130 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         excluded.append(telegram_id)
         now = datetime.now(timezone.utc)
 
-        # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────────────
+        # ── Гендерный фильтр: ищем ПРОТИВОПОЛОЖНЫЙ пол ──────────────
         _ALL_MALE   = ["Man", "man", "Male", "male", "Мужской", "мужской"]
         _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman"]
 
-        user_gender = str(getattr(user, "gender", "") or "").strip()
-        user_gender_lower = user_gender.lower()
-
-        # Пол кандидатов которых ищем (противоположный)
+        user_gender = str(getattr(user, "gender", "") or "").strip().lower()
         gender_filter: dict | None = None
-        # looking_for кандидата — кого ищет кандидат (должен искать наш пол)
-        candidate_looking_for_filter: dict | None = None
-
-        if user_gender_lower in ("man", "male", "мужской"):
-            # Мы мужчина → ищем женщин, которые ищут мужчин
+        if user_gender in ("man", "male", "мужской"):
             gender_filter = {"$in": _ALL_FEMALE}
-            candidate_looking_for_filter = {"$in": _ALL_MALE + [None, ""]}  # None = не указано (гибко)
-        elif user_gender_lower in ("female", "женский", "woman"):
-            # Мы женщина → ищем мужчин, которые ищут женщин
+        elif user_gender in ("female", "женский", "woman"):
             gender_filter = {"$in": _ALL_MALE}
-            candidate_looking_for_filter = {"$in": _ALL_FEMALE + [None, ""]}
 
-        # ── Возрастной фильтр (мягкий: ±15 лет, не ломается при None/объекте) ─
-        age_expr = None
-        try:
-            user_age_raw = user.age
-            if user_age_raw is not None:
-                age_val = int(
-                    user_age_raw.as_generic_type()
-                    if hasattr(user_age_raw, "as_generic_type")
-                    else user_age_raw
-                )
-                a_min, a_max = max(14, age_val - 15), age_val + 15
-                age_expr = {
-                    "$and": [
-                        {"$gte": [{"$convert": {"input": "$age", "to": "double",
-                                                "onError": a_min, "onNull": a_min}}, a_min]},
-                        {"$lte": [{"$convert": {"input": "$age", "to": "double",
-                                                "onError": a_max, "onNull": a_max}}, a_max]},
-                    ]
-                }
-        except (TypeError, ValueError, AttributeError):
-            pass
-
-        # ── Базовый фильтр: только заполненные активные анкеты ──────────────
+        # ── Базовый фильтр — МИНИМАЛЬНО строгий чтобы не терять анкеты ─
         base: dict = {
             "telegram_id":    {"$nin": excluded},
             "is_active":      True,
             "is_banned":      {"$ne": True},
             "profile_hidden": {"$ne": True},
-            "gender":         gender_filter if gender_filter else {"$nin": [None, ""]},
-            "age":            {"$nin": [None, ""]},
-        }
-
-        # Хотя бы одно фото (photos[] или legacy photo)
-        and_clauses: list[dict] = [
-            {"$or": [
-                {"photos": {"$exists": True, "$not": {"$size": 0}, "$type": "array"}},
+            # Хотя бы одно фото: photos[0] или legacy photo
+            "$or": [
+                {"photos.0": {"$exists": True}},
                 {"photo": {"$nin": [None, ""]}},
-            ]},
-        ]
+            ],
+        }
+        # Гендер — только если определён, иначе показываем всех
+        if gender_filter:
+            base["gender"] = gender_filter
 
-        # looking_for кандидата — гибко: если не заполнено, всё равно показываем
-        if candidate_looking_for_filter:
-            and_clauses.append({"$or": [
-                {"looking_for": candidate_looking_for_filter},
-                {"looking_for": {"$in": [None, "", "не указано"]}},
-                {"looking_for": {"$exists": False}},
-            ]})
-
-        if and_clauses:
-            base["$and"] = and_clauses
-
-        if age_expr:
-            base["$expr"] = age_expr
-
-        # ── Пользовательский город и соседи ─────────────────────────────────
+        # ── Координаты пользователя для Haversine ────────────────────
         user_city = str(getattr(user, "city", "") or "").strip()
-        neighbors = _CITY_NEIGHBORS.get(user_city, []) if user_city else []
+        user_lat = getattr(user, "lat", None)
+        user_lon = getattr(user, "lon", None)
 
-        # ── Сортировка по приоритету подписки ───────────────────────────────
-        sub_sort = {"$addFields": {
+        # Если координат нет — берём из словаря
+        if (user_lat is None or user_lon is None) and user_city:
+            coords = get_city_coords(user_city)
+            if coords:
+                user_lat, user_lon = coords
+
+        # ── Сортировка по приоритету подписки ────────────────────────
+        DEG = 0.017453292519943295  # π/180
+
+        sub_sort_fields = {
             "_sub": {"$switch": {
                 "branches": [
-                    {"case": {"$and": [{"$gt": ["$boost_until", now]}]}, "then": 0},
-                    {"case": {"$and": [{"$eq": ["$premium_type", "vip"]},
-                                       {"$gt": ["$premium_until", now]}]}, "then": 1},
-                    {"case": {"$and": [{"$eq": ["$premium_type", "premium"]},
-                                       {"$gt": ["$premium_until", now]}]}, "then": 2},
+                    {"case": {"$gt": ["$boost_until", now]}, "then": 0},
+                    {"case": {"$and": [
+                        {"$eq": ["$premium_type", "vip"]},
+                        {"$gt": ["$premium_until", now]},
+                    ]}, "then": 1},
+                    {"case": {"$and": [
+                        {"$eq": ["$premium_type", "premium"]},
+                        {"$gt": ["$premium_until", now]},
+                    ]}, "then": 2},
                 ],
                 "default": 3,
-            }}
-        }}
+            }},
+        }
 
-        # ── Единый pipeline: добавляем "city_rank" для сортировки по расстоянию ──
-        city_rank_expr: dict
-        if user_city and neighbors:
-            city_rank_expr = {"$switch": {
-                "branches": [
-                    {"case": {"$eq": ["$city", user_city]}, "then": 0},
-                    {"case": {"$in": ["$city", neighbors]},  "then": 1},
-                ],
-                "default": 2,
+        # ── Расстояние через Haversine (MongoDB trig — работает с 4.2+) ─
+        if user_lat is not None and user_lon is not None:
+            lat1_r = user_lat * DEG
+            lon1_r = user_lon * DEG
+            # Вычисляем расстояние в км для каждого кандидата
+            dist_expr = {"$cond": {
+                "if": {"$and": [
+                    {"$gt": ["$lat", None]},
+                    {"$gt": ["$lon", None]},
+                ]},
+                "then": {"$multiply": [
+                    12742,
+                    {"$asin": {"$sqrt": {
+                        "$add": [
+                            {"$pow": [
+                                {"$sin": {"$divide": [
+                                    {"$subtract": [
+                                        {"$multiply": [{"$toDouble": "$lat"}, DEG]},
+                                        lat1_r,
+                                    ]},
+                                    2,
+                                ]}},
+                                2,
+                            ]},
+                            {"$multiply": [
+                                {"$cos": {"$literal": lat1_r}},
+                                {"$cos": {"$multiply": [{"$toDouble": "$lat"}, DEG]}},
+                                {"$pow": [
+                                    {"$sin": {"$divide": [
+                                        {"$subtract": [
+                                            {"$multiply": [{"$toDouble": "$lon"}, DEG]},
+                                            lon1_r,
+                                        ]},
+                                        2,
+                                    ]}},
+                                    2,
+                                ]},
+                            ]},
+                        ]
+                    }}},
+                ]},
+                "else": 999999,  # нет координат — в конец
             }}
-        elif user_city:
-            city_rank_expr = {"$switch": {
-                "branches": [
-                    {"case": {"$eq": ["$city", user_city]}, "then": 0},
-                ],
-                "default": 1,
-            }}
+            sort_fields = {"_dist": 1, "_sub": 1}
+            add_fields = {**sub_sort_fields, "_dist": dist_expr}
+            project_out = {"_sub": 0, "_dist": 0}
         else:
-            city_rank_expr = {"$literal": 0}
+            # Запасной вариант: точное совпадение города = 0, остальные = 1
+            city_rank = {"$cond": {
+                "if": {"$eq": ["$city", user_city]} if user_city else {"$literal": False},
+                "then": 0,
+                "else": 1,
+            }}
+            sort_fields = {"_city_rank": 1, "_sub": 1}
+            add_fields = {**sub_sort_fields, "_city_rank": city_rank}
+            project_out = {"_sub": 0, "_city_rank": 0}
 
         pipeline = [
             {"$match": base},
-            sub_sort,
-            {"$addFields": {"_city_rank": city_rank_expr}},
-            # Сортируем: сначала ближе, внутри — по подписке
-            {"$sort": {"_city_rank": 1, "_sub": 1}},
-            {"$project": {"_sub": 0, "_city_rank": 0}},
+            {"$addFields": add_fields},
+            {"$sort": sort_fields},
+            {"$project": project_out},
         ]
 
         result = []
-        async for doc in self._collection.aggregate(pipeline):
+        async for doc in self._collection.aggregate(pipeline, allowDiskUse=True):
             result.append(convert_user_document_to_entity(user_document=doc))
 
         return result

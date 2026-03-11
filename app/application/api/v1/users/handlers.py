@@ -602,6 +602,42 @@ async def debug_photo(user_id: int, container: Container = Depends(init_containe
 
 
 @router.post(
+    "/admin/migrate/coords",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def migrate_user_coords(container: Container = Depends(init_container)):
+    """Миграция: добавляет lat/lon из CITY_COORDS для всех пользователей.
+    Вызвать один раз после деплоя."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from app.infra.repositories.cities import get_city_coords
+    client: AsyncIOMotorClient = container.resolve(AsyncIOMotorClient)
+    from app.settings.config import Config
+    cfg: Config = container.resolve(Config)
+    col = client[cfg.mongodb_dating_database][cfg.mongodb_users_collection]
+
+    updated = 0
+    skipped = 0
+    cursor = col.find(
+        {"$or": [{"lat": {"$exists": False}}, {"lat": None}]},
+        {"telegram_id": 1, "city": 1},
+    )
+    async for doc in cursor:
+        city = doc.get("city") or ""
+        coords = get_city_coords(city)
+        if coords:
+            await col.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"lat": coords[0], "lon": coords[1]}},
+            )
+            updated += 1
+        else:
+            skipped += 1
+
+    return {"updated": updated, "skipped_unknown_city": skipped}
+
+
+@router.post(
     "/admin/migrate/looking-for",
     status_code=status.HTTP_200_OK,
     include_in_schema=False,
@@ -775,11 +811,16 @@ async def update_user_profile(
     except ApplicationException:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    from app.infra.repositories.cities import get_city_coords
     data: dict = {}
     if body.name is not None and body.name.strip():
         data["name"] = body.name.strip()
     if body.city is not None and body.city.strip():
         data["city"] = body.city.strip()
+        coords = get_city_coords(data["city"])
+        if coords:
+            data["lat"] = coords[0]
+            data["lon"] = coords[1]
     if body.about is not None:
         data["about"] = body.about.strip()
 

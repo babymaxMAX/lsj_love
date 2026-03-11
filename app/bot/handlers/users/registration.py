@@ -187,6 +187,17 @@ async def user_reg(
     # Храним Telegram file_id — Telegram его всегда знает и быстро отдаёт
     data["photo"] = photo_file_id
     data["is_active"] = True
+
+    # Добавляем координаты города для сортировки по расстоянию
+    try:
+        from app.infra.repositories.cities import get_city_coords
+        city_coords = get_city_coords(data.get("city") or "")
+        if city_coords:
+            data["lat"] = city_coords[0]
+            data["lon"] = city_coords[1]
+    except Exception:
+        pass
+
     await service.update_user_info_after_reg(
         telegram_id=message.from_user.id,
         data=data,
