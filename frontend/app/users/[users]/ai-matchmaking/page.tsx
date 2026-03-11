@@ -16,6 +16,7 @@ interface ProfileMatch {
     photo?: string;
     username?: string;
     last_seen?: string;
+    reasons?: string[];
 }
 
 type CardState = "idle" | "liked" | "skipped";
@@ -31,6 +32,8 @@ interface ChatMessage {
     content: string;
     cards?: MatchCard[];
     loading?: boolean;
+    parsed_summary?: string;
+    has_more?: boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -117,6 +120,14 @@ function ProfileCard({
                     <p className="text-xs text-white/60 line-clamp-2">{profile.about}</p>
                 </div>
             )}
+            {/* Почему подходит */}
+            {profile.reasons && profile.reasons.length > 0 && (
+                <div className="px-3 py-1">
+                    <p className="text-xs" style={{ color: "rgba(124,58,237,0.9)" }}>
+                        Подходит: {profile.reasons.join(", ")}
+                    </p>
+                </div>
+            )}
 
             {/* Actions */}
             <div className="flex gap-2 px-3 pb-3 pt-1">
@@ -146,11 +157,13 @@ function ChatBubble({
     userId,
     onLike,
     onSkip,
+    onMoreSimilar,
 }: {
     msg: ChatMessage;
     userId: string;
     onLike: (msgId: string, profileId: number) => void;
     onSkip: (msgId: string, profileId: number) => void;
+    onMoreSimilar?: () => void;
 }) {
     const isUser = msg.role === "user";
 
@@ -204,6 +217,14 @@ function ChatBubble({
                 🤖
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-3">
+                {msg.parsed_summary && (
+                    <div
+                        className="px-3 py-2 rounded-xl text-xs"
+                        style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)", color: "rgba(255,255,255,0.8)" }}
+                    >
+                        {msg.parsed_summary}
+                    </div>
+                )}
                 {msg.content && (
                     <div
                         className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-white/90 leading-relaxed"
@@ -232,6 +253,15 @@ function ChatBubble({
                     >
                         😔 Подходящих анкет не найдено. Попробуй изменить критерии.
                     </div>
+                )}
+                {msg.has_more && onMoreSimilar && (
+                    <button
+                        onClick={onMoreSimilar}
+                        className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 w-fit"
+                        style={{ background: "rgba(124,58,237,0.2)", border: "1px solid rgba(124,58,237,0.4)", color: "#a78bfa" }}
+                    >
+                        🔄 Ещё похожие
+                    </button>
                 )}
             </div>
         </div>
@@ -330,7 +360,12 @@ export default function AiMatchmakingPage() {
 
             const data = await res.json();
             const reply: string = data.reply ?? "";
-            const matches: ProfileMatch[] = data.matches ?? [];
+            const matches: ProfileMatch[] = (data.matches ?? []).map((m: Record<string, unknown>) => ({
+                ...m,
+                reasons: m.reasons as string[] | undefined,
+            }));
+            const parsedSummary: string = data.parsed_summary ?? "";
+            const hasMore: boolean = data.has_more ?? false;
 
             const cards: MatchCard[] = matches.map((p) => ({ profile: p, state: "idle" as CardState }));
 
@@ -348,6 +383,8 @@ export default function AiMatchmakingPage() {
                 content: reply,
                 cards,
                 loading: false,
+                parsed_summary: parsedSummary || undefined,
+                has_more: hasMore,
             };
 
             setMessages((prev) =>
@@ -471,6 +508,7 @@ export default function AiMatchmakingPage() {
                         userId={userId}
                         onLike={handleLike}
                         onSkip={handleSkip}
+                        onMoreSimilar={msg.has_more ? () => sendMessage("Покажи ещё похожих") : undefined}
                     />
                 ))}
 

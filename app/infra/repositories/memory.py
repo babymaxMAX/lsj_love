@@ -33,6 +33,12 @@ class MemoryUsersRepository(BaseUsersRepository):
         if user:
             user.about = about
 
+    async def update_user_ai_fields(self, telegram_id: int, ai_fields: dict) -> None:
+        user = self._users.get(telegram_id)
+        if user and ai_fields:
+            for key, value in ai_fields.items():
+                setattr(user, key, value)
+
     async def create_user(self, user: UserEntity):
         self._users[user.telegram_id] = user
 

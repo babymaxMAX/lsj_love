@@ -10,11 +10,13 @@ from app.logic.exceptions.users import (
     UserNotFoundException,
 )
 from app.logic.services.base import BaseUsersService
+from app.settings.config import Config
 
 
 @dataclass
 class UsersService(BaseUsersService):
     user_repository: BaseUsersRepository
+    config: Config | None = None
 
     async def get_user(self, telegram_id: int) -> UserEntity | None:
         user = await self.user_repository.get_user_by_telegram_id(
@@ -39,12 +41,30 @@ class UsersService(BaseUsersService):
             telegram_id=telegram_id,
             data=data,
         )
+        await self._enrich_user_profile_if_needed(telegram_id)
 
     async def update_user_about_info(self, telegram_id: int, about: AboutText):
         await self.user_repository.update_user_about(
             telegram_id=telegram_id,
             about=about,
         )
+        await self._enrich_user_profile_if_needed(telegram_id)
+
+    async def _enrich_user_profile_if_needed(self, telegram_id: int) -> None:
+        """Запускает AI-enrichment анкеты после обновления. При ошибке OpenAI — не падает."""
+        if not self.config or not self.config.openai_api_key:
+            return
+        try:
+            user = await self.user_repository.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return
+            from app.logic.ai_matchmaking.profile_enrichment import enrich_profile_for_ai
+
+            ai_fields = await enrich_profile_for_ai(user, self.config.openai_api_key)
+            if ai_fields:
+                await self.user_repository.update_user_ai_fields(telegram_id, ai_fields)
+        except Exception:
+            pass
 
     async def create_user(self, user: UserEntity) -> UserEntity:
         if await self.check_user_exist(user_id=user.telegram_id):

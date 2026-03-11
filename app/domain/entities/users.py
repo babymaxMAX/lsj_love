@@ -42,10 +42,21 @@ class UserEntity(BaseEntity):
     referral_balance: float = 0.0           # заработанный реферальный баланс (руб)
     # Активность
     last_seen: Optional[datetime] = None    # последний раз онлайн
+    # AI matchmaking
+    search_text: Optional[str] = None       # конкатенация имени, возраста, города, about
+    ai_traits: list = None                   # ["calm", "family_oriented"]
+    ai_skills: list = None                   # ["cooking"]
+    ai_appearance: list = None               # ["red_hair"]
 
     def __post_init__(self):
         if self.photos is None:
             self.photos = []
+        if self.ai_traits is None:
+            self.ai_traits = []
+        if self.ai_skills is None:
+            self.ai_skills = []
+        if self.ai_appearance is None:
+            self.ai_appearance = []
 
     @classmethod
     def from_telegram_user(cls, user: User) -> "UserEntity":

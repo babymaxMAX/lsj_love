@@ -713,210 +713,36 @@ class MatchmakingRequest(BaseModel):
 
 class MatchmakingResponse(BaseModel):
     reply: str
-    matches: list   # List of UserDetailSchema dicts
+    parsed_summary: str = ""   # Краткое описание «Ищу: девушка, Москва, рыжие волосы»
+    matches: list   # List of {user, reasons}
+    has_more: bool = False
 
 
-async def _s3_download_bytes(key: str, config: Config) -> bytes | None:
-    """Загружает файл из S3 по ключу и возвращает bytes."""
-    try:
-        from aiobotocore.session import get_session
-        session = get_session()
-        async with session.create_client(
-            "s3",
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            region_name=config.region_name,
-            endpoint_url=config.s3_endpoint_url,
-        ) as client:
-            resp = await client.get_object(Bucket=config.bucket_name, Key=key)
-            data = await resp["Body"].read()
-            return data
-    except Exception as e:
-        logger.warning(f"S3 download failed for key={key}: {e}")
-        return None
-
-
-def _clean_reply(text: str) -> str:
-    """Убирает markdown-блоки кода и JSON-хвосты из ответа модели."""
-    import re
-    # Убираем ```json ... ``` и ``` ... ```
-    text = re.sub(r"```[a-z]*\n?", "", text)
-    text = text.strip().rstrip("`").strip()
-    # Убираем JSON-объект в конце если он остался
-    text = re.sub(r"\{[^{}]*\"matches\"\s*:\s*\[[^\]]*\][^{}]*\}\s*$", "", text).strip()
-    return text
-
-
-async def _matchmaking_text_screen(
-    candidates_text: str,
-    user_criteria: str,
-    conversation: list[dict],
-    shown_ids: list[int],
-    api_key: str,
-    query_city: str | None = None,
-) -> list[int]:
-    """
-    Шаг 1: Текстовый скрининг — GPT-4o-mini выбирает топ-10 ID по критериям пользователя.
-    Возвращает список telegram_id.
-    """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=api_key)
-
-    shown_note = f"\nУже показанные пользователю (не повторяй): {shown_ids}" if shown_ids else ""
-    if query_city:
-        city_note = (
-            f"\n⚠️ ВАЖНО: пользователь ищет из «{query_city}». "
-            f"Учти, что {query_city} — это может быть республика или регион. "
-            f"Выбирай анкеты из этого города/региона (смотри поле 'город'). "
-            "Если таких нет среди первых — всё равно верни лучшие подходящие."
-        )
+def _build_parsed_summary(parsed) -> str:
+    """Строит краткое описание запроса для UI."""
+    parts = []
+    if parsed.target_gender == "female":
+        parts.append("девушка")
     else:
-        city_note = ""
-
-    system = (
-        "Ты — умный помощник по подбору пар в приложении знакомств Kupidon AI. "
-        "ВСЕ анкеты в списке уже отфильтрованы — они строго противоположного пола от пользователя. "
-        "Анкеты отсортированы по расстоянию от пользователя (ближние — первые). "
-        "Пользователь описывает, кого ищет по внешности, характеру, городу. Выбери подходящих.\n\n"
-        "Словарь внешности (считай синонимами):\n"
-        "- рыжая/огненная/медная → рыжие волосы\n"
-        "- блондинка/светлая/белокурая → светлые волосы\n"
-        "- брюнетка/тёмная/чернявая → тёмные волосы\n"
-        "- пышная/в теле/покрупнее/полная/с формами → телосложение пышное\n"
-        "- стройная/худая/тонкая/субтильная → стройное телосложение\n"
-        "- спортивная/подтянутая/атлетичная → спортивное телосложение\n\n"
-        "Знание регионов РФ:\n"
-        "- Дагестан = республика, города: Махачкала, Дербент, Хасавюрт, Каспийск, Буйнакск, Кизляр, Избербаш\n"
-        "- Чечня = республика, города: Грозный, Гудермес, Аргун, Шали\n"
-        "- КБР = Кабардино-Балкария, города: Нальчик, Прохладный\n\n"
-        "Правила:\n"
-        "- Если указан город или регион — предпочитай анкеты оттуда (они уже первые в списке)\n"
-        "- Учитывай возраст, описание, интересы\n"
-        "- Понимай разговорный язык и неточные формулировки\n"
-        "- ВСЕГДА возвращай хоть что-то подходящее, даже если критерии неточные\n"
-        "- Не повторяй уже показанные ID\n"
-        f"Выбери до 10 анкет.{city_note} Ответь ТОЛЬКО JSON: {{\"selected\": [id1, id2, ...]}}"
-    )
-
-    messages: list[dict] = [{"role": "system", "content": system}]
-    for h in conversation[-8:]:
-        if h.get("content", "").strip():
-            messages.append({"role": h["role"], "content": h["content"]})
-
-    user_msg = (
-        f"Критерии: {user_criteria}{shown_note}\n\n"
-        f"Доступные анкеты:\n{candidates_text}\n\n"
-        "Верни JSON с отобранными ID."
-    )
-    messages.append({"role": "user", "content": user_msg})
-
-    resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        max_tokens=300,
-        temperature=0.3,
-    )
-    raw = resp.choices[0].message.content.strip()
-
-    try:
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start >= 0 and end > start:
-            data = json.loads(raw[start:end])
-            return [int(i) for i in data.get("selected", [])]
-    except Exception:
-        pass
-    return []
-
-
-async def _matchmaking_vision_rank(
-    candidates_info: list[dict],   # [{"id": int, "text": str, "photo_b64": str|None}]
-    user_criteria: str,
-    conversation: list[dict],
-    shown_ids: list[int],
-    api_key: str,
-) -> tuple[list[int], str]:
-    """
-    Шаг 2: Vision-ранжирование — GPT-4o смотрит на фото + описания, выбирает топ 2-3.
-    Возвращает (список ID, текст-объяснение для пользователя).
-    """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=api_key)
-
-    shown_note = f" Не повторяй ID: {shown_ids}." if shown_ids else ""
-
-    system = (
-        "Ты — помощник-сваха в приложении знакомств. Общайся неформально, коротко.\n"
-        "Смотри на фотографии и описания, выбери анкеты которые подходят под критерии пользователя.\n"
-        "ВАЖНО:\n"
-        "- Если есть фото — смотри на него и описывай что РЕАЛЬНО видно\n"
-        "- Если у анкеты пометка [фото недоступно] — анализируй ТОЛЬКО по тексту описания\n"
-        "- Если описание явно упоминает визуальные черты (рыжие волосы, татуировки и т.д.) и это совпадает с запросом — включай анкету\n"
-        "- Если ни одна анкета НЕ подходит — честно скажи и верни пустой список\n"
-        "- НЕ показывай заведомо неподходящие анкеты\n"
-        "Напиши 1-2 коротких предложения объяснения.\n"
-        f"Затем на новой строке ТОЛЬКО: {{\"matches\": [id1, id2]}} (или [] если нет подходящих){shown_note}"
-    )
-
-    messages: list[dict] = [{"role": "system", "content": system}]
-    for h in conversation[-8:]:
-        c = h.get("content", "")
-        # Пропускаем служебные пометки о показанных анкетах
-        if c.strip() and "[Показано" not in c:
-            messages.append({"role": h["role"], "content": c})
-
-    content: list[dict] = [
-        {"type": "text", "text": f"Запрос пользователя: {user_criteria}\n\nАнкеты:"}
-    ]
-
-    for idx, c in enumerate(candidates_info, 1):
-        content.append({"type": "text", "text": f"\n[Анкета ID={c['id']}] {c['text']}"})
-        if c.get("photo_b64"):
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{c['photo_b64']}",
-                    "detail": "low",
-                }
-            })
-        elif c.get("photo_url"):
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": c["photo_url"],
-                    "detail": "low",
-                }
-            })
-
-    content.append({"type": "text", "text": f'\nВыбери 2-3 анкеты. Ответ: текст + {{"matches": [ids]}}'})
-    messages.append({"role": "user", "content": content})
-
-    resp = await client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        max_tokens=500,
-        temperature=0.6,
-    )
-    raw = resp.choices[0].message.content.strip()
-
-    # Извлекаем JSON и очищаем текст
-    matched_ids: list[int] = []
-    reply_text = raw
-    try:
-        json_start = raw.rfind("{")
-        json_end = raw.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            data = json.loads(raw[json_start:json_end])
-            matched_ids = [int(i) for i in data.get("matches", [])]
-            reply_text = raw[:json_start].strip()
-    except Exception:
-        pass
-
-    reply_text = _clean_reply(reply_text)
-    if not reply_text:
-        reply_text = "Нашёл кое-кого интересного для тебя 💫"
-
-    return matched_ids, reply_text
+        parts.append("парень")
+    if parsed.city:
+        parts.append(parsed.city)
+    if parsed.age_min or parsed.age_max:
+        a = []
+        if parsed.age_min:
+            a.append(str(parsed.age_min))
+        if parsed.age_max:
+            a.append(str(parsed.age_max))
+        parts.append("возраст " + "-".join(a))
+    for t in parsed.appearance_tags + parsed.skills_tags + parsed.traits_tags:
+        lbl = {
+            "red_hair": "рыжие волосы",
+            "blonde": "светлые волосы",
+            "cooking": "готовка",
+            "slim": "стройная",
+        }.get(t, t)
+        parts.append(lbl)
+    return "Ищу: " + ", ".join(parts) if parts else ""
 
 
 @router.post(
@@ -937,23 +763,16 @@ async def ai_matchmaking(
             detail={"error": "OpenAI не настроен на сервере"},
         )
 
-    # Загружаем текущего пользователя
     try:
         current_user = await service.get_user(telegram_id=data.user_id)
     except ApplicationException as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": e.message})
 
-    # shown_ids — анкеты уже показанные пользователю в этой сессии
     shown_ids: list[int] = list(set(data.shown_ids or []))
+    NEXT_KEYWORDS = ["следующ", "другу", "другой", "ещё", "еще", "покажи ещё", "покажи еще", "дальше", "next"]
+    msg_lower = data.message.lower().strip()
+    is_next_request = any(kw in msg_lower for kw in NEXT_KEYWORDS)
 
-    # Определяем: просит ли пользователь другую/следующую (из уже найденных)
-    # или делает новый поиск с другими критериями
-    NEXT_KEYWORDS = ["следующ", "другу", "другой", "ещё", "еще", "покажи ещё",
-                     "покажи еще", "следующую", "следующего", "дальше", "next"]
-    msg_lower_next = data.message.lower()
-    is_next_request = any(kw in msg_lower_next for kw in NEXT_KEYWORDS)
-
-    # Получаем список тех, кого пользователь уже лайкнул
     from app.logic.services.base import BaseLikesService as _BaseLikesService
     likes_service: _BaseLikesService = container.resolve(_BaseLikesService)
     try:
@@ -961,232 +780,79 @@ async def ai_matchmaking(
     except Exception:
         liked_ids = []
 
-    msg_lower = data.message.lower()
+    exclude_ids = list(set(liked_ids + shown_ids if is_next_request else liked_ids))
 
-    # ── Парсим город / регион из запроса пользователя ───────────────────
-    import re as _re
-    from app.infra.repositories.cities import CITY_COORDS, REGION_ALIASES, get_city_coords
+    current_gender = None
+    if current_user.gender:
+        g = str(current_user.gender.as_generic_type() if hasattr(current_user.gender, "as_generic_type") else current_user.gender).lower()
+        current_gender = g
 
-    _CITY_QUERY_RE = _re.compile(
-        r'(?:'
-        r'из\s+города\s+|из\s+|с\s+|со\s+|в\s+городе\s+|в\s+|во\s+|'
-        r'живёт\s+в\s+|живет\s+в\s+|'
-        r'город\s*[:=]?\s*|жительниц[аыу]\s+|житель\s+|'
-        r'родом\s+из\s+|приехал[а]?\s+из\s+'
-        r')'
-        r'([А-ЯЁа-яёA-Za-z][А-ЯЁа-яёA-Za-z\s\-]{1,40}?)(?:\s|,|\.|!|\?|$)',
-        _re.IGNORECASE,
+    from app.logic.ai_matchmaking import get_ai_candidates, parse_user_query, score_candidates
+
+    parsed = await parse_user_query(
+        text=data.message,
+        current_user_gender=current_gender,
+        api_key=config.openai_api_key,
     )
 
-    query_city: str | None = None
-    query_city_canonical: str | None = None  # нормализованное название
+    parsed_summary = _build_parsed_summary(parsed)
 
-    for m in _CITY_QUERY_RE.finditer(data.message):
-        cand = m.group(1).strip().rstrip(".,;:!? ")
-        if len(cand) < 2:
-            continue
-        # Проверяем: это реальный город/регион?
-        cand_lower = cand.lower()
-        if cand_lower in REGION_ALIASES:
-            # Регион → переводим в центральный город
-            query_city_canonical = REGION_ALIASES[cand_lower]
-            query_city = cand  # исходное слово для промпта
-            break
-        if get_city_coords(cand):
-            query_city = cand
-            query_city_canonical = cand
-            break
-        # Частичное совпадение с городами (≥4 символа)
-        if len(cand) >= 4:
-            for city_key in CITY_COORDS:
-                if cand_lower in city_key.lower() or city_key.lower().startswith(cand_lower):
-                    query_city = cand
-                    query_city_canonical = city_key
-                    break
-        if query_city:
-            break
-
-    # Загружаем кандидатов
-    try:
-        candidates_iter = await service.get_best_result_for_user(
-            telegram_id=data.user_id,
-            exclude_ids=liked_ids,
-        )
-        candidates_all = list(candidates_iter)
-    except Exception as e:
-        logger.error(f"matchmaking: failed to get candidates: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Не удалось загрузить анкеты. Попробуй позже."},
-        )
-
-    if not candidates_all:
-        return MatchmakingResponse(
-            reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
-            matches=[],
-        )
-
-    # Если запрошен конкретный город/регион — ставим его кандидатов первыми.
-    # Для региона (Дагестан) — ищем по координатной близости к центру региона.
-    if query_city_canonical:
-        canon_lower = query_city_canonical.lower()
-        region_coords = get_city_coords(query_city_canonical)
-
-        def _city_score(u) -> int:
-            """0 = точное совпадение, 1 = близко к региону, 2 = всё остальное."""
-            c = str(getattr(u, "city", "") or "").lower()
-            if c == canon_lower or c == (query_city or "").lower():
-                return 0
-            if region_coords:
-                from app.infra.repositories.cities import haversine_km
-                u_lat = getattr(u, "lat", None)
-                u_lon = getattr(u, "lon", None)
-                if u_lat and u_lon:
-                    dist = haversine_km(region_coords[0], region_coords[1], u_lat, u_lon)
-                    if dist < 200:  # в радиусе 200 км от центра региона
-                        return 1
-            return 2
-
-        candidates_all = sorted(candidates_all, key=_city_score)
-
-    candidates_raw = candidates_all[:200]  # разумный лимит для AI
-
-    # shown_ids фильтруем ТОЛЬКО при запросе "следующую/другую"
-    # При новом поиске — ищем по всем доступным
-    if is_next_request and shown_ids:
-        candidates = [u for u in candidates_raw if u.telegram_id not in shown_ids]
-        if not candidates:
-            candidates = candidates_raw
-            shown_ids = []
-    else:
-        candidates = candidates_raw
+    candidates = await get_ai_candidates(
+        repository=service.user_repository,
+        telegram_id=data.user_id,
+        parsed_query=parsed,
+        exclude_ids=exclude_ids,
+        limit=300,
+    )
 
     if not candidates:
-        return MatchmakingResponse(
-            reply="😔 Пока анкет нет. Зайди позже — новые появятся!",
-            matches=[],
-        )
-
-    id_to_user = {u.telegram_id: u for u in candidates_raw}
-
-    # ── Определяем: есть ли визуальные критерии ────────────────────────────
-    VISUAL_KEYWORDS = [
-        "рыж", "блонд", "брюнет", "волос", "татуир", "пирсинг",
-        "строй", "пухл", "толст", "высок", "низк", "спортивн",
-        "глаз", "карие", "голуб", "зелён", "кожа", "темнокож",
-    ]
-    has_visual = any(kw in msg_lower for kw in VISUAL_KEYWORDS)
-
-    top_candidates: list
-    if has_visual:
-        # Визуальные критерии — берём первых кандидатов (уже отсортировано по городу)
-        top_candidates = candidates[:12]
-    else:
-        # ── Шаг 1: Текстовый скрининг ──────────────────────────────────────
-        profiles_lines = []
-        for u in candidates:
-            name = str(getattr(u, "name", "") or "")
-            age = str(getattr(u, "age", "") or "")
-            city = str(getattr(u, "city", "") or "")
-            about = str(getattr(u, "about", "") or "")[:120]
-            uid = u.telegram_id
-            profiles_lines.append(f"ID:{uid} | {name}, {age} лет, {city} | О себе: {about}")
-
-        candidates_text = "\n".join(profiles_lines)
-
-        try:
-            selected_ids = await _matchmaking_text_screen(
-                candidates_text=candidates_text,
-                user_criteria=data.message,
-                conversation=data.conversation,
-                shown_ids=shown_ids,
-                api_key=config.openai_api_key,
-                query_city=query_city,
-            )
-        except Exception as e:
-            logger.error(f"matchmaking text screen error: {e}")
-            selected_ids = [u.telegram_id for u in candidates[:8]]
-
-        top_candidates = [id_to_user[i] for i in selected_ids if i in id_to_user][:10]
-        if not top_candidates:
-            # Текстовый скрининг не нашёл — отдаём всех на vision
-            top_candidates = candidates[:10]
-
-    # ── Шаг 2: Vision-ранжирование ─────────────────────────────────────────
-    import base64 as _b64
-    candidates_with_photos: list[dict] = []
-    for u in top_candidates:
-        uid = u.telegram_id
-        photos_list = getattr(u, "photos", []) or []
-        photo_b64: str | None = None
-        photo_url: str | None = None
-
-        # Пытаемся загрузить фото из S3 по ключу
-        if photos_list:
-            raw_bytes = await _s3_download_bytes(photos_list[0], config)
-            if raw_bytes:
-                photo_b64 = _b64.b64encode(raw_bytes).decode()
-
-        # Fallback: если photos[] пуст — пробуем стандартные ключи
-        if not photo_b64:
-            for fallback_key in [f"{uid}_0.png", f"{uid}_0.jpg", f"{uid}.png", f"{uid}.jpg"]:
-                raw_bytes = await _s3_download_bytes(fallback_key, config)
-                if raw_bytes:
-                    photo_b64 = _b64.b64encode(raw_bytes).decode()
-                    break
-
-        # Последний fallback: публичный URL через наш API (OpenAI сам скачает)
-        if not photo_b64:
-            photo_url = f"https://lsjlove.duckdns.org/api/v1/users/{uid}/photo"
-
-        name = str(getattr(u, "name", "") or "")
-        age = str(getattr(u, "age", "") or "")
-        city = str(getattr(u, "city", "") or "")
-        about = str(getattr(u, "about", "") or "")[:200]
-
-        # Если фото недоступно — сообщаем AI чтобы он опирался на описание
-        photo_note = "" if (photo_b64 or photo_url) else " [фото недоступно — анализируй по описанию]"
-
-        candidates_with_photos.append({
-            "id": uid,
-            "text": f"{name}, {age} лет, {city}. {about}{photo_note}",
-            "photo_b64": photo_b64,
-            "photo_url": photo_url,
-        })
-
-    try:
-        final_ids, reply_text = await _matchmaking_vision_rank(
-            candidates_info=candidates_with_photos,
-            user_criteria=data.message,
-            conversation=data.conversation,
-            shown_ids=shown_ids,
+        relaxed = await parse_user_query(
+            text="покажи кого-нибудь",
+            current_user_gender=current_gender,
             api_key=config.openai_api_key,
         )
-    except Exception as e:
-        logger.error(f"matchmaking vision rank error: {e}")
-        final_ids = []
-        reply_text = "Произошла ошибка анализа. Попробуй ещё раз."
+        relaxed.city = None
+        relaxed.age_min = relaxed.age_max = None
+        relaxed.appearance_tags = []
+        relaxed.skills_tags = []
+        relaxed.traits_tags = []
+        candidates = await get_ai_candidates(
+            repository=service.user_repository,
+            telegram_id=data.user_id,
+            parsed_query=relaxed,
+            exclude_ids=liked_ids,
+            limit=100,
+        )
+        if not candidates:
+            return MatchmakingResponse(
+                reply="Точно по всем критериям никого не нашёл. Показать похожие варианты?",
+                parsed_summary=parsed_summary,
+                matches=[],
+                has_more=False,
+            )
+        reply = "Точно по критериям никого не нашёл. Вот похожие анкеты:"
+    else:
+        reply = "Нашёл несколько подходящих анкет. Показываю первые 3."
 
-    # Если AI нашёл совпадения — показываем их
-    final_users = [id_to_user[i] for i in final_ids if i in id_to_user]
+    scored = score_candidates(candidates, parsed)
+    shown_set = set(shown_ids)
+    filtered = [(u, s, r) for u, s, r in scored if u.telegram_id not in shown_set]
+    if not filtered and scored:
+        filtered = scored[:]
 
-    # Текстовый fallback для визуальных критериев:
-    # если vision вернул пустой список — ищем по описаниям кандидатов
-    if not final_users and has_visual:
-        # Берём слова запроса (3+ символов) и ищем их в описаниях
-        query_words = [w for w in msg_lower.split() if len(w) >= 3]
-        text_found = []
-        for u in candidates:
-            about_lower = str(getattr(u, "about", "") or "").lower()
-            name_lower = str(getattr(u, "name", "") or "").lower()
-            combined = about_lower + " " + name_lower
-            if any(w in combined for w in query_words):
-                text_found.append(u)
-        if text_found:
-            final_users = text_found[:3]
-            reply_text = "Нашёл по описанию анкеты 🔍"
+    batch = filtered[:3]
+    has_more = len(filtered) > 3
 
     from app.application.api.v1.users.schemas import UserDetailSchema as _UDS
-    matches_dicts = [_UDS.from_entity(u).model_dump() for u in final_users]
+    matches_out = []
+    for user, _score, reasons in batch:
+        d = _UDS.from_entity(user).model_dump()
+        d["reasons"] = reasons
+        matches_out.append(d)
 
-    return MatchmakingResponse(reply=reply_text, matches=matches_dicts)
+    return MatchmakingResponse(
+        reply=reply,
+        parsed_summary=parsed_summary,
+        matches=matches_out,
+        has_more=has_more,
+    )

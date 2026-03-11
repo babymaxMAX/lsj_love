@@ -29,6 +29,10 @@ class BaseUsersRepository(ABC):
     async def update_user_about(self, telegram_id: int, about: AboutText): ...
 
     @abstractmethod
+    async def update_user_ai_fields(self, telegram_id: int, ai_fields: dict) -> None:
+        """Обновляет AI-поля (search_text, ai_traits, ai_skills, ai_appearance)."""
+
+    @abstractmethod
     async def create_user(self, user: UserEntity): ...
 
     @abstractmethod
@@ -52,6 +56,19 @@ class BaseUsersRepository(ABC):
         telegram_id: int,
         exclude_ids: list[int] | None = None,
     ) -> Iterable[UserEntity]: ...
+
+    async def get_ai_matchmaking_candidates(
+        self,
+        telegram_id: int,
+        target_gender: str,
+        exclude_ids: list[int] | None = None,
+        age_min: int | None = None,
+        age_max: int | None = None,
+        city: str | None = None,
+        limit: int = 300,
+    ) -> list[UserEntity]:
+        """Кандидаты для AI-подбора по жестким фильтрам. По умолчанию — заглушка."""
+        return []
 
     @abstractmethod
     async def get_icebreaker_count(self, telegram_id: int) -> int: ...

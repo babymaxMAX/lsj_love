@@ -31,6 +31,10 @@ def convert_user_entity_to_document(user: UserEntity) -> dict:
         "referral_balance": user.referral_balance or 0.0,
         "last_seen": user.last_seen,
         "created_at": user.created_at,
+        "search_text": user.search_text,
+        "ai_traits": user.ai_traits or [],
+        "ai_skills": user.ai_skills or [],
+        "ai_appearance": user.ai_appearance or [],
     }
 
 
@@ -58,6 +62,10 @@ def convert_user_document_to_entity(user_document: Mapping[str, Any]) -> UserEnt
         referral_balance=float(user_document.get("referral_balance") or 0.0),
         last_seen=user_document.get("last_seen"),
         created_at=user_document.get("created_at"),
+        search_text=user_document.get("search_text"),
+        ai_traits=user_document.get("ai_traits") or [],
+        ai_skills=user_document.get("ai_skills") or [],
+        ai_appearance=user_document.get("ai_appearance") or [],
     )
 
 

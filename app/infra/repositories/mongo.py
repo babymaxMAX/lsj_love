@@ -379,6 +379,15 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             update={"$set": {"about": about.as_generic_type()}},
         )
 
+    async def update_user_ai_fields(self, telegram_id: int, ai_fields: dict) -> None:
+        """Обновляет AI-поля анкеты (search_text, ai_traits, ai_skills, ai_appearance)."""
+        if not ai_fields:
+            return
+        await self._collection.update_one(
+            filter={"telegram_id": telegram_id},
+            update={"$set": ai_fields},
+        )
+
     async def create_user(self, user: UserEntity):
         await self._collection.insert_one(convert_user_entity_to_document(user))
 
@@ -556,6 +565,117 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         docs.sort(key=_sort_key)
 
         return [convert_user_document_to_entity(doc) for doc in docs]
+
+    async def get_ai_matchmaking_candidates(
+        self,
+        telegram_id: int,
+        target_gender: str,
+        exclude_ids: list[int] | None = None,
+        age_min: int | None = None,
+        age_max: int | None = None,
+        city: str | None = None,
+        limit: int = 300,
+    ) -> list[UserEntity]:
+        """Кандидаты для AI-подбора: противоположный пол + опциональные age, city."""
+        from app.infra.repositories.cities import get_city_coords, haversine_km
+
+        user = await self.get_user_by_telegram_id(telegram_id)
+        if user is None:
+            return []
+
+        excluded = set(exclude_ids or [])
+        excluded.add(telegram_id)
+
+        _ALL_MALE = ["Man", "man", "Male", "male", "Мужской", "мужской", "м", "m"]
+        _ALL_FEMALE = ["Female", "female", "Женский", "женский", "Woman", "woman", "ж", "f"]
+        gender_filter = {"$in": _ALL_FEMALE} if target_gender == "female" else {"$in": _ALL_MALE}
+
+        base: dict = {
+            "telegram_id": {"$nin": list(excluded)},
+            "is_banned": {"$ne": True},
+            "profile_hidden": {"$ne": True},
+            "gender": gender_filter,
+            "$and": [
+                {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                {
+                    "$or": [
+                        {"photos.0": {"$exists": True}},
+                        {"photo": {"$nin": [None, ""]}},
+                    ]
+                },
+            ],
+        }
+
+        if age_min is not None or age_max is not None:
+            age_q: dict = {}
+            if age_min is not None:
+                age_q["$gte"] = age_min
+            if age_max is not None:
+                age_q["$lte"] = age_max
+            if age_q:
+                base["age"] = age_q
+
+        if city:
+            neighbors = _CITY_NEIGHBORS.get(city, [])
+            allowed_cities = [city] + [c for c in neighbors if c and c not in (city,)]
+            base["$and"] = list(base.get("$and", []))
+            base["$and"].append({"city": {"$in": allowed_cities}})
+
+        docs: list[dict] = []
+        async for doc in self._collection.find(base).limit(limit * 2):
+            docs.append(doc)
+
+        if not docs:
+            return []
+
+        raw_city = getattr(user, "city", None)
+        user_city = str(raw_city.as_generic_type() if hasattr(raw_city, "as_generic_type") else raw_city or "").strip()
+        user_lat, user_lon = None, None
+        raw_lat, raw_lon = getattr(user, "lat", None), getattr(user, "lon", None)
+        if raw_lat is not None and raw_lon is not None:
+            try:
+                user_lat, user_lon = float(raw_lat), float(raw_lon)
+            except (TypeError, ValueError):
+                pass
+        if (user_lat is None or user_lon is None) and user_city:
+            coords = get_city_coords(user_city)
+            if coords:
+                user_lat, user_lon = coords
+
+        _coord_cache: dict[str, tuple[float, float] | None] = {}
+
+        def _candidate_coords(d: dict) -> tuple[float, float] | None:
+            if d.get("lat") is not None and d.get("lon") is not None:
+                try:
+                    return float(d["lat"]), float(d["lon"])
+                except (TypeError, ValueError):
+                    pass
+            c = d.get("city") or ""
+            if c not in _coord_cache:
+                _coord_cache[c] = get_city_coords(c)
+            return _coord_cache[c]
+
+        query_city_lower = (city or "").strip().lower()
+        user_city_lower = user_city.lower()
+
+        def _ai_sort_key(d: dict) -> tuple:
+            doc_city = (d.get("city") or "").strip().lower()
+            city_match = 0 if query_city_lower and doc_city == query_city_lower else 1
+            if city_match == 1 and query_city_lower:
+                neighbors_lower = [c.lower() for c in _CITY_NEIGHBORS.get(city or "", [])]
+                if doc_city in neighbors_lower:
+                    city_match = 0.5
+            dist = 999999.0
+            if user_lat is not None and user_lon is not None:
+                crd = _candidate_coords(d)
+                if crd:
+                    dist = haversine_km(user_lat, user_lon, crd[0], crd[1])
+            if city_match == 0 and dist > 100:
+                dist = 0.0
+            return (city_match, dist)
+
+        docs.sort(key=_ai_sort_key)
+        return [convert_user_document_to_entity(d) for d in docs[:limit]]
 
     async def get_users_liked_from(self, user_list: list[int]) -> Iterable[UserEntity]:
         users_documents = self._collection.find(

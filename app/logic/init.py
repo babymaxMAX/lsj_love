@@ -118,7 +118,10 @@ def _init_container() -> Container:
     )
 
     def init_users_service() -> UsersService:
-        return UsersService(user_repository=container.resolve(BaseUsersRepository))
+        return UsersService(
+            user_repository=container.resolve(BaseUsersRepository),
+            config=config,
+        )
 
     def init_likes_service() -> LikesService:
         return LikesService(like_repository=container.resolve(BaseLikesRepository))
