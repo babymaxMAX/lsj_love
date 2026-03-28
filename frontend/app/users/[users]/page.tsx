@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { BackEnd_URL } from "@/config/url";
 import { SwipeCard } from "@/components/swipe-card";
 import { BottomNav } from "@/components/bottom-nav";
@@ -28,9 +28,12 @@ async function getDailyQuestion() {
     } catch { return null; }
 }
 
-// @ts-ignore
-export default function UsersPage({ params }: { params: { users: string } }) {
+export default function UsersPage() {
     const router = useRouter();
+    const params = useParams<{ users?: string | string[] }>();
+    const userIdRaw = params?.users;
+    const userId = Array.isArray(userIdRaw) ? userIdRaw[0] : userIdRaw;
+    const hasValidUserId = Boolean(userId && /^\d+$/.test(userId));
     const [users, setUsers] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [dailyQuestion, setDailyQuestion] = useState<any>(null);
@@ -40,9 +43,16 @@ export default function UsersPage({ params }: { params: { users: string } }) {
     const [seenIds] = useState<Set<number>>(() => new Set());
 
     const loadUsers = useCallback(async () => {
+        if (!userId) {
+            setUsers([]);
+            setCurrentIndex(0);
+            setDailyQuestion(null);
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         const [items, question] = await Promise.all([
-            fetchUsers(params.users),
+            fetchUsers(userId),
             getDailyQuestion(),
         ]);
         // Фильтруем только тех кого лайкнули/дизлайкнули В ЭТОЙ сессии
@@ -51,7 +61,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
         setCurrentIndex(0);
         setDailyQuestion(question);
         setLoading(false);
-    }, [params.users, seenIds]);
+    }, [userId, seenIds]);
 
     useEffect(() => {
         loadUsers();
@@ -59,11 +69,12 @@ export default function UsersPage({ params }: { params: { users: string } }) {
 
     // Пинг: обновляем last_seen при открытии и каждые 60 секунд
     useEffect(() => {
+        if (!userId) return;
         const ping = () => fetch(`${BackEnd_URL}/api/v1/users/${params.users}/ping`, { method: "POST" }).catch(() => {});
         ping();
         const interval = setInterval(ping, 60_000);
         return () => clearInterval(interval);
-    }, [params.users]);
+    }, [userId, params.users]);
 
     // Перезагружаем анкеты когда возвращаемся на страницу
     useEffect(() => {
@@ -83,7 +94,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             const res = await fetch(`${BackEnd_URL}/api/v1/likes/`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
+                body: JSON.stringify({ from_user: Number(userId), to_user: targetId }),
             });
             if (res.status === 403) {
                 const data = await res.json().catch(() => ({}));
@@ -106,7 +117,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             await fetch(`${BackEnd_URL}/api/v1/likes/dislike`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ from_user: parseInt(params.users), to_user: targetId }),
+                body: JSON.stringify({ from_user: Number(userId), to_user: targetId }),
             });
         } catch { /* не критично */ }
         nextUser();
@@ -128,6 +139,13 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             </div>
         );
     }
+    if (!hasValidUserId) {
+        return (
+            <div className="flex items-center justify-center min-h-screen" style={{ background: "#0f0f1a", color: "#fff" }}>
+                <div style={{ opacity: 0.7 }}>Некорректная ссылка профиля</div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col min-h-screen pb-20" style={{ background: "#0f0f1a", color: "#fff" }}>
@@ -138,7 +156,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             >
                 {/* Левая кнопка — AI Подбор */}
                 <button
-                    onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
+                    onClick={() => router.push(`/users/${userId}/ai-matchmaking`)}
                     className="absolute left-3 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
                     style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", color: "#fff", zIndex: 10 }}
                 >
@@ -162,7 +180,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
             {showQuestion && dailyQuestion && (
                 <DailyQuestion
                     question={dailyQuestion.question}
-                    userId={params.users}
+                    userId={userId}
                     onClose={() => setShowQuestion(false)}
                 />
             )}
@@ -184,7 +202,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                 {currentUser ? (
                     <SwipeCard
                         user={currentUser}
-                        userId={params.users}
+                        userId={userId}
                         onLike={() => handleLike(currentUser.telegram_id)}
                         onDislike={() => handleDislike(currentUser.telegram_id)}
                     />
@@ -203,7 +221,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                             🔄 Обновить анкеты
                         </button>
                         <button
-                            onClick={() => router.push(`/users/${params.users}/ai-matchmaking`)}
+                            onClick={() => router.push(`/users/${userId}/ai-matchmaking`)}
                             className="px-6 py-3 rounded-2xl text-white font-semibold text-sm transition-all active:scale-95 block w-full"
                             style={{ background: "rgba(124,58,237,0.3)", border: "1px solid rgba(124,58,237,0.5)" }}
                         >
@@ -213,7 +231,7 @@ export default function UsersPage({ params }: { params: { users: string } }) {
                 )}
             </div>
 
-            <BottomNav userId={params.users} />
+            <BottomNav userId={userId} />
         </div>
     );
 }
