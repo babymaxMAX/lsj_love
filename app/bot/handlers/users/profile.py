@@ -43,6 +43,14 @@ user_profile_router: Router = Router(
 )
 
 
+def _normalize_public_url(raw_url: str | None, fallback: str | None = None) -> str:
+    """Возвращает валидный публичный URL с протоколом для Telegram-кнопок."""
+    base = (raw_url or fallback or "https://lsjlove.duckdns.org").strip()
+    if not base.startswith(("http://", "https://")):
+        base = f"https://{base.lstrip('/')}"
+    return base.rstrip("/")
+
+
 @user_profile_router.message(Command("profile"))
 @user_profile_router.callback_query(F.data == "profile_page")
 async def profile(
@@ -127,12 +135,17 @@ async def open_site(
 
     try:
         config: Config = container.resolve(Config)
-        url = f"{config.front_end_url.rstrip('/')}/users/{callback.from_user.id}"
-        await callback.answer(url=url)
+        base_url = _normalize_public_url(config.front_end_url, config.url_webhook)
+        url = f"{base_url}/users/{callback.from_user.id}"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть сайт", url=url)]]
         )
         await callback.message.answer("Нажми кнопку ниже, чтобы открыть сайт.", reply_markup=kb)
+        try:
+            await callback.answer(url=url)
+        except Exception as e:
+            logger.warning("open_site callback url open failed for user=%s: %s", callback.from_user.id, e)
+            await callback.answer("Открой сайт кнопкой в сообщении")
     except Exception:
         await callback.answer()
         await callback.message.answer("Ошибка открытия сайта. Попробуй позже.")
