@@ -21,6 +21,7 @@ def profile_inline_kb(
     boosts_left: int = 0,
     is_active: bool = True,
     is_admin: bool = False,
+    site_url: str | None = None,
 ):
     builder = InlineKeyboardBuilder()
     if liked_by:
@@ -45,12 +46,20 @@ def profile_inline_kb(
                 callback_data="match_start",
             ),
         )
-    builder.row(
-        InlineKeyboardButton(
-            text="🌐 Открыть сайт",
-            callback_data="open_site",
-        ),
-    )
+    if site_url:
+        builder.row(
+            InlineKeyboardButton(
+                text="🌐 Открыть сайт",
+                url=site_url,
+            ),
+        )
+    else:
+        builder.row(
+            InlineKeyboardButton(
+                text="🌐 Открыть сайт",
+                callback_data="open_site",
+            ),
+        )
     builder.row(
         InlineKeyboardButton(text="⚙️ Редактировать профиль", callback_data="profile_edit"),
     )

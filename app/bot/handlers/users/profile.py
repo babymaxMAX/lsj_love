@@ -75,6 +75,8 @@ async def profile(
 
     profile_hidden = bool(getattr(user, "profile_hidden", False))
     config: Config = container.resolve(Config)
+    base_url = _normalize_public_url(config.front_end_url, config.url_webhook)
+    site_url = f"{base_url}/users/{update.from_user.id}"
     admin_ids = {
         item.strip() for item in (config.admin_telegram_ids or "").split(",")
         if item.strip()
@@ -87,6 +89,7 @@ async def profile(
         boosts_left=boosts_left,
         is_active=not profile_hidden,
         is_admin=is_admin,
+        site_url=site_url,
     )
 
     if isinstance(update, Message):
@@ -130,7 +133,7 @@ async def open_site(
     callback: CallbackQuery,
     container: Container = init_container(),
 ):
-    """Открывает сайт через стабильный web-url без токен-обмена."""
+    """Fallback для старых сообщений с callback-кнопкой open_site."""
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     try:
@@ -141,11 +144,7 @@ async def open_site(
             inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть сайт", url=url)]]
         )
         await callback.message.answer("Нажми кнопку ниже, чтобы открыть сайт.", reply_markup=kb)
-        try:
-            await callback.answer(url=url)
-        except Exception as e:
-            logger.warning("open_site callback url open failed for user=%s: %s", callback.from_user.id, e)
-            await callback.answer("Открой сайт кнопкой в сообщении")
+        await callback.answer("Открой сайт кнопкой в сообщении")
     except Exception:
         await callback.answer()
         await callback.message.answer("Ошибка открытия сайта. Попробуй позже.")
