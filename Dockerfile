@@ -19,3 +19,4 @@ RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction --no-ansi
 
 COPY app /app/app
+COPY core_v2 /app/core_v2
