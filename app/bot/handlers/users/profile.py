@@ -66,7 +66,20 @@ async def profile(
     boosts_left = _compute_boosts_left(user, now) if is_vip else 0
 
     profile_hidden = bool(getattr(user, "profile_hidden", False))
-    keyboard = profile_inline_kb(user_id=update.from_user.id, liked_by=False, is_vip=is_vip, boosts_left=boosts_left, is_active=not profile_hidden)
+    config: Config = container.resolve(Config)
+    admin_ids = {
+        item.strip() for item in (config.admin_telegram_ids or "").split(",")
+        if item.strip()
+    }
+    is_admin = str(update.from_user.id) in admin_ids
+    keyboard = profile_inline_kb(
+        user_id=update.from_user.id,
+        liked_by=False,
+        is_vip=is_vip,
+        boosts_left=boosts_left,
+        is_active=not profile_hidden,
+        is_admin=is_admin,
+    )
 
     if isinstance(update, Message):
         target = update
@@ -109,22 +122,20 @@ async def open_site(
     callback: CallbackQuery,
     container: Container = init_container(),
 ):
-    """Генерирует токен и показывает кнопку перехода на сайт."""
-    from app.application.api.v1.auth.handlers import create_login_token_internal
+    """Открывает сайт через стабильный web-url без токен-обмена."""
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     try:
-        token = await create_login_token_internal(callback.from_user.id, container)
         config: Config = container.resolve(Config)
-        url = f"{config.front_end_url.rstrip('/')}/app?token={token}"
-        await callback.answer()
+        url = f"{config.front_end_url.rstrip('/')}/users/{callback.from_user.id}"
+        await callback.answer(url=url)
         kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть сайт", url=url)]]
         )
-        await callback.message.answer("Нажми кнопку ниже, чтобы войти на сайт.", reply_markup=kb)
+        await callback.message.answer("Нажми кнопку ниже, чтобы открыть сайт.", reply_markup=kb)
     except Exception:
         await callback.answer()
-        await callback.message.answer("Ошибка генерации ссылки. Попробуй позже.")
+        await callback.message.answer("Ошибка открытия сайта. Попробуй позже.")
 
 
 @user_profile_router.callback_query(F.data == "referral_info")

@@ -47,7 +47,8 @@ async def _resolve_photo(photo: str, user_id: int | None = None) -> str | bytes 
         # Индекс из ключа (7741189969_0.jpg → 0)
         idx = int(photo.split("_")[1].split(".")[0])
         url = f"{api_base}/api/v1/users/{user_id}/photo/{idx}"
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=3)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, allow_redirects=True) as resp:
                 if resp.status == 200:
                     return await resp.read()

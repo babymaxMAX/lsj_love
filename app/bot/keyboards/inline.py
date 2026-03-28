@@ -14,7 +14,14 @@ container: Container = init_container()
 config: Config = container.resolve(Config)
 
 
-def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int = 0, is_active: bool = True):
+def profile_inline_kb(
+    user_id,
+    liked_by,
+    is_vip: bool = False,
+    boosts_left: int = 0,
+    is_active: bool = True,
+    is_admin: bool = False,
+):
     builder = InlineKeyboardBuilder()
     if liked_by:
         builder.row(
@@ -66,6 +73,13 @@ def profile_inline_kb(user_id, liked_by, is_vip: bool = False, boosts_left: int 
     builder.row(
         InlineKeyboardButton(text="⭐ Premium", callback_data="premium_info"),
     )
+    if is_admin:
+        builder.row(
+            InlineKeyboardButton(
+                text="🛡 Админ-панель",
+                url=f"{config.front_end_url}/admin",
+            ),
+        )
     return builder.as_markup()
 
 
