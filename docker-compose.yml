@@ -83,7 +83,7 @@ services:
     expose:
       - "8100"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8100/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health', timeout=3).read()\""]
       interval: 15s
       timeout: 5s
       retries: 10
