@@ -109,7 +109,7 @@ async def open_site(
     callback: CallbackQuery,
     container: Container = init_container(),
 ):
-    """Генерирует токен и открывает сайт без показа raw-ссылки."""
+    """Генерирует токен и показывает кнопку перехода на сайт."""
     from app.application.api.v1.auth.handlers import create_login_token_internal
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -117,9 +117,7 @@ async def open_site(
         token = await create_login_token_internal(callback.from_user.id, container)
         config: Config = container.resolve(Config)
         url = f"{config.front_end_url.rstrip('/')}/app?token={token}"
-        # Пытаемся открыть сайт сразу после нажатия на кнопку.
-        await callback.answer(url=url)
-        # Fallback-кнопка без показа голой ссылки (если клиент не открыл URL автоматически).
+        await callback.answer()
         kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть сайт", url=url)]]
         )

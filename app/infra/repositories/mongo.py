@@ -426,7 +426,9 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         Порядок: ближе → дальше → анкеты никогда не заканчиваются.
         Внутри одной дистанционной группы: boost → VIP → Premium → бесплатные.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
+        import hashlib
+        import httpx
         from app.infra.repositories.cities import (
             get_city_coords,
             haversine_km,
@@ -508,8 +510,72 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
             if coords:
                 user_lat, user_lon = coords
 
-        # ── Кэш координат кандидата ────────────────────────────────────
+        # ── Кэш координат города/кандидата ────────────────────────────
+        geocode_col = self.mongo_db_client[self.mongo_db_name]["geocode_cache"]
         _coord_cache: dict[str, tuple[float, float] | None] = {}
+
+        async def _resolve_city_coords(city_name: str) -> tuple[float, float] | None:
+            city_name = (city_name or "").strip()
+            if not city_name:
+                return None
+            if city_name in _coord_cache:
+                return _coord_cache[city_name]
+
+            # 1) Пытаемся взять координаты из кэша Mongo geocode_cache
+            cache_key = hashlib.sha256(f"geocode:{city_name.lower()}".encode("utf-8")).hexdigest()
+            try:
+                doc = await geocode_col.find_one({"_id": cache_key})
+                if doc and doc.get("lat") is not None and doc.get("lon") is not None:
+                    coords = (float(doc["lat"]), float(doc["lon"]))
+                    _coord_cache[city_name] = coords
+                    return coords
+            except Exception:
+                pass
+
+            # 2) Геокодинг через Nominatim (без ручных списков городов)
+            try:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    r = await client.get(
+                        "https://nominatim.openstreetmap.org/search",
+                        params={
+                            "q": city_name,
+                            "format": "json",
+                            "limit": 1,
+                            "addressdetails": 0,
+                        },
+                        headers={"User-Agent": "KupidonAI-DatingBot/1.0"},
+                    )
+                    r.raise_for_status()
+                    items = r.json()
+                    if isinstance(items, list) and items:
+                        lat = float(items[0]["lat"])
+                        lon = float(items[0]["lon"])
+                        coords = (lat, lon)
+                        _coord_cache[city_name] = coords
+                        try:
+                            await geocode_col.update_one(
+                                {"_id": cache_key},
+                                {
+                                    "$set": {
+                                        "_id": cache_key,
+                                        "query": city_name,
+                                        "lat": lat,
+                                        "lon": lon,
+                                        "expires_at": datetime.now(timezone.utc) + timedelta(days=90),
+                                    }
+                                },
+                                upsert=True,
+                            )
+                        except Exception:
+                            pass
+                        return coords
+            except Exception:
+                pass
+
+            # 3) Последний fallback — локальная карта городов
+            coords = get_city_coords(city_name)
+            _coord_cache[city_name] = coords
+            return coords
 
         def _candidate_coords(doc: dict) -> tuple[float, float] | None:
             try:
@@ -519,10 +585,28 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
                     return float(d_lat), float(d_lon)
             except (TypeError, ValueError):
                 pass
-            city = doc.get("city") or ""
-            if city not in _coord_cache:
-                _coord_cache[city] = get_city_coords(city)
-            return _coord_cache[city]
+            city = (doc.get("city") or "").strip()
+            return _coord_cache.get(city)
+
+        # Предзаполняем координаты пользователя/кандидатов (чтобы сортировка шла по геопозиции)
+        if (user_lat is None or user_lon is None) and user_city:
+            user_coords = await _resolve_city_coords(user_city)
+            if user_coords:
+                user_lat, user_lon = user_coords
+
+        unresolved_cities = []
+        seen_cities = set()
+        for d in docs:
+            if d.get("lat") is not None and d.get("lon") is not None:
+                continue
+            city = (d.get("city") or "").strip()
+            if not city or city in seen_cities:
+                continue
+            seen_cities.add(city)
+            unresolved_cities.append(city)
+        # Ограничиваем число внешних геозапросов за один ранжирующий проход
+        for city in unresolved_cities[:25]:
+            await _resolve_city_coords(city)
 
         # ── Безопасное сравнение datetime (naive/aware) ────────────────
         def _is_future(dt) -> bool:
