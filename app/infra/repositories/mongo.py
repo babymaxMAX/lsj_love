@@ -427,7 +427,11 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
         Внутри одной дистанционной группы: boost → VIP → Premium → бесплатные.
         """
         from datetime import datetime, timezone
-        from app.infra.repositories.cities import get_city_coords, haversine_km
+        from app.infra.repositories.cities import (
+            get_city_coords,
+            haversine_km,
+            resolve_to_canonical_city,
+        )
 
         user = await self.get_user_by_telegram_id(telegram_id)
         if user is None:
@@ -533,11 +537,17 @@ class MongoDBUserRepository(BaseUsersRepository, BaseMongoDBRepository):
 
         # ── Ключ сортировки: 1) свой город 2) по расстоянию 3) подписка ─
         user_city_lower = user_city.lower() if user_city else ""
+        user_city_canonical = resolve_to_canonical_city(user_city) if user_city else ""
 
         def _sort_key(doc: dict) -> tuple:
             # 1) Свой город — всегда первые
-            doc_city = (doc.get("city") or "").strip().lower()
-            city_match = 0 if doc_city and user_city_lower and doc_city == user_city_lower else 1
+            doc_city_raw = (doc.get("city") or "").strip()
+            doc_city = doc_city_raw.lower()
+            doc_city_canonical = resolve_to_canonical_city(doc_city_raw) if doc_city_raw else ""
+            city_match = 0 if (
+                (doc_city and user_city_lower and doc_city == user_city_lower)
+                or (doc_city_canonical and user_city_canonical and doc_city_canonical == user_city_canonical)
+            ) else 1
 
             # 2) Расстояние в км
             dist = 999999.0

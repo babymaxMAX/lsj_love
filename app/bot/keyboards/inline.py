@@ -269,16 +269,16 @@ def like_dislike_keyboard(user_id: int):
 
 
 def swipe_card_keyboard(user_id: int):
-    """Клавиатура карточки в /match: Like, Skip, Message, Report."""
+    """Клавиатура карточки в /match: Нравится, Пропустить, Сообщение, Репорт."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="❤️ Like", callback_data=f"like_{user_id}"),
-                InlineKeyboardButton(text="❌ Skip", callback_data=f"dislike_{user_id}"),
+                InlineKeyboardButton(text="❤️ Нравится", callback_data=f"like_{user_id}"),
+                InlineKeyboardButton(text="❌ Пропустить", callback_data=f"dislike_{user_id}"),
             ],
             [
-                InlineKeyboardButton(text="✍️ Message", callback_data=f"message_{user_id}"),
-                InlineKeyboardButton(text="🚨 Report", callback_data=f"report_{user_id}"),
+                InlineKeyboardButton(text="✍️ Сообщение", callback_data=f"message_{user_id}"),
+                InlineKeyboardButton(text="🚨 Жалоба", callback_data=f"report_{user_id}"),
             ],
         ],
     )
